@@ -6,7 +6,7 @@ const nextConfig = {
   },
   experimental: {
     css: {
-      engine: "legacy",
+      engine: 'legacy',
     },
   },
 };

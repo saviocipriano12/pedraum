@@ -137,7 +137,7 @@ export default function PerfilPage() {
         >
           {/* Imagem do Perfil */}
           <div className="flex flex-col items-center gap-3 mb-5">
-            <ImageUploader imagens={avatar ? [avatar] : []} setImagens={arr => setAvatar(arr[0] || "")} max={1} circular />
+            <ImageUploader imagens={avatar ? [avatar] : []} setImagens={arr => setAvatar(arr[0] || "")} max={1} />
             <div className="font-bold text-lg text-[#023047]">{form.nome || "Seu Nome"}</div>
             <div className="text-gray-500">{form.email}</div>
             <div className="text-[#2563eb] font-semibold">{form.tipo || "Usuário"}</div>

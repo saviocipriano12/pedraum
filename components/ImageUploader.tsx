@@ -12,6 +12,7 @@ interface Props {
   imagens: string[];
   setImagens: (urls: string[]) => void;
   max?: number;
+  circular?: boolean;
 }
 
 export default function ImageUploader({ imagens, setImagens, max = 5 }: Props) {

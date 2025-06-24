@@ -123,16 +123,21 @@ function handleDelete(machineId: string) {
           >
             {maquinas.map((m) => (
               <div
-                key={m.id}
-                style={{
-                  ...cardStyle,
-                  boxShadow: "0 2px 18px #0001",
-                  transition: "box-shadow .15s, transform .15s",
-                  cursor: "pointer",
-                  position: "relative",
-                }}
-                className="machine-card"
-              >
+  key={m.id}
+  style={{
+    boxShadow: "0 2px 18px #0001",
+    transition: "box-shadow .15s, transform .15s",
+    cursor: "pointer",
+    position: "relative",
+    background: "white",
+    borderRadius: "8px",
+    padding: "16px",
+    display: "flex",
+    flexDirection: "column" as React.CSSProperties["flexDirection"],
+    justifyContent: "center",
+  }}
+>
+
                 {/* Imagem */}
                 <div
                   style={{

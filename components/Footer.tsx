@@ -69,7 +69,7 @@ export default function Footer() {
             fontWeight: 800, color: "#fb8500", fontSize: 17, marginBottom: 7, letterSpacing: "-0.4px"
           }}>Contato</div>
           <a href="https://wa.me/5531990903613" target="_blank" rel="noopener noreferrer" style={linkContato}>
-            <MessageCircle size={20} style={{ marginRight: 8 }} /> WhatsApp: <b style={{ fontWeight: 700 }}>31 99999-9999</b>
+            <MessageCircle size={20} style={{ marginRight: 8 }} /> WhatsApp: <b style={{ fontWeight: 700 }}>31 99090-3613</b>
           </a>
           <a href="mailto:contato@pedraum.com.br" style={linkContato}>
             <Mail size={20} style={{ marginRight: 8 }} /> contato@pedraum.com.br
@@ -128,7 +128,7 @@ export default function Footer() {
           <div style={{
             display: "flex", gap: 13, marginTop: 13, justifyContent: "flex-end"
           }}>
-            <FooterIcon href="https://instagram.com" label="Instagram"><Instagram size={21} /></FooterIcon>
+            <FooterIcon href="https://instagram.com/pedraumbrasil" label="Instagram"><Instagram size={21} /></FooterIcon>
             <FooterIcon href="https://facebook.com" label="Facebook"><Facebook size={21} /></FooterIcon>
             <FooterIcon href="https://linkedin.com" label="Linkedin"><Linkedin size={21} /></FooterIcon>
           </div>

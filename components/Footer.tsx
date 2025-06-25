@@ -39,7 +39,7 @@ export default function Footer() {
             }}>PedraUm</span>
           </div>
           <p style={{ color: "#555", fontSize: 16, lineHeight: 1.45, maxWidth: 240, marginTop: 2, fontWeight: 400 }}>
-            Plataforma premium para mineração.<br />
+            Plataforma para mineração e britagem.<br />
             Conectando compradores, vendedores e profissionais com tecnologia, agilidade e segurança.
           </p>
           <div style={{ marginTop: 7, fontSize: 13, color: "#fb8500", fontWeight: 600 }}>
@@ -68,14 +68,14 @@ export default function Footer() {
           <div style={{
             fontWeight: 800, color: "#fb8500", fontSize: 17, marginBottom: 7, letterSpacing: "-0.4px"
           }}>Contato</div>
-          <a href="https://wa.me/5531999999999" target="_blank" rel="noopener noreferrer" style={linkContato}>
+          <a href="https://wa.me/5531990903613" target="_blank" rel="noopener noreferrer" style={linkContato}>
             <MessageCircle size={20} style={{ marginRight: 8 }} /> WhatsApp: <b style={{ fontWeight: 700 }}>31 99999-9999</b>
           </a>
           <a href="mailto:contato@pedraum.com.br" style={linkContato}>
             <Mail size={20} style={{ marginRight: 8 }} /> contato@pedraum.com.br
           </a>
-          <a href="tel:+5531999999999" style={linkContato}>
-            <Phone size={20} style={{ marginRight: 8 }} /> (31) 99999-9999
+          <a href="tel:+553199090-3613" style={linkContato}>
+            <Phone size={20} style={{ marginRight: 8 }} /> (31) 99090-3613
           </a>
           <div style={{
             display: "flex", alignItems: "center", gap: 7, color: "#444", fontWeight: 600, fontSize: 15, marginTop: 6
@@ -188,7 +188,7 @@ export default function Footer() {
       }}>
         © 2025 PedraUm Brasil. Todos os direitos reservados.
         &nbsp;|&nbsp;
-        Desenvolvido por <a href="https://www.linkedin.com/in/saviocipriano/" target="_blank" style={{ color: "#fb8500", textDecoration: "underline" }}>Sávio Cipriano</a>
+        Desenvolvido por <a href="https://www.instagram.com/osaviogestor/" target="_blank" style={{ color: "#fb8500", textDecoration: "underline" }}>Sávio Cipriano</a>
       </div>
       {/* MEDIA QUERIES RESPONSIVOS */}
       <style jsx>{`

@@ -80,7 +80,7 @@ export default function ContatoPage() {
       </form>
       <div style={{ color: "#495668", fontSize: 16, marginBottom: 8 }}>
         <Mail size={17} style={{ marginRight: 6, marginBottom: -3 }} /> contato@pedraum.com.br<br />
-        <Phone size={17} style={{ marginRight: 6, marginBottom: -3 }} /> (31) 99999-9999<br />
+        <Phone size={17} style={{ marginRight: 6, marginBottom: -3 }} /> (31) 99090-3613<br />
         <MapPin size={17} style={{ marginRight: 6, marginBottom: -3 }} /> Belo Horizonte/MG
       </div>
     </section>

@@ -256,8 +256,8 @@ export default function Footer() {
 // LINKS DO FOOTER
 function FooterLink({ href, children }) {
   return (
-    <Link href={href} legacyBehavior>
-      <a style={linkFooter}>{children}</a>
+    <Link href={href} style={linkFooter}>
+      {children}
     </Link>
   );
 }

@@ -32,8 +32,8 @@ export default function Header() {
           }}
         >
           {/* Logo */}
-          <Link href="/" legacyBehavior>
-            <a style={{
+          <Link href="/">
+            <span style={{
               display: "flex",
               alignItems: "center",
               fontWeight: 900,
@@ -45,32 +45,30 @@ export default function Header() {
               height: 56,
             }}>
               <img
-                src="/logo-pedraum.png" // Altere para seu caminho/logo
+                src="/logo-pedraum.png"
                 alt="Pedraum Brasil"
                 style={{ height: 44, marginRight: 10, display: "block" }}
               />
-            
-            </a>
+            </span>
           </Link>
+
           <div className="header-mobile-icons" style={{
-  display: "none",
-  alignItems: "center",
-  gap: 4,
-}}>
-  <Link href="/auth/login" legacyBehavior>
-    <a title="Login" style={{
-      color: "#FB8500",
-      padding: 7,
-      borderRadius: 10,
-      display: "flex",
-      alignItems: "center",
-      background: "none",
-      border: "none",
-    }}>
-      <LogIn size={26} />
-    </a>
-  </Link>
-</div>
+            display: "none",
+            alignItems: "center",
+            gap: 4,
+          }}>
+            <Link href="/auth/login" title="Login">
+              <span style={{
+                color: "#FB8500",
+                padding: 7,
+                borderRadius: 10,
+                display: "flex",
+                alignItems: "center",
+              }}>
+                <LogIn size={26} />
+              </span>
+            </Link>
+          </div>
 
           {/* Menu Desktop */}
           <ul className="header-menu-desktop" style={{
@@ -83,62 +81,26 @@ export default function Header() {
             flex: 1,
             justifyContent: "center",
           }}>
-            <li>
-              <Link href="/" legacyBehavior>
-                <a style={{
-                  color: "#023047",
-                  fontWeight: 500,
-                  fontSize: "1.07rem",
-                  textDecoration: "none",
-                  transition: "color .14s",
-                }}>Início</a>
-              </Link>
-            </li>
-            <li>
-              <Link href="/services" legacyBehavior>
-                <a style={{
-                  color: "#023047",
-                  fontWeight: 500,
-                  fontSize: "1.07rem",
-                  textDecoration: "none",
-                  transition: "color .14s",
-                }}>Serviços</a>
-              </Link>
-            </li>
-            <li>
-              <Link href="/contato" legacyBehavior>
-                <a style={{
-                  color: "#023047",
-                  fontWeight: 500,
-                  fontSize: "1.07rem",
-                  textDecoration: "none",
-                  transition: "color .14s",
-                }}>Contato</a>
-              </Link>
-            </li>
-            <li>
-              <Link href="/blog" legacyBehavior>
-                <a style={{
-                  color: "#023047",
-                  fontWeight: 500,
-                  fontSize: "1.07rem",
-                  textDecoration: "none",
-                  transition: "color .14s",
-                }}>Blog</a>
-              </Link>
-            </li>
-           <li>
-    <Link href="/painel" legacyBehavior>
-      <a style={{
-        color: "#023047",
-        fontWeight: 500,
-        fontSize: "1.07rem",
-        textDecoration: "none",
-        transition: "color .14s",
-      }}>Painel</a>
-    </Link>
-  </li>
-</ul>
+            {[
+              { href: "/", label: "Início" },
+              { href: "/vitrine", label: "Produtos e Serviços" },
+              { href: "/contato", label: "Contato" },
+              { href: "/blog", label: "Blog" },
+              { href: "/painel", label: "Painel" },
+            ].map(({ href, label }) => (
+              <li key={href}>
+                <Link href={href}>
+                  <span style={{
+                    color: "#023047",
+                    fontWeight: 500,
+                    fontSize: "1.07rem",
+                    textDecoration: "none",
+                    transition: "color .14s",
+                  }}>{label}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
 
           {/* Ícones + Botão */}
           <div className="header-actions" style={{
@@ -146,18 +108,18 @@ export default function Header() {
             alignItems: "center",
             gap: 18,
           }}>
-             <Link href="/perfil" legacyBehavior>
-    <a title="Meu Perfil" style={{ color: "#219EBC", padding: 6, borderRadius: 9 }}>
-      <User size={24} strokeWidth={2.1} />
-              </a>
+            <Link href="/perfil" title="Meu Perfil">
+              <span style={{ color: "#219EBC", padding: 6, borderRadius: 9 }}>
+                <User size={24} strokeWidth={2.1} />
+              </span>
             </Link>
-            <Link href="/auth/login" legacyBehavior>
-              <a title="Login" style={{ color: "#FB8500", padding: 6, borderRadius: 9 }}>
+            <Link href="/auth/login" title="Login">
+              <span style={{ color: "#FB8500", padding: 6, borderRadius: 9 }}>
                 <LogIn size={24} strokeWidth={2.1} />
-              </a>
+              </span>
             </Link>
-            <Link href="/auth/register" legacyBehavior>
-              <a style={{
+            <Link href="/auth/register">
+              <span style={{
                 background: "#FB8500",
                 color: "#fff",
                 fontWeight: 700,
@@ -175,10 +137,11 @@ export default function Header() {
               }}
                 onMouseOver={e => (e.currentTarget.style.background = "#e17000")}
                 onMouseOut={e => (e.currentTarget.style.background = "#FB8500")}
-              >Cadastrar</a>
+              >Cadastrar</span>
             </Link>
           </div>
-          {/* Botão Hambúrguer Mobile */}
+
+          {/* Botão Hambúrguer */}
           <button
             className="header-hamburger"
             style={{
@@ -198,7 +161,8 @@ export default function Header() {
             <Menu size={32} color="#023047" />
           </button>
         </nav>
-        {/* Mobile menu */}
+
+        {/* Overlay Mobile */}
         <div
           className="header-mobile-overlay"
           style={{
@@ -211,6 +175,8 @@ export default function Header() {
           }}
           onClick={() => setOpen(false)}
         />
+
+        {/* Menu Mobile */}
         <nav
           className="header-mobile-menu"
           style={{
@@ -244,8 +210,9 @@ export default function Header() {
           >
             <X size={34} color="#023047" />
           </button>
-          <Link href="/" legacyBehavior>
-            <a onClick={() => setOpen(false)} style={{
+
+          <Link href="/">
+            <span onClick={() => setOpen(false)} style={{
               fontWeight: 900,
               fontSize: "1.6rem",
               letterSpacing: "-1.5px",
@@ -256,27 +223,26 @@ export default function Header() {
               display: "flex",
               alignItems: "center",
             }}>
-              <img
-                src="/logo-pedraum.png"
-                alt="Pedraum Brasil"
-                style={{ height: 44, marginRight: 8 }}
-              />
-            </a>
+              <img src="/logo-pedraum.png" alt="Pedraum Brasil" style={{ height: 44, marginRight: 8 }} />
+            </span>
           </Link>
-          <Link href="/" legacyBehavior><a onClick={() => setOpen(false)} style={linkMobile}>Início</a></Link>
-          <Link href="/painel" legacyBehavior>
-  <a onClick={() => setOpen(false)} style={linkMobile}>
-    Painel
-  </a>
-</Link>
-          <Link href="/services" legacyBehavior><a onClick={() => setOpen(false)} style={linkMobile}>Serviços</a></Link>
-          <Link href="/contato" legacyBehavior><a onClick={() => setOpen(false)} style={linkMobile}>Contato</a></Link>
-          <Link href="/blog" legacyBehavior><a onClick={() => setOpen(false)} style={linkMobile}>Blog</a></Link>
-          <div style={{ height: 18 }} />
-          <Link href="/auth/login" legacyBehavior><a onClick={() => setOpen(false)} style={linkMobile}><LogIn size={20} style={{ verticalAlign: "middle", marginRight: 6 }} />Login</a></Link>
-          <Link href="/notificacoes" legacyBehavior><a onClick={() => setOpen(false)} style={linkMobile}><Bell size={20} style={{ verticalAlign: "middle", marginRight: 6 }} />Notificações</a></Link>
-          <Link href="/auth/register" legacyBehavior>
-            <a onClick={() => setOpen(false)} style={{
+
+          {[
+            { href: "/", label: "Início" },
+            { href: "/painel", label: "Painel" },
+            { href: "/vitrine", label: "Produtos e Serviços" },
+            { href: "/contato", label: "Contato" },
+            { href: "/blog", label: "Blog" },
+            { href: "/auth/login", label: <><LogIn size={20} style={{ marginRight: 6, verticalAlign: "middle" }} />Login</> },
+            { href: "/notificacoes", label: <><Bell size={20} style={{ marginRight: 6, verticalAlign: "middle" }} />Notificações</> },
+          ].map(({ href, label }) => (
+            <Link key={href} href={href}>
+              <span onClick={() => setOpen(false)} style={linkMobile}>{label}</span>
+            </Link>
+          ))}
+
+          <Link href="/auth/register">
+            <span onClick={() => setOpen(false)} style={{
               ...linkMobile,
               background: "#FB8500",
               color: "#fff",
@@ -289,10 +255,11 @@ export default function Header() {
               display: "block",
             }}>
               Cadastrar
-            </a>
+            </span>
           </Link>
         </nav>
       </header>
+
       {/* CSS Responsivo */}
       <style>{`
         @media (max-width: 950px) {
@@ -302,20 +269,18 @@ export default function Header() {
           .header-hamburger {
             display: flex !important;
           }
+          .header-mobile-icons {
+            display: flex !important;
+          }
+          .header-actions {
+            display: none !important;
+          }
         }
         @media (max-width: 700px) {
           .header-actions {
             display: none !important;
           }
         }
-          @media (max-width: 950px) {
-  .header-mobile-icons {
-    display: flex !important;
-  }
-  .header-actions {
-    display: none !important;
-  }
-}
         .header-mobile-menu a {
           color: #023047;
           font-size: 1.13rem;
@@ -335,7 +300,6 @@ export default function Header() {
   );
 }
 
-// Links mobile estilo para evitar repetição
 const linkMobile = {
   color: "#023047",
   fontSize: "1.13rem",

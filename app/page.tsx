@@ -70,7 +70,7 @@ export default function HomePage() {
         <FeaturesSection />
       </div>
       <div className="mt-28">
-        <MachinesShowcase />
+        <DemandasShowcase />
       </div>
       <div className="mt-28">
         <BlogShowcase />
@@ -78,10 +78,10 @@ export default function HomePage() {
       <div className="mt-28">
         <SectionTransition />
       </div>
-      <div className="mt-28">
-        <DemandasShowcase />
-      </div>
       <NewsletterSection />
+      <div className="mt-28">
+        <MachinesShowcase />
+      </div>
      <div className="mt-28">
         <TestimonialsSection />
       </div>             

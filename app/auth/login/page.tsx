@@ -28,10 +28,8 @@ export default function LoginPage() {
       const userSnap = await getDoc(userRef);
       if (!userSnap.exists()) throw new Error("Usuário não encontrado no banco de dados.");
       const user = userSnap.data() as any;
-      if (user.tipo === "comprador") {
-        router.push("/painel-comprador");
-      } else if (user.tipo === "vendedor") {
-        router.push("/painel-vendedor");
+      if (user.tipo === "usuario") {
+        router.push("/painel");
       } else if (user.tipo === "admin") {
         router.push("/admin");
       } else {

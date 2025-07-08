@@ -8,6 +8,7 @@ import { Inter } from "next/font/google";
 import Header from "@/components/Header";
 import { FontProvider } from "@/components/FontProvider";
 import Footer from "@/components/Footer";
+import { SessionProvider } from "next-auth/react";
 
 const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700"] });
 

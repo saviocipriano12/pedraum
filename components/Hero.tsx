@@ -112,7 +112,7 @@ export default function Hero() {
             marginBottom: "8px",
           }}
         >
-          <Link href="/machines" passHref legacyBehavior>
+          <Link href="/demandas" passHref legacyBehavior>
             <a
               style={{
                 background: "#FB8500",
@@ -138,10 +138,10 @@ export default function Hero() {
               onMouseOut={e => (e.currentTarget.style.background = "#FB8500")}
               tabIndex={0}
             >
-              Ver máquinas
+              Ver Oportunidades
             </a>
           </Link>
-          <Link href="/create-machine" passHref legacyBehavior>
+          <Link href="/vitrine" passHref legacyBehavior>
             <a
               style={{
                 background: "#FB8500",
@@ -167,7 +167,7 @@ export default function Hero() {
               onMouseOut={e => (e.currentTarget.style.background = "#FB8500")}
               tabIndex={0}
             >
-              Cadastrar máquina
+              Ver Produtos Disponiveis
             </a>
           </Link>
         </div>

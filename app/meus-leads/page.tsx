@@ -164,7 +164,7 @@ export default function MeusLeadsPage() {
             Você ainda não captou nenhum lead.
           </p>
           <Link
-            href="/"
+            href="/demandas"
             style={{
               marginTop: 4,
               padding: "12px 32px",

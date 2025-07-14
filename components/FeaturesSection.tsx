@@ -5,8 +5,8 @@ import { ShieldCheck, PhoneCall, DollarSign, Users, Wrench } from "lucide-react"
 const features = [
   {
     icon: <ShieldCheck size={42} className="text-accent" />,
-    title: "Segurança Total",
-    description: "Negocie com confiança. Plataforma com verificação de usuários e proteção nas transações.",
+    title: "Liberdade Total",
+    description: "Negocie diretamente entre usuários. Cadastre, encontre e atenda oportunidades sem intermediários.",
   },
   {
     icon: <PhoneCall size={42} className="text-accent" />,

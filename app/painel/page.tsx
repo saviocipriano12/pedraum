@@ -179,7 +179,7 @@ export default function PainelUnificado() {
           <Tile href="/minhas-demandas" color="#219ebc" bg="#e0f7fa" icon={<ClipboardList size={36} />} title="Minhas Demandas" desc="Gerencie suas demandas publicadas." badge={metrics.demandas} />
           <Tile href="/meus-produtos" color="#FB8500" bg="#fff7ed" icon={<Layers size={36} />} title="Meus Produtos/Máquinas" desc="Gerencie seus produtos e máquinas publicados." badge={metrics.produtos + metrics.maquinas} />
           <Tile href="/meus-servicos" color="#219ebc" bg="#e0f7fa" icon={<Briefcase size={36} />} title="Meus Serviços" desc="Gerencie serviços e soluções oferecidas." badge={metrics.servicos} />
-          <Tile href="/meus-leads" color="#FB8500" bg="#fff7ed" icon={<Inbox size={36} />} title="Leads Interessados" desc="Veja clientes interessados nas suas ofertas." badge={metrics.leads} />
+          <Tile href="/meus-leads" color="#FB8500" bg="#fff7ed" icon={<Inbox size={36} />} title="Contatos Interessados" desc="Veja clientes interessados nas suas ofertas." badge={metrics.leads} />
           <Tile href="/favoritos" color="#FB8500" bg="#fff7ed" icon={<Heart size={36} />} title="Favoritos" desc="Acesse rapidamente seus favoritos." badge={metrics.favoritos} />
           <Tile href="/mensagens" color="#FB8500" bg="#fff7ed" icon={<MessageCircle size={36} />} title="Mensagens" desc="Converse com clientes e negociadores." badge={metrics.mensagens} />
           <Tile href="/notificacoes" color="#FB8500" bg="#fff7ed" icon={<Bell size={36} />} title="Notificações" desc="Alertas e novidades importantes." badge={metrics.notificacoes} />

@@ -1,103 +1,175 @@
-// =============================
-// app/demandas/page.tsx (Listagem de Demandas - Responsivo, Profissional)
-// =============================
-
 "use client";
 
 import { useEffect, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/firebaseConfig";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import Link from "next/link";
-import { Plus, HelpCircle, Loader2 } from "lucide-react";
+import { ClipboardList, MapPin, Calendar, Plus, Eye, Users } from 'lucide-react';
 
-interface Demanda {
-  id: string;
-  titulo: string;
-  descricao?: string;
-  categoria?: string;
-  estado?: string;
-  status?: string;
-  createdAt?: any;
-}
+export default function VitrineDemandas() {
+  const [demandas, setDemandas] = useState<any[]>([]);
+  const [categoria, setCategoria] = useState("");
+  const [estado, setEstado] = useState("");
+  const [cidade, setCidade] = useState("");
+  const [busca, setBusca] = useState("");
 
-export default function DemandasPage() {
-  const [demandas, setDemandas] = useState<Demanda[]>([]);
-  const [loading, setLoading] = useState(true);
-
+  // Carregar demandas do Firestore
   useEffect(() => {
-    fetchDemandas();
+    async function fetch() {
+      const snap = await getDocs(collection(db, "demandas"));
+      const list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setDemandas(list);
+    }
+    fetch();
   }, []);
 
-  async function fetchDemandas() {
-    setLoading(true);
-    const q = query(collection(db, "demandas"), orderBy("createdAt", "desc"));
-    const snapshot = await getDocs(q);
-    setDemandas(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Demanda)));
-    setLoading(false);
-  }
-
-  function formatDate(date: any) {
-    if (!date?.toDate) return "-";
-    const d = date.toDate();
-    return d.toLocaleDateString();
-  }
+  // Filtros locais
+  const demandasFiltradas = demandas.filter((d) =>
+    (!categoria || (d.categoria || "").toLowerCase().includes(categoria.toLowerCase())) &&
+    (!estado || (d.estado || "").toLowerCase().includes(estado.toLowerCase())) &&
+    (!cidade || (d.cidade || "").toLowerCase().includes(cidade.toLowerCase())) &&
+    (!busca ||
+      (d.titulo || "").toLowerCase().includes(busca.toLowerCase()) ||
+      (d.descricao || "").toLowerCase().includes(busca.toLowerCase()))
+  );
 
   return (
-    <div className="max-w-5xl mx-auto py-8 px-2 sm:px-6">
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl md:text-4xl font-bold text-blue-900 flex items-center gap-2">
-          <HelpCircle size={30} className="text-orange-500" /> Demandas de Compra
-        </h1>
-        <Link href="/create-demanda" className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 text-white font-bold shadow hover:bg-orange-600 transition-all text-base">
-          <Plus size={20} /> Nova Demanda
+    <section style={{ maxWidth: 1380, margin: "0 auto", padding: "44px 4vw" }}>
+      <h1 style={{
+        fontSize: "2.2rem",
+        fontWeight: 900,
+        color: "#023047",
+        letterSpacing: "-1px",
+        marginBottom: 28
+      }}>
+        Vitrine de Demandas
+      </h1>
+      {/* Botão de Postar Demanda */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+        <Link href="/create-demanda"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 9,
+            padding: "13px 30px",
+            borderRadius: 16,
+            background: "#FB8500",
+            color: "#fff",
+            fontWeight: 800,
+            fontSize: "1.13rem",
+            boxShadow: "0 4px 18px #0001",
+            textDecoration: "none",
+            letterSpacing: ".01em",
+            border: "none",
+            outline: "none",
+            transition: "background .14s, transform .13s",
+          }}
+          onMouseOver={e => (e.currentTarget.style.background = "#e17000")}
+          onMouseOut={e => (e.currentTarget.style.background = "#FB8500")}
+        >
+          <Plus size={22} /> Postar Demanda
         </Link>
       </div>
-      {loading ? (
-        <div className="flex justify-center py-24 text-blue-800 animate-pulse">
-          <Loader2 className="animate-spin mr-2" /> Carregando...
-        </div>
-      ) : demandas.length === 0 ? (
-        <div className="text-center text-gray-500 py-20">Nenhuma demanda cadastrada ainda.</div>
-      ) : (
-        <div className="flex flex-col gap-6">
-          {demandas.map((demanda) => (
-            <div
-              key={demanda.id}
-              className="flex flex-col md:flex-row md:items-center bg-white rounded-2xl shadow-lg border border-gray-100 hover:shadow-2xl transition-all p-5 gap-4 md:gap-6"
-            >
-              <div className="flex items-center justify-center w-16 h-16 bg-blue-50 rounded-xl text-blue-600 text-2xl shrink-0">
-                <HelpCircle size={28} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-bold text-lg md:text-xl text-blue-900 line-clamp-1">{demanda.titulo}</span>
-                  {demanda.categoria && (
-                    <span className="px-2 py-0.5 text-xs rounded bg-orange-50 text-orange-700 font-semibold ml-2">
-                      {demanda.categoria}
+      {/* Filtros */}
+      <div style={{
+        display: "flex", gap: 10, flexWrap: "wrap",
+        background: "#fff", padding: 18, borderRadius: 14,
+        boxShadow: "0 2px 12px #0001", marginBottom: 40
+      }}>
+        <input className="filtro" placeholder="Categoria" onChange={(e) => setCategoria(e.target.value)} />
+        <input className="filtro" placeholder="Estado" onChange={(e) => setEstado(e.target.value)} />
+        <input className="filtro" placeholder="Cidade" onChange={(e) => setCidade(e.target.value)} />
+        <input className="filtro" placeholder="Buscar por palavra-chave" onChange={(e) => setBusca(e.target.value)} />
+      </div>
+      {/* Grid de cards de demandas */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))",
+        gap: "38px"
+      }}>
+        {demandasFiltradas.map((item) => (
+          <div key={item.id} style={{
+            borderRadius: 22,
+            boxShadow: "0 4px 32px #0001",
+            background: "#fff",
+            border: "1.6px solid #f2f3f7",
+            padding: "0 0 18px 0",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 280,
+            position: "relative"
+          }}>
+            <div style={{ padding: "18px 22px 10px 22px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 15, marginBottom: 8 }}>
+                <div style={{ width: 53, height: 53, borderRadius: 14, background: "#FFEDD5", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <ClipboardList size={27} style={{ color: "#FB8500" }} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "1.17rem", color: "#023047", marginBottom: 3 }}>
+                    {item.titulo}
+                  </div>
+                  {item.categoria && (
+                    <span style={{ background: "#FFEDD5", color: "#E17000", fontWeight: 600, fontSize: 13, padding: "1.5px 9px", borderRadius: 7 }}>
+                      {item.categoria}
                     </span>
                   )}
                 </div>
-                <p className="text-gray-700 line-clamp-2 mb-1 text-sm md:text-base">{demanda.descricao}</p>
-                <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
-                  {demanda.estado && <span className="font-medium text-blue-700">{demanda.estado}</span>}
-                  <span>{formatDate(demanda.createdAt)}</span>
-                  {demanda.status && (
-                    <span className="bg-blue-50 text-blue-800 rounded px-2 py-0.5 font-semibold">{demanda.status}</span>
-                  )}
-                </div>
               </div>
-              <div className="flex gap-2 md:flex-col md:justify-center md:items-end">
-                <Link
-                  href={`/demandas/${demanda.id}`}
-                  className="px-4 py-2 rounded-xl bg-blue-500 text-white font-semibold hover:bg-blue-600 transition-all text-sm shadow"
-                >
-                  Ver Detalhes
-                </Link>
+              <div style={{ margin: "7px 0", color: "#444", fontWeight: 500 }}>
+                {(item.descricao || "").length > 110
+                  ? item.descricao.slice(0, 110) + "..."
+                  : item.descricao}
               </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 13, color: "#888", fontSize: 15, margin: "7px 0" }}>
+                <MapPin size={17} /> {item.cidade || "-"}, {item.estado || "-"}
+                <Calendar size={16} style={{ marginLeft: 8 }} />
+                {item.createdAt && (item.createdAt.toDate
+                  ? item.createdAt.toDate().toLocaleDateString("pt-BR")
+                  : (item.createdAt._seconds
+                    ? new Date(item.createdAt._seconds * 1000).toLocaleDateString("pt-BR")
+                    : "-"))}
+                <Eye size={17} style={{ marginLeft: 8 }} />
+                {item.visualizacoes || 0}
+                <Users size={17} style={{ marginLeft: 8 }} />
+                {item.qtdInteressados || 0}
+              </div>
+              <Link
+                href={`/demandas/${item.id}`}
+                style={{
+                  background: "#219EBC",
+                  color: "#fff",
+                  padding: "13px 0",
+                  borderRadius: 12,
+                  fontWeight: 800,
+                  fontSize: "1.12rem",
+                  boxShadow: "0 2px 10px #219EBC22",
+                  textDecoration: "none",
+                  transition: "background .13s, transform .11s",
+                  border: "none",
+                  outline: "none",
+                  letterSpacing: ".01em",
+                  marginTop: 15,
+                  display: "block",
+                  textAlign: "center"
+                }}
+                onMouseOver={e => (e.currentTarget.style.background = "#176684")}
+                onMouseOut={e => (e.currentTarget.style.background = "#219EBC")}
+              >
+                Atender Demanda
+              </Link>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+          </div>
+        ))}
+      </div>
+      <style jsx>{`
+        .filtro {
+          border: 1px solid #d9dce0;
+          border-radius: 8px;
+          padding: 8px 12px;
+          font-size: 14px;
+          color: #444;
+        }
+      `}</style>
+    </section>
   );
 }

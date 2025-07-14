@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/firebaseConfig";
+import { doc, getDoc, addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { db, auth } from "@/firebaseConfig";
 import Link from "next/link";
 import { Tag, Calendar, MapPin, BadgeCheck, Heart, MessageCircle, Mail } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { onAuthStateChanged } from "firebase/auth";
 
 // Modal de contato
 function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
@@ -103,6 +104,7 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
               <input name="cpf" placeholder="CPF ou CNPJ" value={form.cpf} onChange={handleChange} className="input-modal" />
               <textarea name="mensagem" placeholder="Mensagem (opcional)" value={form.mensagem} onChange={handleChange} className="input-modal" rows={3} />
               <button type="submit" className="btn-modal-laranja">Enviar mensagem</button>
+                Ao continuar, você concorda que a Pedraum Brasil não participa das negociações nem garante pagamentos, entregas ou resultados.
             </form>
           </motion.div>
           <style jsx>{`
@@ -142,15 +144,43 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
 
 export default function ProdutoDetalhePage() {
   const { id } = useParams();
-  const [produto, setProduto] = useState(null);
+  const [produto, setProduto] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
-const usuarioLogado = {
-  nome: "Fulano de Tal",
-  telefone: "(31) 99999-9999",
-  email: "fulano@email.com",
-  cidade: "Belo Horizonte",
-  cpf: "123.456.789-00"
-};
+
+  // Usuário logado real
+  const [usuarioLogado, setUsuarioLogado] = useState<any>(null);
+  const [carregandoUsuario, setCarregandoUsuario] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const docRef = doc(db, "usuarios", user.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setUsuarioLogado({
+            nome: docSnap.data().nome || user.displayName || "",
+            telefone: docSnap.data().telefone || "",
+            email: user.email || "",
+            cidade: docSnap.data().cidade || "",
+            cpf: docSnap.data().cpf || "",
+          });
+        } else {
+          setUsuarioLogado({
+            nome: user.displayName || "",
+            telefone: "",
+            email: user.email || "",
+            cidade: "",
+            cpf: "",
+          });
+        }
+      } else {
+        setUsuarioLogado(null);
+      }
+      setCarregandoUsuario(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
   useEffect(() => {
     async function fetchProduto() {
       if (!id) return;
@@ -195,24 +225,25 @@ const usuarioLogado = {
           <div className="produto-preco-box">
             <div className="produto-preco">R$ {Number(produto.preco).toLocaleString("pt-BR")}</div>
             <button
-  className="produto-btn-laranja"
-  onClick={() => setModalOpen(true)}
-  style={{
-    width: "100%",
-    background: "#FB8500",
-    color: "#fff",
-    fontWeight: 800,
-    fontSize: "1.25rem",
-    border: "none",
-    borderRadius: 10,
-    padding: "14px 0",
-    marginTop: 14,
-    cursor: "pointer",
-    transition: "background .14s"
-  }}
->
-  Entrar em Contato
-</button>
+              className="produto-btn-laranja"
+              onClick={() => setModalOpen(true)}
+              style={{
+                width: "100%",
+                background: "#FB8500",
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: "1.25rem",
+                border: "none",
+                borderRadius: 10,
+                padding: "14px 0",
+                marginTop: 14,
+                cursor: "pointer",
+                transition: "background .14s"
+              }}
+              disabled={carregandoUsuario}
+            >
+              Entrar em Contato
+            </button>
           </div>
 
           {/* Detalhes com ícones */}
@@ -226,35 +257,34 @@ const usuarioLogado = {
           {/* Botões azuis */}
           <div className="produto-btns-lista">
             <a
-  href={`https://wa.me/5531990903613?text=Olá! Tenho interesse no produto: ${encodeURIComponent(produto?.nome || "")}`}
-  target="_blank"
-  rel="noopener noreferrer"
-  style={{
-    width: "100%",
-    background: "#219EBC",
-    color: "#fff",
-    fontWeight: 700,
-    fontSize: "1.13rem",
-    border: "none",
-    borderRadius: 10,
-    padding: "14px 0",
-    marginTop: 12,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    textDecoration: "none",
-    transition: "background .13s",
-  }}
-  onMouseOver={e => (e.currentTarget.style.background = "#176684")}
-  onMouseOut={e => (e.currentTarget.style.background = "#219EBC")}
->
-  <svg width="21" height="21" fill="currentColor" style={{ marginBottom: 2 }}>
-    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.151-.172.2-.296.3-.494.099-.198.05-.372-.025-.52-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.511l-.57-.01c-.198 0-.52.074-.792.372-.273.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.1 3.201 5.077 4.363.71.306 1.263.489 1.695.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414-.074-.124-.273-.198-.57-.347zm-5.421 5.396h-.002A9.87 9.87 0 0 1 3.1 17.151c-2.567-2.562-3.448-6.264-2.253-9.555C2.013 3.594 6.084.418 10.442.413h.008c2.669 0 5.188 1.04 7.072 2.925a9.876 9.876 0 0 1 2.926 7.067c-.003 4.357-3.18 8.428-7.447 9.778zm7.668-17.034C15.846.956 13.247 0 10.45 0h-.009C4.659.01.013 4.66 0 10.45c.01 2.363.617 4.664 1.785 6.664L.058 20.944a1.127 1.127 0 0 0 1.392 1.392l3.83-1.725c1.964 1.056 4.215 1.619 6.636 1.621h.004c5.792 0 10.439-4.647 10.45-10.438-.004-2.797-.961-5.396-2.828-7.374z"/>
-  </svg>
-  WhatsApp
-</a>
-         
+              href={`https://wa.me/5531990903613?text=Olá! Tenho interesse no produto: ${encodeURIComponent(produto?.nome || "")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                width: "100%",
+                background: "#219EBC",
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: "1.13rem",
+                border: "none",
+                borderRadius: 10,
+                padding: "14px 0",
+                marginTop: 12,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                textDecoration: "none",
+                transition: "background .13s",
+              }}
+              onMouseOver={e => (e.currentTarget.style.background = "#176684")}
+              onMouseOut={e => (e.currentTarget.style.background = "#219EBC")}
+            >
+              <svg width="21" height="21" fill="currentColor" style={{ marginBottom: 2 }}>
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.151-.172.2-.296.3-.494.099-.198.05-.372-.025-.52-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.511l-.57-.01c-.198 0-.52.074-.792.372-.273.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.1 3.201 5.077 4.363.71.306 1.263.489 1.695.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414-.074-.124-.273-.198-.57-.347zm-5.421 5.396h-.002A9.87 9.87 0 0 1 3.1 17.151c-2.567-2.562-3.448-6.264-2.253-9.555C2.013 3.594 6.084.418 10.442.413h.008c2.669 0 5.188 1.04 7.072 2.925a9.876 9.876 0 0 1 2.926 7.067c-.003 4.357-3.18 8.428-7.447 9.778zm7.668-17.034C15.846.956 13.247 0 10.45 0h-.009C4.659.01.013 4.66 0 10.45c.01 2.363.617 4.664 1.785 6.664L.058 20.944a1.127 1.127 0 0 0 1.392 1.392l3.83-1.725c1.964 1.056 4.215 1.619 6.636 1.621h.004c5.792 0 10.439-4.647 10.45-10.438-.004-2.797-.961-5.396-2.828-7.374z"/>
+              </svg>
+              WhatsApp
+            </a>
             <button className="produto-btn-azul"><Heart size={20} /> Adicionar aos Favoritos</button>
           </div>
         </div>
@@ -266,15 +296,15 @@ const usuarioLogado = {
         <div className="produto-desc-grid">
           <div>
             <div className="produto-desc-item-title">Destaques</div>
-            <div className="produto-desc-item-text">{produto.destaques || "Mate-primaiadade comstrução e durablildade em"}</div>
+            <div className="produto-desc-item-text">{produto.destaques || "Material de construção e durabilidade."}</div>
             <div className="produto-desc-item-title" style={{ marginTop: 32 }}>Sobre o Produto</div>
-            <div className="produto-desc-item-text">{produto.sobre || "Com menos constrição, gartissa e durabilidade."}</div>
+            <div className="produto-desc-item-text">{produto.sobre || "Com alta resistência e garantia de durabilidade."}</div>
             <div className="produto-desc-item-title" style={{ marginTop: 32 }}>Condições</div>
-            <div className="produto-desc-item-text">{produto.condicoes1 || "Este proposto cripto é ern teste para assim efeic, precisa, rápido como em argo e aprove para instalação."}</div>
+            <div className="produto-desc-item-text">{produto.condicoes1 || "Este produto está pronto para uso imediato."}</div>
           </div>
           <div>
             <div className="produto-desc-item-title">Condições</div>
-            <div className="produto-desc-item-text">{produto.condicoes2 || "Este componente estimula novo e renta para o"}</div>
+            <div className="produto-desc-item-text">{produto.condicoes2 || "Componente revisado e aprovado."}</div>
           </div>
         </div>
       </div>
@@ -451,17 +481,92 @@ const usuarioLogado = {
           .produto-desc-grid { grid-template-columns: 1fr; gap: 24px 0; }
         }
       `}</style>
-      <ModalContato
-  open={modalOpen}
-  onClose={() => setModalOpen(false)}
-  onSubmit={(dados) => {
-    // Aqui você pode salvar no Firestore, ou enviar para e-mail
-    alert("Mensagem enviada com sucesso!");
-    setModalOpen(false);
-  }}
-  usuario={usuarioLogado}
-  produto={produto}
-/>
+
+      {/* Modal de contato */}
+      {!carregandoUsuario && (
+        usuarioLogado ? (
+          <ModalContato
+            open={modalOpen}
+            onClose={() => setModalOpen(false)}
+            onSubmit={async (dados) => {
+              // Salvando no Firestore coleção mensagensContato:
+              await addDoc(collection(db, "mensagensContato"), {
+                ...dados,
+                produtoId: produto.id,
+                produtoNome: produto.nome,
+                criadoEm: serverTimestamp(),
+              });
+              alert("Mensagem enviada com sucesso!");
+              setModalOpen(false);
+            }}
+            usuario={usuarioLogado}
+            produto={produto}
+          />
+        ) : (
+          <AnimatePresence>
+            {modalOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "#1119",
+                  zIndex: 1002,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  transition={{ type: "spring", duration: 0.32 }}
+                  style={{
+                    background: "#fff",
+                    borderRadius: 18,
+                    boxShadow: "0 10px 36px #0003",
+                    padding: 38,
+                    maxWidth: 420,
+                    width: "98vw",
+                    position: "relative"
+                  }}
+                >
+                  <button
+                    onClick={() => setModalOpen(false)}
+                    style={{
+                      position: "absolute",
+                      top: 16,
+                      right: 20,
+                      fontSize: 22,
+                      background: "none",
+                      border: "none",
+                      color: "#219EBC",
+                      cursor: "pointer",
+                      fontWeight: 900
+                    }}
+                    aria-label="Fechar"
+                  >
+                    ×
+                  </button>
+                  <h2 style={{ fontSize: "1.25rem", fontWeight: 900, color: "#023047", marginBottom: 18 }}>
+                    Faça login para entrar em contato com o anunciante
+                  </h2>
+                  <Link
+                    href="/auth/login"
+                    className="btn-modal-laranja"
+                    style={{ display: "block", marginTop: 10, textAlign: "center" }}
+                  >
+                    Fazer Login
+                  </Link>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        )
+      )}
 
     </section>
   );

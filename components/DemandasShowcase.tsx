@@ -88,7 +88,7 @@ export default function DemandsShowcase() {
               lineHeight: 1.13,
             }}
           >
-            Demandas Recentes
+            Oportunidade Recentes
           </h2>
           <Link
             href="/demandas"

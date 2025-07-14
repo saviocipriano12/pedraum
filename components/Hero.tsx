@@ -78,9 +78,8 @@ export default function Hero() {
             letterSpacing: "-1.5px",
           }}
         >
-          Conecte-se ao maior<br />
-          marketplace de<br />
-          Britagem do Brasil
+          Conecte-se às Melhores <br />
+         Oportunidades do Setor de Britagem e<br /> 
         </h1>
         {/* Subtítulo */}
         <p
@@ -96,8 +95,8 @@ export default function Hero() {
             width: "100%",
           }}
         >
-          Negocie direto com vendedores de todo o Brasil.<br />
-          Segurança, agilidade e as melhores oportunidades para seu negócio.
+         Encontre, anuncie e atenda demandas de todo o Brasil 
+         de forma direta, sem intermediação!
         </p>
         {/* Botões */}
         <div

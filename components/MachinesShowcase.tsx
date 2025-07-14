@@ -5,38 +5,71 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { db } from "@/firebaseConfig";
 import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 
-type Machine = {
+// Unificação dos tipos (agora aceita máquinas, produtos e serviços)
+type VitrineItem = {
   id: string;
-  nome: string;
+  tipo: "machines" | "produtos" | "services";
+  nome?: string;
+  titulo?: string;
+  preco?: number;
   imagens?: string[];
   imagem?: string;
-  preco: number;
   local?: string;
-  ano?: string;
+  estado?: string;
+  ano?: string | number;
+  categoria?: string;
+  destaque?: boolean;
 };
 
 export default function MachinesShowcase() {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [machines, setMachines] = useState<Machine[]>([]);
+  const [items, setItems] = useState<VitrineItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchMachines() {
+    async function fetchAll() {
       setLoading(true);
-      const q = query(
-        collection(db, "machines"),
-        orderBy("createdAt", "desc"),
-        limit(8) // pega só 8, ajuste se quiser mais/menos
-      );
-      const snapshot = await getDocs(q);
-      const data: Machine[] = [];
-      snapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as Machine);
-      });
-      setMachines(data);
+      // Busca das 3 coleções
+      const colecoes = [
+        { nome: "machines", tipo: "machines" },
+        { nome: "produtos", tipo: "produtos" },
+        { nome: "services", tipo: "services" },
+      ];
+
+      let todos: VitrineItem[] = [];
+
+      for (const col of colecoes) {
+        const q = query(
+          collection(db, col.nome),
+          orderBy("createdAt", "desc"),
+          limit(8)
+        );
+        const snapshot = await getDocs(q);
+        snapshot.forEach((doc) => {
+          const d = doc.data();
+          todos.push({
+            id: doc.id,
+            tipo: col.tipo as "machines" | "produtos" | "services",
+            nome: d.nome,
+            titulo: d.titulo,
+            preco: d.preco,
+            imagens: d.imagens,
+            imagem: d.imagem,
+            local: d.local || d.cidade,
+            estado: d.estado,
+            ano: d.ano,
+            categoria: d.categoria,
+            destaque: d.destaque,
+          });
+        });
+      }
+
+      // Opcional: embaralhar para dar variedade, ou só ordenar por data (caso datas sejam parecidas)
+      todos.sort((a, b) => Number(b.preco || 0) - Number(a.preco || 0)); // Exemplo, pode trocar para ordenar por data se quiser
+      setItems(todos.slice(0, 8)); // Pega os 8 mais recentes no geral
       setLoading(false);
     }
-    fetchMachines();
+    fetchAll();
   }, []);
 
   function scrollLeft() {
@@ -46,12 +79,16 @@ export default function MachinesShowcase() {
     if (scrollRef.current) scrollRef.current.scrollBy({ left: 340, behavior: "smooth" });
   }
 
-  // Função para pegar a imagem correta (primeira imagem do array ou string única)
-  const getMachineImage = (m: Machine) => {
-    if (Array.isArray(m.imagens) && m.imagens[0]) return m.imagens[0];
-    if (typeof m.imagem === "string" && m.imagem) return m.imagem;
+  // Função para pegar o título correto
+  const getItemTitle = (item: VitrineItem) => item.nome || item.titulo || "Produto";
+  // Função para pegar imagem
+  const getItemImage = (item: VitrineItem) => {
+    if (Array.isArray(item.imagens) && item.imagens[0]) return item.imagens[0];
+    if (typeof item.imagem === "string" && item.imagem) return item.imagem;
     return "/machines/placeholder.jpg";
   };
+  // Função para pegar link correto
+  const getItemLink = (item: VitrineItem) => `/${item.tipo}/${item.id}`;
 
   return (
     <section className="machines-bg" style={{ background: "#fff", padding: "64px 0 74px 0", width: "100%" }}>
@@ -62,26 +99,26 @@ export default function MachinesShowcase() {
             fontSize: 32, fontWeight: 900, color: "#023047", letterSpacing: "-1px", marginBottom: 8,
             fontFamily: "'Poppins','Inter',sans-serif"
           }}>
-            Vitrine de <span style={{ color: "#FB8500" }}>Máquinas</span>
+            Vitrine de <span style={{ color: "#FB8500" }}>Produtos & Serviços</span>
           </h2>
           <div style={{
             color: "#7687A3", fontSize: 17, fontWeight: 500, maxWidth: 510,
             margin: "0 auto 14px auto", lineHeight: 1.5,
           }}>
-            Confira as máquinas à venda e os equipamentos em destaque no mercado de mineração e construção.
+            Confira as melhores oportunidades em máquinas, produtos e serviços do setor de mineração e construção.
           </div>
         </div>
 
-        {/* Link "Ver todas" */}
+        {/* Link "Ver todos" */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <Link href="/machines"
+          <Link href="/vitrine"
             style={{
               color: "#FB8500", fontWeight: 700, fontSize: 16, textDecoration: "none",
               letterSpacing: ".01em", transition: "color .18s",
             }}
             onMouseOver={e => (e.currentTarget.style.color = "#e17000")}
             onMouseOut={e => (e.currentTarget.style.color = "#FB8500")}
-          >Ver todas &rarr;</Link>
+          >Ver todos &rarr;</Link>
         </div>
 
         {/* Carrossel */}
@@ -116,19 +153,19 @@ export default function MachinesShowcase() {
                 width: "100%", textAlign: "center", color: "#219ebc",
                 fontWeight: 700, fontSize: 22, padding: 50
               }}>
-                Carregando máquinas...
+                Carregando oportunidades...
               </div>
-            ) : machines.length === 0 ? (
+            ) : items.length === 0 ? (
               <div style={{
                 width: "100%", textAlign: "center", color: "#5B6476",
                 fontWeight: 700, fontSize: 19, padding: 42
               }}>
-                Nenhuma máquina cadastrada ainda.
+                Nenhum produto ou serviço cadastrado ainda.
               </div>
             ) : (
-              machines.map((m) => (
+              items.map((item) => (
                 <div
-                  key={m.id}
+                  key={item.id}
                   className="machines-card"
                   style={{
                     minWidth: 266, maxWidth: 296, background: "#fff", borderRadius: 18,
@@ -145,8 +182,8 @@ export default function MachinesShowcase() {
                     }}
                   >
                     <img
-                      src={getMachineImage(m)}
-                      alt={m.nome}
+                      src={getItemImage(item)}
+                      alt={getItemTitle(item)}
                       style={{
                         width: "100%", height: "100%", objectFit: "cover",
                         display: "block", userSelect: "none",
@@ -161,20 +198,20 @@ export default function MachinesShowcase() {
                       fontWeight: 700, fontSize: 17.3, margin: "2px 0 1px 0",
                       color: "#023047", lineHeight: 1.23,
                     }}>
-                      {m.nome}
+                      {getItemTitle(item)}
                     </h3>
                     <span style={{
                       fontSize: 15.7, color: "#FB8500", fontWeight: 800, letterSpacing: ".01em", marginBottom: 2,
                     }}>
-                      R$ {Number(m.preco).toLocaleString("pt-BR")}
+                      {item.preco ? `R$ ${Number(item.preco).toLocaleString("pt-BR")}` : "A Consultar"}
                     </span>
                     <div style={{
                       fontSize: 13.4, color: "#7687A3", fontWeight: 500, marginBottom: 2,
                     }}>
-                      {m.local || "Localização não informada"} {m.ano ? `• ${m.ano}` : ""}
+                      {item.local || item.estado || "Localização não informada"} {item.ano ? `• ${item.ano}` : ""}
                     </div>
                     <Link
-                      href={`/machines/${m.id}`}
+                      href={getItemLink(item)}
                       style={{
                         marginTop: "auto", color: "#FB8500", fontWeight: 700, fontSize: 14.7,
                         textDecoration: "none", transition: "color .13s", letterSpacing: ".01em",
@@ -210,31 +247,16 @@ export default function MachinesShowcase() {
         .machines-carousel::-webkit-scrollbar { display: none; }
         .machines-carousel { scrollbar-width: none; }
         @media (min-width: 900px) {
-          .machines-carousel {
-            gap: 36px !important;
-          }
-          .carousel-arrow-left, .carousel-arrow-right {
-            display: flex !important;
-          }
+          .machines-carousel { gap: 36px !important; }
+          .carousel-arrow-left, .carousel-arrow-right { display: flex !important; }
         }
         @media (max-width: 900px) {
-          .machines-carousel {
-            gap: 11px !important;
-            padding-bottom: 10px !important;
-          }
-          .carousel-arrow-left, .carousel-arrow-right {
-            display: none !important;
-          }
-          .machines-card {
-            min-width: 88vw !important;
-            max-width: 96vw !important;
-            padding: 0 !important;
-          }
+          .machines-carousel { gap: 11px !important; padding-bottom: 10px !important; }
+          .carousel-arrow-left, .carousel-arrow-right { display: none !important; }
+          .machines-card { min-width: 88vw !important; max-width: 96vw !important; padding: 0 !important; }
         }
         @media (max-width: 600px) {
-          .machines-bg {
-            padding: 38px 0 29px 0 !important;
-          }
+          .machines-bg { padding: 38px 0 29px 0 !important; }
         }
       `}</style>
     </section>

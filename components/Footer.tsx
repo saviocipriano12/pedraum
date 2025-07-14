@@ -32,15 +32,16 @@ export default function Footer() {
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 180 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
             <img src="/logo-pedraum.png" alt="PedraUm" style={{
-              width: 50, height: 50, background: "#fff7eb", borderRadius: 15, objectFit: "contain", boxShadow: "0 4px 20px #ffb70315"
+              width: 100, height: 50, background: "#fff7eb", borderRadius: 15, objectFit: "contain", boxShadow: "0 4px 20px #ffb70315"
             }} />
             <span style={{
               fontWeight: 900, fontSize: 26, letterSpacing: "-1.3px", color: "#fb8500", fontFamily: "'Poppins','Inter',sans-serif"
-            }}>PedraUm</span>
+            }}></span>
           </div>
           <p style={{ color: "#555", fontSize: 16, lineHeight: 1.45, maxWidth: 240, marginTop: 2, fontWeight: 400 }}>
-            Plataforma para mineração e britagem.<br />
-            Conectando compradores, vendedores e profissionais com tecnologia, agilidade e segurança.
+            <br />
+            A plataforma Pedraum Brasil é apenas um espaço de conexão entre interessados. Não somos responsáveis por transações, negociações, pagamentos, entregas ou qualquer relação comercial entre usuários. 
+            Toda responsabilidade por negociações, pagamentos, entregas, garantias ou conflitos é exclusiva das partes envolvidas.
           </p>
           <div style={{ marginTop: 7, fontSize: 13, color: "#fb8500", fontWeight: 600 }}>
             Missão: <span style={{ color: "#888", fontWeight: 500 }}>Transformar o setor com inovação.</span><br />

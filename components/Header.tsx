@@ -84,9 +84,11 @@ export default function Header() {
             {[
               { href: "/", label: "Início" },
               { href: "/vitrine", label: "Produtos e Serviços" },
+              { href: "/demandas", label: "Oportunidades" },
               { href: "/contato", label: "Contato" },
               { href: "/blog", label: "Blog" },
               { href: "/painel", label: "Painel" },
+
             ].map(({ href, label }) => (
               <li key={href}>
                 <Link href={href}>
@@ -231,6 +233,7 @@ export default function Header() {
             { href: "/", label: "Início" },
             { href: "/painel", label: "Painel" },
             { href: "/vitrine", label: "Produtos e Serviços" },
+            { href: "/demandas", label: "Oportunidades" },
             { href: "/contato", label: "Contato" },
             { href: "/blog", label: "Blog" },
             { href: "/auth/login", label: <><LogIn size={20} style={{ marginRight: 6, verticalAlign: "middle" }} />Login</> },
@@ -295,6 +298,9 @@ export default function Header() {
           color: #FB8500;
           background: #f8fafc;
         }
+          .header-menu-desktop a {
+  text-decoration: none !important;
+}
       `}</style>
     </>
   );

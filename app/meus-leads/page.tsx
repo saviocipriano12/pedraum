@@ -21,13 +21,22 @@ type Lead = {
   paymentLink?: string;
 };
 
+const whatsappPedraum = "5531990903613"; // Número oficial Pedraum
+
+const getLeadWhatsappMsg = (lead: Lead) => {
+  const tipo = lead.tipo === "servico" ? "Serviço" : "Máquina";
+  return (
+    `Olá! Tenho interesse no lead do tipo: ${tipo} - ${lead.serviceTitle || lead.machineNome || "Lead"}\n` +
+    `ID do lead: ${lead.id}\n` +
+    `.`
+  );
+};
 
 export default function MeusLeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [notLogged, setNotLogged] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const [payLoading, setPayLoading] = useState<string | null>(null); // Para loading do botão
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
@@ -57,32 +66,6 @@ export default function MeusLeadsPage() {
     }
     if (userId) fetchLeads();
   }, [userId]);
-
-  // Função para criar pagamento e redirecionar
-  const handlePagamento = async (lead: Lead) => {
-    setPayLoading(lead.id);
-    try {
-      const res = await fetch("/api/mercadopago/create-payments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-  leadId: lead.id,
-  leadTitle: lead.tipo === "servico" ? lead.serviceTitle : lead.machineNome,
-  price: lead.valorLead,
-}),
-        });
-        const data = await res.json();
-        if (data.paymentLink) {
-          window.location.href = data.paymentLink;
-        } else {
-        alert(data.error || "Erro ao gerar pagamento.");
-      }
-    } catch (err) {
-      alert("Erro ao iniciar pagamento.");
-    } finally {
-      setPayLoading(null);
-    }
-  };
 
   return (
     <section style={{ maxWidth: 1200, margin: "0 auto", padding: "42px 4vw 60px 4vw" }}>
@@ -218,8 +201,8 @@ export default function MeusLeadsPage() {
                       border: "1px solid #ffe5bb"
                     }}>
                       {lead.tipo === "servico"
-  ? lead.serviceTitle || "Lead de Serviço"
-  : lead.machineNome || "Lead de Máquina"}
+                        ? lead.serviceTitle || "Lead de Serviço"
+                        : lead.machineNome || "Lead de Máquina"}
                     </span>
                   </div>
                   <span style={{
@@ -285,8 +268,10 @@ export default function MeusLeadsPage() {
                       </div>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => handlePagamento(lead)}
+                    <a
+                      href={`https://api.whatsapp.com/send?phone=${whatsappPedraum}&text=${encodeURIComponent(getLeadWhatsappMsg(lead))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -300,17 +285,12 @@ export default function MeusLeadsPage() {
                         boxShadow: "0 2px 8px #0001",
                         marginTop: 7,
                         border: "none",
-                        cursor: payLoading === lead.id ? "wait" : "pointer",
-                        opacity: payLoading === lead.id ? 0.6 : 1
+                        cursor: "pointer",
+                        opacity: 1
                       }}
-                      disabled={payLoading === lead.id}
                     >
-                      {payLoading === lead.id ? "Gerando pagamento..." : (
-                        <>
-                          Liberar contato <ExternalLink size={19} />
-                        </>
-                      )}
-                    </button>
+                      Liberar contato <ExternalLink size={19} />
+                    </a>
                   )}
                 </div>
               </div>

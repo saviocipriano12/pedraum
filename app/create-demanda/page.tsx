@@ -205,7 +205,7 @@ export default function CreateDemandaPage() {
         </div>
         {/* Bloco 4: Tags */}
         <div>
-          <label className="block font-bold text-blue-800 mb-1 flex items-center gap-1"><Tag size={17} /> Tags <span className="font-normal text-xs text-gray-500">(até 3)</span></label>
+          <label className="block font-bold text-blue-800 mb-1 flex items-center gap-1"><Tag size={17} /> Referencias <span className="font-normal text-xs text-gray-500">(até 3)</span></label>
           <div className="flex items-center gap-2 flex-wrap">
             {tags.map((tg, idx) => (
               <span key={idx} className="bg-orange-100 text-orange-800 font-bold px-3 py-1 rounded-xl flex items-center gap-1 text-sm">

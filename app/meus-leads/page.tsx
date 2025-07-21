@@ -108,7 +108,7 @@ export default function MeusLeadsPage() {
           fontWeight: 800,
           fontSize: "2rem"
         }}>
-          Meus Leads
+          Contatos Interessados
         </span>
       </h1>
       {notLogged ? (

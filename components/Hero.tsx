@@ -79,7 +79,7 @@ export default function Hero() {
           }}
         >
           Conecte-se às Melhores <br />
-         Oportunidades do Setor de Britagem e<br /> 
+         Oportunidades do Setor de Britagem e Mineração<br /> 
         </h1>
         {/* Subtítulo */}
         <p

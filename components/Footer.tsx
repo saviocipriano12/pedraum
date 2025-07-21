@@ -56,11 +56,11 @@ export default function Footer() {
           }}>Navegação</div>
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <FooterLink href="/">Início</FooterLink>
-            <FooterLink href="/machines">Máquinas</FooterLink>
+            <FooterLink href="/vitrine">Produtos e Serviços</FooterLink>
             <FooterLink href="/demandas">Demandas</FooterLink>
             <FooterLink href="/blog">Blog</FooterLink>
             <FooterLink href="/contato">Contato</FooterLink>
-            <FooterLink href="/faq">FAQ</FooterLink>
+            
             <FooterLink href="/parceiros">Parceiros</FooterLink>
           </nav>
         </div>

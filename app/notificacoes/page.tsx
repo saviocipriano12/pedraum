@@ -44,7 +44,7 @@ export default function NotificacoesPage() {
 
   return (
     <section style={{ maxWidth: 1000, margin: "0 auto", padding: "42px 4vw 60px 4vw" }}>
-      <Link href="/painel-vendedor" style={{ display: "flex", alignItems: "center", marginBottom: 24, color: "#2563eb", fontWeight: 700, fontSize: 16 }}>
+      <Link href="/painel" style={{ display: "flex", alignItems: "center", marginBottom: 24, color: "#2563eb", fontWeight: 700, fontSize: 16 }}>
         <ChevronLeft size={19} /> Voltar ao Painel
       </Link>
       <h1

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { db, auth } from "@/firebaseConfig";
 import { collection, query, where, getCountFromServer, getDoc, doc } from "firebase/firestore";
 import {
-  Layers, ClipboardList, MessageCircle, Bell, Star, Users, BookOpen, Briefcase, Heart, Lightbulb, Wallet2, LifeBuoy, LogOut, Inbox, Plus
+  Layers, ClipboardList, MessageCircle, Bell, Star, Users, BookOpen, Briefcase, Heart, Lightbulb, Wallet2, LifeBuoy, LogOut, Inbox
 } from "lucide-react";
 
 export default function PainelUnificado() {
@@ -15,7 +15,6 @@ export default function PainelUnificado() {
   const [loading, setLoading] = useState(false);
   const [nome, setNome] = useState("");
   const [metrics, setMetrics] = useState({
-    
     maquinas: 0,
     produtos: 0,
     servicos: 0,
@@ -31,27 +30,37 @@ export default function PainelUnificado() {
   });
   const [loadingMetrics, setLoadingMetrics] = useState(true);
 
-  // Busca usuário logado e suas métricas
+  // Busca usuário logado e nome salvo na coleção usuarios
   useEffect(() => {
-  const unsubscribe = auth.onAuthStateChanged(async (u) => {
-    setUser(u);
-    if (u) {
-      // Pega o nome salvo na coleção "usuarios"
-      const userDoc = await getDoc(doc(db, "usuarios", u.uid));
-      setNome(userDoc.exists() ? userDoc.data().nome : "");
-    }
-  });
-  return () => unsubscribe();
-}, []);
+    const unsubscribe = auth.onAuthStateChanged(async (u) => {
+      setUser(u);
+      if (u) {
+        const userDoc = await getDoc(doc(db, "usuarios", u.uid));
+        setNome(userDoc.exists() ? userDoc.data().nome : "");
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
-  // Busca as métricas do usuário
+  // Busca as métricas do usuário assim que o usuário logar
+  useEffect(() => {
+    if (user?.uid) {
+      fetchMetrics(user.uid);
+    }
+    // eslint-disable-next-line
+  }, [user]);
+
+  // Busca as métricas reais do Firestore
   async function fetchMetrics(uid: string) {
     setLoadingMetrics(true);
     try {
-      const [maq, prod, serv, leads, msgs, notif, aval, demandas, fav, prop, pedidos, sugest] = await Promise.all([
+      const [
+        maq, prod, serv, leads, msgs, notif, aval, demandas, fav, prop, pedidos, sugest
+      ] = await Promise.all([
         getCountFromServer(query(collection(db, "machines"), where("userId", "==", uid))),
         getCountFromServer(query(collection(db, "produtos"), where("userId", "==", uid))),
         getCountFromServer(query(collection(db, "services"), where("userId", "==", uid))),
+        // O campo correto para leads é "vendedorId"!
         getCountFromServer(query(collection(db, "leads"), where("vendedorId", "==", uid))),
         getCountFromServer(query(collection(db, "mensagens"), where("destinatarioId", "==", uid))),
         getCountFromServer(query(collection(db, "notificacoes"), where("usuarioId", "==", uid))),
@@ -126,25 +135,34 @@ export default function PainelUnificado() {
           }}>
             {/* Avatar */}
             <div style={{
-              width: 64, height: 64,
-              background: "linear-gradient(135deg, #FB8500 65%, #2563eb 120%)",
-              color: "#fff",
-              borderRadius: "50%",
-              fontSize: 32,
-              fontWeight: 900,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "3px solid #fff",
-              boxShadow: "0 4px 16px #0002"
-            }}>
-              {user?.displayName
-                ? user.displayName.charAt(0).toUpperCase()
-                : user?.email?.charAt(0).toUpperCase()}
-            </div>
+  width: 64, height: 64,
+  background: "linear-gradient(135deg, #FB8500 65%, #2563eb 120%)",
+  color: "#fff",
+  borderRadius: "50%",
+  fontSize: 32,
+  fontWeight: 900,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "3px solid #fff",
+  boxShadow: "0 4px 16px #0002",
+  overflow: "hidden"
+}}>
+  {user?.photoURL ? (
+    <img
+      src={user.photoURL}
+      alt={nome || user.email}
+      style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }}
+    />
+  ) : (
+    nome
+      ? nome.charAt(0).toUpperCase()
+      : (user?.email ? user.email.charAt(0).toUpperCase() : "U")
+  )}
+</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: "1.55rem", color: "#023047", marginBottom: 2 }}>
-                Bem-vindo{user?.displayName ? `, ${user.displayName}` : ""}!
+                 Bem-vindo{nome ? `, ${nome}` : ""}!
               </div>
               <div style={{ fontSize: "1.01rem", color: "#6b7680" }}>{user?.email}</div>
             </div>
@@ -155,10 +173,10 @@ export default function PainelUnificado() {
               flexWrap: "wrap",
               justifyContent: "flex-end"
             }}>
-              <MetricBadge icon={<Layers size={17} />} value={loadingMetrics ? "..." : metrics.maquinas} label="máquinas" color="#FB8500" />
+              <MetricBadge icon={<Layers size={17} />} value={loadingMetrics ? "..." : metrics.produtos} label="produtos" color="#FB8500" />
               <MetricBadge icon={<ClipboardList size={15} />} value={loadingMetrics ? "..." : metrics.demandas} label="demandas" color="#219ebc" />
               <MetricBadge icon={<Briefcase size={15} />} value={loadingMetrics ? "..." : metrics.servicos} label="serviços" color="#219ebc" />
-              <MetricBadge icon={<Inbox size={15} />} value={loadingMetrics ? "..." : metrics.leads} label="leads" color="#FB8500" />
+              <MetricBadge icon={<Inbox size={15} />} value={loadingMetrics ? "..." : metrics.leads} label="contatos" color="#FB8500" />
               <MetricBadge icon={<Heart size={15} />} value={loadingMetrics ? "..." : metrics.favoritos} label="favoritos" color="#FB8500" />
               <MetricBadge icon={<MessageCircle size={15} />} value={loadingMetrics ? "..." : metrics.mensagens} label="mensagens" color="#2563eb" />
               <MetricBadge icon={<Bell size={15} />} value={loadingMetrics ? "..." : metrics.notificacoes} label="notificações" color="#FB8500" />
@@ -176,16 +194,13 @@ export default function PainelUnificado() {
           }}
         >
           <Tile href="/perfil" color="#2563eb" bg="#f3f7ff" icon={<Users size={36} />} title="Meu Perfil" desc="Gerencie seus dados pessoais e de empresa." />
-          <Tile href="/minhas-demandas" color="#219ebc" bg="#e0f7fa" icon={<ClipboardList size={36} />} title="Minhas Demandas" desc="Gerencie suas demandas publicadas." badge={metrics.demandas} />
+          <Tile href="/minhas-demandas" color="#219ebc" bg="#e0f7fa" icon={<ClipboardList size={36} />} title="Minhas Necessidades" desc="Gerencie suas Necessidades publicadas." badge={metrics.demandas} />
           <Tile href="/meus-produtos" color="#FB8500" bg="#fff7ed" icon={<Layers size={36} />} title="Meus Produtos/Máquinas" desc="Gerencie seus produtos e máquinas publicados." badge={metrics.produtos + metrics.maquinas} />
           <Tile href="/meus-servicos" color="#219ebc" bg="#e0f7fa" icon={<Briefcase size={36} />} title="Meus Serviços" desc="Gerencie serviços e soluções oferecidas." badge={metrics.servicos} />
           <Tile href="/meus-leads" color="#FB8500" bg="#fff7ed" icon={<Inbox size={36} />} title="Contatos Interessados" desc="Veja clientes interessados nas suas ofertas." badge={metrics.leads} />
           <Tile href="/favoritos" color="#FB8500" bg="#fff7ed" icon={<Heart size={36} />} title="Favoritos" desc="Acesse rapidamente seus favoritos." badge={metrics.favoritos} />
-          <Tile href="/mensagens" color="#FB8500" bg="#fff7ed" icon={<MessageCircle size={36} />} title="Mensagens" desc="Converse com clientes e negociadores." badge={metrics.mensagens} />
           <Tile href="/notificacoes" color="#FB8500" bg="#fff7ed" icon={<Bell size={36} />} title="Notificações" desc="Alertas e novidades importantes." badge={metrics.notificacoes} />
           <Tile href="/avaliacoes" color="#FB8500" bg="#fff7ed" icon={<Star size={36} />} title="Avaliações Recebidas" desc="Confira feedbacks e reputação." badge={metrics.avaliacoes} />
-          <Tile href="/propostas" color="#2563eb" bg="#f3f7ff" icon={<ClipboardList size={36} />} title="Minhas Propostas" desc="Acompanhe propostas enviadas e recebidas." badge={metrics.propostas} />
-          <Tile href="/pedidos" color="#2563eb" bg="#f3f7ff" icon={<ClipboardList size={36} />} title="Minhas Negociações" desc="Histórico de negociações e contratações." badge={metrics.pedidos} />
           <Tile href="/sugestoes" color="#FB8500" bg="#fff7ed" icon={<Lightbulb size={36} />} title="Sugestões" desc="Envie ideias para melhorar a plataforma." badge={metrics.sugestoes} />
           <Tile href="/parceiros" color="#FB8500" bg="#fff7ed" icon={<Users size={36} />} title="Parceiros" desc="Conheça empresas e parceiros." />
           <Tile href="/blog" color="#FB8500" bg="#fff7ed" icon={<BookOpen size={36} />} title="Blog" desc="Acesse conteúdos, notícias e dicas do setor." />

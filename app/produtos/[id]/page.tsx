@@ -76,36 +76,133 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
               position: "relative"
             }}
           >
-            <button
-              onClick={onClose}
-              style={{
-                position: "absolute",
-                top: 16,
-                right: 20,
-                fontSize: 22,
-                background: "none",
-                border: "none",
-                color: "#219EBC",
-                cursor: "pointer",
-                fontWeight: 900
-              }}
-              aria-label="Fechar"
-            >
-              ×
-            </button>
-            <h2 style={{ fontSize: "1.42rem", fontWeight: 900, color: "#023047", marginBottom: 16 }}>
-              Fale com o anunciante
-            </h2>
-            <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 13 }}>
-              <input name="nome" placeholder="Nome completo" value={form.nome} onChange={handleChange} required className="input-modal" />
-              <input name="telefone" placeholder="Telefone / WhatsApp" value={form.telefone} onChange={handleChange} required className="input-modal" />
-              <input name="email" type="email" placeholder="E-mail" value={form.email} onChange={handleChange} required className="input-modal" />
-              <input name="cidade" placeholder="Cidade" value={form.cidade} onChange={handleChange} className="input-modal" />
-              <input name="cpf" placeholder="CPF ou CNPJ" value={form.cpf} onChange={handleChange} className="input-modal" />
-              <textarea name="mensagem" placeholder="Mensagem (opcional)" value={form.mensagem} onChange={handleChange} className="input-modal" rows={3} />
-              <button type="submit" className="btn-modal-laranja">Enviar mensagem</button>
-                Ao continuar, você concorda que a Pedraum Brasil não participa das negociações nem garante pagamentos, entregas ou resultados.
-            </form>
+           <button
+  onClick={onClose}
+  style={{
+    position: "absolute",
+    top: 16,
+    right: 20,
+    fontSize: 22,
+    background: "none",
+    border: "none",
+    color: "#219EBC",
+    cursor: "pointer",
+    fontWeight: 900,
+  }}
+  aria-label="Fechar"
+>
+  ×
+</button>
+<h2 style={{ fontSize: "1.42rem", fontWeight: 900, color: "#023047", marginBottom: 16 }}>
+  Fale com o anunciante
+</h2>
+<form
+  onSubmit={async (e) => {
+    e.preventDefault();
+    
+    const user = auth.currentUser;
+    if (!user) {
+      alert("Faça login para entrar em contato.");
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, "leads"), {
+        nome: form.nome,
+        telefone: form.telefone,
+        email: form.email,
+        cidade: form.cidade,
+        cpf: form.cpf,
+        mensagem: form.mensagem,
+        createdAt: serverTimestamp(),
+        produtoId: produto.id,
+        produtoNome: produto.nome,
+        vendedorId: produto.userId, 
+        userId: user.uid, 
+        status: "novo",
+        statusPagamento: "pendente",
+        valorLead: 19.9,
+        metodoPagamento: "mercado_pago",
+        paymentLink: "",
+        pagoEm: "",
+        liberadoEm: "",
+        idTransacao: "",
+        isTest: false,
+        imagens: produto.imagens || [],
+      });
+
+      alert("Mensagem enviada com sucesso!");
+      setForm({
+        nome: usuario.nome || "",
+        telefone: usuario.telefone || "",
+        email: usuario.email || "",
+        cidade: usuario.cidade || "",
+        cpf: usuario.cpf || "",
+        mensagem: "",
+      });
+      onClose();
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao enviar a mensagem. Tente novamente.");
+    }
+  }}
+  style={{ display: "flex", flexDirection: "column", gap: 13 }}
+>
+  <input
+    name="nome"
+    placeholder="Nome completo"
+    value={form.nome}
+    onChange={handleChange}
+    required
+    className="input-modal"
+  />
+  <input
+    name="telefone"
+    placeholder="Telefone / WhatsApp"
+    value={form.telefone}
+    onChange={handleChange}
+    required
+    className="input-modal"
+  />
+  <input
+    name="email"
+    type="email"
+    placeholder="E-mail"
+    value={form.email}
+    onChange={handleChange}
+    required
+    className="input-modal"
+  />
+  <input
+    name="cidade"
+    placeholder="Cidade"
+    value={form.cidade}
+    onChange={handleChange}
+    className="input-modal"
+  />
+  <input
+    name="cpf"
+    placeholder="CPF ou CNPJ"
+    value={form.cpf}
+    onChange={handleChange}
+    className="input-modal"
+  />
+  <textarea
+    name="mensagem"
+    placeholder="Mensagem (opcional)"
+    value={form.mensagem}
+    onChange={handleChange}
+    className="input-modal"
+    rows={3}
+  />
+  <button type="submit" className="btn-modal-laranja">
+    Enviar mensagem
+  </button>
+  <span style={{ fontSize: "0.8rem", marginTop: 6, color: "#777", textAlign: "center" }}>
+    Ao continuar, você concorda que a Pedraum Brasil não participa das negociações nem garante pagamentos, entregas ou resultados.
+  </span>
+</form>
+
           </motion.div>
           <style jsx>{`
             .input-modal {
@@ -285,7 +382,7 @@ export default function ProdutoDetalhePage() {
               </svg>
               WhatsApp
             </a>
-            <button className="produto-btn-azul"><Heart size={20} /> Adicionar aos Favoritos</button>
+          
           </div>
         </div>
       </div>
@@ -296,7 +393,7 @@ export default function ProdutoDetalhePage() {
         <div className="produto-desc-grid">
           <div>
             <div className="produto-desc-item-title">Destaques</div>
-            <div className="produto-desc-item-text">{produto.destaques || "Material de construção e durabilidade."}</div>
+            <div className="produto-desc-item-text">{produto.descricao || "Material de construção e durabilidade."}</div>
             <div className="produto-desc-item-title" style={{ marginTop: 32 }}>Sobre o Produto</div>
             <div className="produto-desc-item-text">{produto.sobre || "Com alta resistência e garantia de durabilidade."}</div>
             <div className="produto-desc-item-title" style={{ marginTop: 32 }}>Condições</div>
@@ -304,7 +401,7 @@ export default function ProdutoDetalhePage() {
           </div>
           <div>
             <div className="produto-desc-item-title">Condições</div>
-            <div className="produto-desc-item-text">{produto.condicoes2 || "Componente revisado e aprovado."}</div>
+            <div className="produto-desc-item-text">{produto.condicoes || "Componente revisado e aprovado."}</div>
           </div>
         </div>
       </div>
@@ -490,12 +587,16 @@ export default function ProdutoDetalhePage() {
             onClose={() => setModalOpen(false)}
             onSubmit={async (dados) => {
               // Salvando no Firestore coleção mensagensContato:
-              await addDoc(collection(db, "mensagensContato"), {
-                ...dados,
-                produtoId: produto.id,
-                produtoNome: produto.nome,
-                criadoEm: serverTimestamp(),
-              });
+              await addDoc(collection(db, "leads"), {
+                   ...dados,
+              produtoId: produto.id,
+              produtoNome: produto.nome,
+              userId_vendedor: produto.userId,
+              userId_comprador: usuarioLogado.id,
+              createdAt: serverTimestamp(),
+              status: "novo",
+              statusPagamento: "pendente",
+            });
               alert("Mensagem enviada com sucesso!");
               setModalOpen(false);
             }}

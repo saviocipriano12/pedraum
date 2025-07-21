@@ -166,7 +166,7 @@ export default function CreateProdutoPage() {
                 </select>
               </div>
               <div>
-                <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><DollarSign size={15}/> Preço (R$) *</label>
+                <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><DollarSign size={15}/> Preço (R$) (opcional)</label>
                 <input
                   name="preco"
                   value={form.preco}
@@ -174,7 +174,7 @@ export default function CreateProdutoPage() {
                   type="number"
                   className="w-full border rounded-xl p-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 border-gray-300"
                   placeholder="Ex: 15000"
-                  required
+                
                 />
               </div>
               <div>

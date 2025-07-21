@@ -42,7 +42,7 @@ export default function VitrineDemandas() {
         letterSpacing: "-1px",
         marginBottom: 28
       }}>
-        Vitrine de Demandas
+        Vitrine de Oportunidades
       </h1>
       {/* Botão de Postar Demanda */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
@@ -67,7 +67,7 @@ export default function VitrineDemandas() {
           onMouseOver={e => (e.currentTarget.style.background = "#e17000")}
           onMouseOut={e => (e.currentTarget.style.background = "#FB8500")}
         >
-          <Plus size={22} /> Postar Demanda
+          <Plus size={22} /> Postar Uma Necessidade
         </Link>
       </div>
       {/* Filtros */}

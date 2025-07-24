@@ -2,10 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { db } from "@/firebaseConfig";
+import { db, auth } from "@/firebaseConfig";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { Loader2, ArrowLeft, Plus, Upload, Tag } from "lucide-react";
-// Se já tiver um componente ImageUploader, importe aqui:
 import ImageUploader from "@/components/ImageUploader"; // Ajuste o caminho se necessário
 
 export default function CreateDemandaPage() {
@@ -28,7 +27,9 @@ export default function CreateDemandaPage() {
     status: "Aberta",
   });
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) {
     setForm({ ...form, [e.target.name]: e.target.value });
   }
 
@@ -46,14 +47,27 @@ export default function CreateDemandaPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    await addDoc(collection(db, "demandas"), {
-      ...form,
-      tags,
-      imagens,
-      createdAt: serverTimestamp(),
-    });
-    setLoading(false);
-    router.push("/demandas");
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        alert("Faça login para cadastrar uma demanda.");
+        setLoading(false);
+        return;
+      }
+      const userId = user.uid;
+      await addDoc(collection(db, "demandas"), {
+        ...form,
+        tags,
+        imagens,
+        createdAt: serverTimestamp(),
+        userId, // Salva o dono da demanda!
+      });
+      setLoading(false);
+      router.push("/demandas");
+    } catch (err) {
+      alert("Erro ao cadastrar demanda!");
+      setLoading(false);
+    }
   }
 
   return (
@@ -62,7 +76,7 @@ export default function CreateDemandaPage() {
         <button onClick={() => router.back()} className="p-2 rounded-full hover:bg-gray-100 text-blue-700">
           <ArrowLeft size={22} />
         </button>
-        <h1 className="text-2xl md:text-3xl font-extrabold text-blue-900">Cadastrar Demanda</h1>
+        <h1 className="text-2xl md:text-3xl font-extrabold text-blue-900">Cadastrar Necessidade</h1>
       </div>
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-md px-4 sm:px-7 py-7 space-y-4">
         {/* Bloco 1: Dados principais */}
@@ -120,46 +134,45 @@ export default function CreateDemandaPage() {
           </div>
         </div>
         <div className="flex flex-col gap-4 sm:flex-row">
-         <div className="flex-1">
-  <label className="block font-bold text-blue-800 mb-1">Estado (UF)</label>
-  <select
-    name="estado"
-    value={form.estado}
-    onChange={handleChange}
-    className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-200 outline-none"
-    required
-  >
-    <option value="">Selecione o Estado</option>
-    <option value="AC">Acre (AC)</option>
-    <option value="AL">Alagoas (AL)</option>
-    <option value="AP">Amapá (AP)</option>
-    <option value="AM">Amazonas (AM)</option>
-    <option value="BA">Bahia (BA)</option>
-    <option value="CE">Ceará (CE)</option>
-    <option value="DF">Distrito Federal (DF)</option>
-    <option value="ES">Espírito Santo (ES)</option>
-    <option value="GO">Goiás (GO)</option>
-    <option value="MA">Maranhão (MA)</option>
-    <option value="MT">Mato Grosso (MT)</option>
-    <option value="MS">Mato Grosso do Sul (MS)</option>
-    <option value="MG">Minas Gerais (MG)</option>
-    <option value="PA">Pará (PA)</option>
-    <option value="PB">Paraíba (PB)</option>
-    <option value="PR">Paraná (PR)</option>
-    <option value="PE">Pernambuco (PE)</option>
-    <option value="PI">Piauí (PI)</option>
-    <option value="RJ">Rio de Janeiro (RJ)</option>
-    <option value="RN">Rio Grande do Norte (RN)</option>
-    <option value="RS">Rio Grande do Sul (RS)</option>
-    <option value="RO">Rondônia (RO)</option>
-    <option value="RR">Roraima (RR)</option>
-    <option value="SC">Santa Catarina (SC)</option>
-    <option value="SP">São Paulo (SP)</option>
-    <option value="SE">Sergipe (SE)</option>
-    <option value="TO">Tocantins (TO)</option>
-  </select>
-</div>
-
+          <div className="flex-1">
+            <label className="block font-bold text-blue-800 mb-1">Estado (UF)</label>
+            <select
+              name="estado"
+              value={form.estado}
+              onChange={handleChange}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-200 outline-none"
+              required
+            >
+              <option value="">Selecione o Estado</option>
+              <option value="AC">Acre (AC)</option>
+              <option value="AL">Alagoas (AL)</option>
+              <option value="AP">Amapá (AP)</option>
+              <option value="AM">Amazonas (AM)</option>
+              <option value="BA">Bahia (BA)</option>
+              <option value="CE">Ceará (CE)</option>
+              <option value="DF">Distrito Federal (DF)</option>
+              <option value="ES">Espírito Santo (ES)</option>
+              <option value="GO">Goiás (GO)</option>
+              <option value="MA">Maranhão (MA)</option>
+              <option value="MT">Mato Grosso (MT)</option>
+              <option value="MS">Mato Grosso do Sul (MS)</option>
+              <option value="MG">Minas Gerais (MG)</option>
+              <option value="PA">Pará (PA)</option>
+              <option value="PB">Paraíba (PB)</option>
+              <option value="PR">Paraná (PR)</option>
+              <option value="PE">Pernambuco (PE)</option>
+              <option value="PI">Piauí (PI)</option>
+              <option value="RJ">Rio de Janeiro (RJ)</option>
+              <option value="RN">Rio Grande do Norte (RN)</option>
+              <option value="RS">Rio Grande do Sul (RS)</option>
+              <option value="RO">Rondônia (RO)</option>
+              <option value="RR">Roraima (RR)</option>
+              <option value="SC">Santa Catarina (SC)</option>
+              <option value="SP">São Paulo (SP)</option>
+              <option value="SE">Sergipe (SE)</option>
+              <option value="TO">Tocantins (TO)</option>
+            </select>
+          </div>
         </div>
         {/* Bloco 3: Prazo, orçamento, contato */}
         <div className="flex flex-col gap-4 sm:flex-row">
@@ -205,12 +218,23 @@ export default function CreateDemandaPage() {
         </div>
         {/* Bloco 4: Tags */}
         <div>
-          <label className="block font-bold text-blue-800 mb-1 flex items-center gap-1"><Tag size={17} /> Referencias <span className="font-normal text-xs text-gray-500">(até 3)</span></label>
+          <label className="block font-bold text-blue-800 mb-1 flex items-center gap-1">
+            <Tag size={17} /> Referencias <span className="font-normal text-xs text-gray-500">(até 3)</span>
+          </label>
           <div className="flex items-center gap-2 flex-wrap">
             {tags.map((tg, idx) => (
-              <span key={idx} className="bg-orange-100 text-orange-800 font-bold px-3 py-1 rounded-xl flex items-center gap-1 text-sm">
+              <span
+                key={idx}
+                className="bg-orange-100 text-orange-800 font-bold px-3 py-1 rounded-xl flex items-center gap-1 text-sm"
+              >
                 {tg}
-                <button type="button" onClick={() => removeTag(idx)} className="text-orange-500 ml-1 hover:text-red-500 font-black text-base">×</button>
+                <button
+                  type="button"
+                  onClick={() => removeTag(idx)}
+                  className="text-orange-500 ml-1 hover:text-red-500 font-black text-base"
+                >
+                  ×
+                </button>
               </span>
             ))}
             {tags.length < 3 && (
@@ -245,43 +269,42 @@ export default function CreateDemandaPage() {
           />
         </div>
         <div className="flex flex-col sm:flex-row sm:justify-between items-center pt-4">
-  <div className="flex-1 w-full sm:w-auto">
-    <label className="block font-bold text-blue-800 mb-1">Status</label>
-    <select
-      name="status"
-      value={form.status}
-      onChange={handleChange}
-      className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-100 outline-none"
-      required
-    >
-      <option value="Aberta">Aberta</option>
-      <option value="Finalizada">Finalizada</option>
-    </select>
-  </div>
-  <button
-    type="submit"
-    disabled={loading}
-    className="
-      w-full sm:w-auto 
-      mt-6 sm:mt-7 
-      px-8 py-3 
-      rounded-xl 
-      bg-orange-500 
-      text-white font-extrabold 
-      hover:bg-orange-600 
-      transition-all shadow 
-      disabled:opacity-70 
-      disabled:cursor-not-allowed 
-      flex items-center justify-center gap-2 text-lg
-      text-center
-    "
-    style={{ letterSpacing: ".01em", minWidth: 190 }}
-  >
-    {loading ? <Loader2 className="animate-spin inline-block" size={23} /> : <Plus size={22} />}
-    {loading ? "Cadastrando..." : "Cadastrar Demanda"}
-  </button>
-</div>
-
+          <div className="flex-1 w-full sm:w-auto">
+            <label className="block font-bold text-blue-800 mb-1">Status</label>
+            <select
+              name="status"
+              value={form.status}
+              onChange={handleChange}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-100 outline-none"
+              required
+            >
+              <option value="Aberta">Aberta</option>
+              <option value="Finalizada">Finalizada</option>
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="
+              w-full sm:w-auto 
+              mt-6 sm:mt-7 
+              px-8 py-3 
+              rounded-xl 
+              bg-orange-500 
+              text-white font-extrabold 
+              hover:bg-orange-600 
+              transition-all shadow 
+              disabled:opacity-70 
+              disabled:cursor-not-allowed 
+              flex items-center justify-center gap-2 text-lg
+              text-center
+            "
+            style={{ letterSpacing: ".01em", minWidth: 190 }}
+          >
+            {loading ? <Loader2 className="animate-spin inline-block" size={23} /> : <Plus size={22} />}
+            {loading ? "Cadastrando..." : "Cadastrar Demanda"}
+          </button>
+        </div>
       </form>
     </div>
   );

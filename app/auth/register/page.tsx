@@ -37,26 +37,24 @@ export default function RegisterPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErro("");
-    if (
-      !nome ||
-      !email ||
-      !senha ||
-      !whatsapp ||
-      !cpfCnpj ||
-      !cidade ||
-      !estado
-    ) {
-      setErro("Preencha todos os campos obrigatórios!");
-      return;
-    }
     if (!aceitaTermos) {
       setErro("É necessário aceitar os termos e política de privacidade.");
       return;
     }
     setLoading(true);
     try {
-      const cred = await createUserWithEmailAndPassword(auth, email, senha);
-      const uid = cred.user.uid;
+      // Só cria a conta se e-mail e senha estiverem preenchidos (obrigatório pelo Firebase)
+      let cred = null;
+      let uid = "";
+      if (email && senha) {
+        cred = await createUserWithEmailAndPassword(auth, email, senha);
+        uid = cred.user.uid;
+      } else {
+        // Usuário pode se cadastrar sem e-mail/senha? Caso não, pode mostrar erro diferente.
+        setErro("Preencha e-mail e senha para cadastrar sua conta.");
+        setLoading(false);
+        return;
+      }
       await setDoc(doc(db, "usuarios", uid), {
         nome,
         email,
@@ -105,20 +103,20 @@ export default function RegisterPage() {
           <span className="text-[#FB8500] font-bold">Pedraum Brasil</span>
         </p>
 
-         <form
-    onSubmit={handleSubmit}
-    className="w-full flex flex-col gap-6 md:gap-7"
-    autoComplete="off"
+        <form
+          onSubmit={handleSubmit}
+          className="w-full flex flex-col gap-6 md:gap-7"
+          autoComplete="off"
         >
           <InputGroup
             icon={<User size={22} className="text-[#FB8500]" />}
-            placeholder="Nome completo*"
+            placeholder="Nome completo"
             value={nome}
             onChange={setNome}
           />
           <InputGroup
             icon={<Mail size={22} className="text-[#FB8500]" />}
-            placeholder="E-mail*"
+            placeholder="E-mail"
             value={email}
             onChange={setEmail}
             type="email"
@@ -126,7 +124,7 @@ export default function RegisterPage() {
           />
           <InputGroup
             icon={<Lock size={22} className="text-[#FB8500]" />}
-            placeholder="Senha*"
+            placeholder="Senha"
             value={senha}
             onChange={setSenha}
             type="password"
@@ -134,7 +132,7 @@ export default function RegisterPage() {
           />
           <InputGroup
             icon={<Phone size={22} className="text-[#FB8500]" />}
-            placeholder="WhatsApp*"
+            placeholder="WhatsApp"
             value={whatsapp}
             onChange={setWhatsapp}
             type="tel"
@@ -142,20 +140,20 @@ export default function RegisterPage() {
           />
           <InputGroup
             icon={<FileText size={22} className="text-[#FB8500]" />}
-            placeholder="CPF ou CNPJ*"
+            placeholder="CPF ou CNPJ"
             value={cpfCnpj}
             onChange={setCpfCnpj}
           />
           <div className="flex gap-4">
             <InputGroup
               icon={<MapPin size={22} className="text-[#FB8500]" />}
-              placeholder="Cidade*"
+              placeholder="Cidade"
               value={cidade}
               onChange={setCidade}
               className="flex-1"
             />
             <InputGroup
-              placeholder="UF*"
+              placeholder="UF"
               value={estado}
               onChange={setEstado}
               maxLength={2}

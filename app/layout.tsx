@@ -9,6 +9,7 @@ import Header from "@/components/Header";
 import { FontProvider } from "@/components/FontProvider";
 import Footer from "@/components/Footer";
 import { SessionProvider } from "next-auth/react";
+import WhatsappFloatButton from "@/components/WhatsappFloatButton";
 
 const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700"] });
 
@@ -50,6 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.className} bg-[#F6F9FA] text-[#023047] antialiased`}>
         <Header />
         <main className="min-h-screen">{children}</main>
+        <WhatsappFloatButton />
     <Footer />
       </body>
     </html>

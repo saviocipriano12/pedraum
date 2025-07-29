@@ -7,7 +7,7 @@ import Link from "next/link";
 
 type Lead = {
   id: string;
-  tipo: "maquina" | "servico";
+  tipo: "maquina" | "servico" | "produto";
   machineNome?: string;
   serviceTitle?: string;
   prestadorNome?: string;
@@ -19,14 +19,17 @@ type Lead = {
   createdAt: any;
   valorLead: number;
   paymentLink?: string;
+  // Novos campos:
+  produtoNome?: string;
+  tipoProduto?: string;
 };
 
 const whatsappPedraum = "5531990903613"; // Número oficial Pedraum
 
 const getLeadWhatsappMsg = (lead: Lead) => {
-  const tipo = lead.tipo === "servico" ? "Serviço" : "Máquina";
+  const tipo = lead.tipoProduto || lead.tipo || "";
   return (
-    `Olá! Tenho interesse no lead do tipo: ${tipo} - ${lead.serviceTitle || lead.machineNome || "Lead"}\n` +
+    `Olá! Tenho interesse no lead do tipo: ${tipo} - ${lead.produtoNome || lead.serviceTitle || lead.machineNome || "Lead"}\n` +
     `ID do lead: ${lead.id}\n` +
     `.`
   );
@@ -184,7 +187,7 @@ export default function MeusLeadsPage() {
                   display: "flex",
                   flexDirection: "column",
                   gap: 12,
-                  minHeight: 180,
+                  minHeight: 190,
                   position: "relative",
                 }}
               >
@@ -200,9 +203,10 @@ export default function MeusLeadsPage() {
                       marginRight: 8,
                       border: "1px solid #ffe5bb"
                     }}>
-                      {lead.tipo === "servico"
-                        ? lead.serviceTitle || "Lead de Serviço"
-                        : lead.machineNome || "Lead de Máquina"}
+                      {/* Nome e tipo do produto de interesse */}
+                      {lead.produtoNome
+                        ? `Produto: ${lead.produtoNome}`
+                        : lead.serviceTitle || lead.machineNome || "Lead"}
                     </span>
                   </div>
                   <span style={{
@@ -228,6 +232,16 @@ export default function MeusLeadsPage() {
                     )}
                   </span>
                 </div>
+
+                {/* NOVO: Tipo/Categoria do produto */}
+                <div style={{
+                  color: "#219EBC", fontWeight: 700, marginBottom: 5, fontSize: 15,
+                }}>
+                  {lead.tipoProduto && (
+                    <>Tipo: {lead.tipoProduto}</>
+                  )}
+                </div>
+
                 <div style={{
                   display: "flex",
                   justifyContent: "space-between",

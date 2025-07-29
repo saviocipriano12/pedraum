@@ -3,221 +3,363 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { db } from "@/firebaseConfig";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import Link from "next/link";
-import { ClipboardList, Loader2, AlertTriangle } from "lucide-react";
-import { withRoleProtection } from "@/utils/withRoleProtection";
+import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { Loader2, ArrowLeft, Save, Trash2, Upload, Tag } from "lucide-react";
+import ImageUploader from "@/components/ImageUploader";
 
-function EditarDemandaAdmin() {
+export default function EditDemandaPage() {
   const router = useRouter();
   const params = useParams();
-  const id = params.id as string;
+  const demandaId = typeof params?.id === "string" ? params.id : (params?.id as string[])[0];
 
-  const [carregando, setCarregando] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState("");
-  const [titulo, setTitulo] = useState("");
-  const [categoria, setCategoria] = useState("");
-  const [descricao, setDescricao] = useState("");
-  const [userId, setUserId] = useState("");
-  const [nomeUsuario, setNomeUsuario] = useState("");
-  const [status, setStatus] = useState("ativa");
-
+  const [removendo, setRemovendo] = useState(false);
+  const [imagens, setImagens] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  const [form, setForm] = useState<any>({
+    titulo: "",
+    descricao: "",
+    categoria: "",
+    tipo: "",
+    estado: "",
+    cidade: "",
+    prazo: "",
+    orcamento: "",
+    whatsapp: "",
+    observacoes: "",
+    status: "Aberta",
+  });
+  const [createdAt, setCreatedAt] = useState<string>("");
+  const [userId, setUserId] = useState<string>("");
+  
   useEffect(() => {
-    buscarDemanda();
-    // eslint-disable-next-line
-  }, [id]);
-
-  async function buscarDemanda() {
-    setCarregando(true);
-    setErro("");
-    try {
-      const docRef = doc(db, "demandas", id);
-      const dSnap = await getDoc(docRef);
-      if (!dSnap.exists()) {
-        setErro("Demanda não encontrada!");
+    async function fetchDemanda() {
+      if (!demandaId) return;
+      setLoading(true);
+      const snap = await getDoc(doc(db, "demandas", demandaId));
+      if (!snap.exists()) {
+        alert("Demanda não encontrada.");
+        router.push("/admin/demandas");
         return;
       }
-      const d: any = dSnap.data();
-      setTitulo(d.titulo || "");
-      setCategoria(d.categoria || "");
-      setDescricao(d.descricao || "");
-      setUserId(d.userId || "");
-      setNomeUsuario(d.nomeUsuario || "");
-      setStatus(d.status || "ativa");
-    } catch (err: any) {
-      setErro("Erro ao buscar demanda: " + (err.message || err));
-    } finally {
-      setCarregando(false);
+      const data = snap.data();
+      setForm({
+        titulo: data.titulo || "",
+        descricao: data.descricao || "",
+        categoria: data.categoria || "",
+        tipo: data.tipo || "",
+        estado: data.estado || "",
+        cidade: data.cidade || "",
+        prazo: data.prazo || "",
+        orcamento: data.orcamento || "",
+        whatsapp: data.whatsapp || "",
+        observacoes: data.observacoes || "",
+        status: data.status || "Aberta",
+      });
+      setTags(data.tags || []);
+      setImagens(data.imagens || []);
+      setUserId(data.userId || "");
+      setCreatedAt(data.createdAt?.seconds ? new Date(data.createdAt.seconds * 1000).toLocaleString("pt-BR") : "");
+      setLoading(false);
     }
+    fetchDemanda();
+  }, [demandaId, router]);
+
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) {
+    setForm({ ...form, [e.target.name]: e.target.value });
   }
 
-  async function handleSalvar(e: React.FormEvent) {
+  function handleTagKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if ((e.key === "Enter" || e.key === ",") && tagInput.trim() && tags.length < 3) {
+      setTags([...tags, tagInput.trim()]);
+      setTagInput("");
+      e.preventDefault();
+    }
+  }
+  function removeTag(idx: number) {
+    setTags(tags.filter((_, i) => i !== idx));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSalvando(true);
-    setErro("");
     try {
-      await updateDoc(doc(db, "demandas", id), {
-        titulo,
-        categoria,
-        descricao,
-        userId,
-        nomeUsuario,
-        status,
+      await updateDoc(doc(db, "demandas", demandaId), {
+        ...form,
+        tags,
+        imagens,
       });
+      alert("Demanda atualizada com sucesso!");
       router.push("/admin/demandas");
-    } catch (err: any) {
-      setErro("Erro ao salvar: " + (err.message || err));
-    } finally {
-      setSalvando(false);
+    } catch (err) {
+      alert("Erro ao atualizar demanda!");
     }
+    setSalvando(false);
   }
 
-  // Estilo premium dos inputs
-  const inputClass =
-    "w-full px-4 py-3 rounded-xl border border-[#e6e8eb] focus:border-[#FB8500] focus:ring-2 focus:ring-[#FB850022] transition outline-none text-base bg-[#f9fafb] placeholder-gray-400";
-
-  if (carregando) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-[#f6f9fa]">
-        <div className="bg-white rounded-2xl shadow-2xl px-10 py-8 flex flex-col items-center gap-2">
-          <Loader2 size={32} className="animate-spin text-[#FB8500]" />
-          <span className="mt-2 text-lg font-medium text-[#023047]">Carregando demanda...</span>
-        </div>
-      </main>
-    );
+  async function handleDelete() {
+    if (!window.confirm("Deseja mesmo excluir esta demanda? Esta ação é irreversível!")) return;
+    setRemovendo(true);
+    try {
+      await deleteDoc(doc(db, "demandas", demandaId));
+      alert("Demanda excluída.");
+      router.push("/admin/demandas");
+    } catch {
+      alert("Erro ao excluir demanda.");
+    }
+    setRemovendo(false);
   }
 
-  if (erro) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-[#f6f9fa]">
-        <div className="bg-white rounded-2xl shadow-2xl p-10 flex flex-col items-center gap-3">
-          <AlertTriangle size={40} className="text-red-500" />
-          <span className="text-red-700 text-lg font-semibold">{erro}</span>
-          <Link
-            href="/admin/demandas"
-            className="mt-3 bg-[#FB8500] text-white px-6 py-2 rounded-full font-semibold hover:bg-[#ff9800] transition"
-          >
-            Voltar para demandas
-          </Link>
-        </div>
-      </main>
-    );
-  }
+  if (loading) return (
+    <div className="flex justify-center items-center min-h-[300px] text-blue-700">
+      <Loader2 className="animate-spin" size={28} /> Carregando demanda...
+    </div>
+  );
 
   return (
-    <main className="min-h-screen bg-[#f6f9fa] flex flex-col items-center py-10 px-2">
-      <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl px-6 py-10 md:px-10 md:py-12">
-        <div className="flex items-center gap-3 mb-8">
-          <ClipboardList size={36} className="text-[#FB8500]" />
-          <h1 className="text-2xl md:text-3xl font-bold text-[#023047]">
-            Editar Demanda
-          </h1>
+    <div className="max-w-2xl mx-auto py-8 px-2 sm:px-6">
+      <div className="mb-6 flex items-center gap-3">
+        <button onClick={() => router.back()} className="p-2 rounded-full hover:bg-gray-100 text-blue-700">
+          <ArrowLeft size={22} />
+        </button>
+        <h1 className="text-2xl md:text-3xl font-extrabold text-blue-900">Editar Necessidade</h1>
+      </div>
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-md px-4 sm:px-7 py-7 space-y-4">
+        <div className="mb-2 text-gray-400 text-xs">
+          <div><b>ID:</b> {demandaId}</div>
+          {createdAt && <div><b>Criada em:</b> {createdAt}</div>}
+          {userId && <div><b>UserID criador:</b> {userId}</div>}
         </div>
-        <form onSubmit={handleSalvar} className="space-y-6">
-          <div>
-            <label className="block font-semibold text-[#023047] mb-1" htmlFor="titulo">
-              Título <span className="text-red-500">*</span>
-            </label>
+        {/* Bloco 1: Dados principais */}
+        <div>
+          <label className="block font-bold text-blue-800 mb-1">Título da Demanda</label>
+          <input
+            name="titulo"
+            value={form.titulo}
+            onChange={handleChange}
+            className="w-full border border-gray-300 rounded-xl px-3 py-2 text-lg focus:ring-2 focus:ring-blue-300 outline-none"
+            required
+            placeholder="Ex: Preciso de mecânico para pá carregadeira"
+          />
+        </div>
+        <div>
+          <label className="block font-bold text-blue-800 mb-1">Descrição</label>
+          <textarea
+            name="descricao"
+            value={form.descricao}
+            onChange={handleChange}
+            className="w-full border border-gray-300 rounded-xl px-3 py-2 min-h-[80px] focus:ring-2 focus:ring-blue-100 outline-none"
+            required
+            placeholder="Detalhe sua necessidade, problema ou demanda aqui..."
+          />
+        </div>
+        {/* Bloco 2: Categoria/tipo/locais */}
+        <div className="flex flex-col gap-4 sm:flex-row">
+          <div className="flex-1">
+            <label className="block font-bold text-blue-800 mb-1">Categoria</label>
             <input
-              id="titulo"
-              type="text"
+              name="categoria"
+              value={form.categoria}
+              onChange={handleChange}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-200 outline-none"
+              placeholder="Ex: Mecânico, Peça, Logística..."
               required
-              className={inputClass}
-              value={titulo}
-              onChange={e => setTitulo(e.target.value)}
-              placeholder="Ex: Preciso de britador móvel em MG"
             />
           </div>
-          <div>
-            <label className="block font-semibold text-[#023047] mb-1" htmlFor="categoria">
-              Categoria <span className="text-red-500">*</span>
-            </label>
-            <input
-              id="categoria"
-              type="text"
-              required
-              className={inputClass}
-              value={categoria}
-              onChange={e => setCategoria(e.target.value)}
-              placeholder="Ex: Britador, Peças, Serviço Técnico"
-            />
-          </div>
-          <div>
-            <label className="block font-semibold text-[#023047] mb-1" htmlFor="descricao">
-              Descrição <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              id="descricao"
-              required
-              className={inputClass + " min-h-[90px] resize-vertical"}
-              value={descricao}
-              onChange={e => setDescricao(e.target.value)}
-              placeholder="Descreva detalhadamente a demanda"
-            />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block font-semibold text-[#023047] mb-1" htmlFor="userId">
-                ID do Criador (userId)
-              </label>
-              <input
-                id="userId"
-                type="text"
-                className={inputClass}
-                value={userId}
-                onChange={e => setUserId(e.target.value)}
-                placeholder="Opcional"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold text-[#023047] mb-1" htmlFor="nomeUsuario">
-                Nome do Criador
-              </label>
-              <input
-                id="nomeUsuario"
-                type="text"
-                className={inputClass}
-                value={nomeUsuario}
-                onChange={e => setNomeUsuario(e.target.value)}
-                placeholder="Opcional"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block font-semibold text-[#023047] mb-1" htmlFor="status">
-              Status
-            </label>
+          <div className="flex-1">
+            <label className="block font-bold text-blue-800 mb-1">Tipo</label>
             <select
-              id="status"
-              className={inputClass}
-              value={status}
-              onChange={e => setStatus(e.target.value)}
+              name="tipo"
+              value={form.tipo}
+              onChange={handleChange}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-100 outline-none"
+              required
             >
-              <option value="ativa">Ativa</option>
-              <option value="inativa">Inativa</option>
+              <option value="">Selecione</option>
+              <option value="produto">Produto</option>
+              <option value="serviço">Serviço</option>
+              <option value="peça">Peça</option>
+              <option value="aluguel">Aluguel</option>
+              <option value="outro">Outro</option>
             </select>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3 pt-6">
+        </div>
+        <div className="flex flex-col gap-4 sm:flex-row">
+          <div className="flex-1">
+            <label className="block font-bold text-blue-800 mb-1">Estado (UF)</label>
+            <select
+              name="estado"
+              value={form.estado}
+              onChange={handleChange}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-200 outline-none"
+              required
+            >
+              <option value="">Selecione o Estado</option>
+              <option value="AC">Acre (AC)</option>
+              <option value="AL">Alagoas (AL)</option>
+              <option value="AP">Amapá (AP)</option>
+              <option value="AM">Amazonas (AM)</option>
+              <option value="BA">Bahia (BA)</option>
+              <option value="CE">Ceará (CE)</option>
+              <option value="DF">Distrito Federal (DF)</option>
+              <option value="ES">Espírito Santo (ES)</option>
+              <option value="GO">Goiás (GO)</option>
+              <option value="MA">Maranhão (MA)</option>
+              <option value="MT">Mato Grosso (MT)</option>
+              <option value="MS">Mato Grosso do Sul (MS)</option>
+              <option value="MG">Minas Gerais (MG)</option>
+              <option value="PA">Pará (PA)</option>
+              <option value="PB">Paraíba (PB)</option>
+              <option value="PR">Paraná (PR)</option>
+              <option value="PE">Pernambuco (PE)</option>
+              <option value="PI">Piauí (PI)</option>
+              <option value="RJ">Rio de Janeiro (RJ)</option>
+              <option value="RN">Rio Grande do Norte (RN)</option>
+              <option value="RS">Rio Grande do Sul (RS)</option>
+              <option value="RO">Rondônia (RO)</option>
+              <option value="RR">Roraima (RR)</option>
+              <option value="SC">Santa Catarina (SC)</option>
+              <option value="SP">São Paulo (SP)</option>
+              <option value="SE">Sergipe (SE)</option>
+              <option value="TO">Tocantins (TO)</option>
+            </select>
+          </div>
+        </div>
+        {/* Bloco 3: Prazo, orçamento, contato */}
+        <div className="flex flex-col gap-4 sm:flex-row">
+          <div className="flex-1">
+            <label className="block font-bold text-blue-800 mb-1">Prazo (urgência)</label>
+            <select
+              name="prazo"
+              value={form.prazo}
+              onChange={handleChange}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-200 outline-none"
+              required
+            >
+              <option value="">Selecione</option>
+              <option value="urgente">Urgente</option>
+              <option value="até 3 dias">Até 3 dias</option>
+              <option value="até 7 dias">Até 7 dias</option>
+              <option value="até 15 dias">Até 15 dias</option>
+              <option value="flexível">Flexível</option>
+            </select>
+          </div>
+          <div className="flex-1">
+            <label className="block font-bold text-blue-800 mb-1">Orçamento estimado (opcional)</label>
+            <input
+              name="orcamento"
+              value={form.orcamento}
+              onChange={handleChange}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-200 outline-none"
+              type="number"
+              placeholder="R$"
+              min={0}
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block font-bold text-blue-800 mb-1">WhatsApp / Telefone (opcional)</label>
+          <input
+            name="whatsapp"
+            value={form.whatsapp}
+            onChange={handleChange}
+            className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-200 outline-none"
+            placeholder="(xx) xxxxx-xxxx"
+          />
+        </div>
+        {/* Bloco 4: Tags */}
+        <div>
+          <label className="block font-bold text-blue-800 mb-1 flex items-center gap-1">
+            <Tag size={17} /> Referências <span className="font-normal text-xs text-gray-500">(até 3)</span>
+          </label>
+          <div className="flex items-center gap-2 flex-wrap">
+            {tags.map((tg, idx) => (
+              <span
+                key={idx}
+                className="bg-orange-100 text-orange-800 font-bold px-3 py-1 rounded-xl flex items-center gap-1 text-sm"
+              >
+                {tg}
+                <button
+                  type="button"
+                  onClick={() => removeTag(idx)}
+                  className="text-orange-500 ml-1 hover:text-red-500 font-black text-base"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {tags.length < 3 && (
+              <input
+                type="text"
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={handleTagKeyDown}
+                className="border border-gray-300 rounded-xl px-3 py-1 w-32"
+                placeholder="Nova tag"
+                maxLength={16}
+              />
+            )}
+          </div>
+        </div>
+        {/* Bloco 5: Upload de imagens */}
+        <div>
+          <label className="block font-bold text-blue-800 mb-1 flex items-center gap-1">
+            <Upload size={17} /> Anexar imagens (opcional)
+          </label>
+          <ImageUploader imagens={imagens} setImagens={setImagens} max={5} />
+        </div>
+        {/* Bloco 6: Observações finais */}
+        <div>
+          <label className="block font-bold text-blue-800 mb-1">Observações (opcional)</label>
+          <textarea
+            name="observacoes"
+            value={form.observacoes}
+            onChange={handleChange}
+            className="w-full border border-gray-300 rounded-xl px-3 py-2 min-h-[40px] focus:ring-2 focus:ring-blue-100 outline-none"
+            placeholder="Alguma observação extra? (opcional)"
+          />
+        </div>
+        <div className="flex flex-col sm:flex-row sm:justify-between items-center pt-4 gap-2">
+          <div className="flex-1 w-full sm:w-auto">
+            <label className="block font-bold text-blue-800 mb-1">Status</label>
+            <select
+              name="status"
+              value={form.status}
+              onChange={handleChange}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-100 outline-none"
+              required
+            >
+              <option value="Aberta">Aberta</option>
+              <option value="Finalizada">Finalizada</option>
+            </select>
+          </div>
+          <div className="flex gap-3 mt-7 sm:mt-0 w-full sm:w-auto">
             <button
               type="submit"
               disabled={salvando}
-              className="bg-[#FB8500] text-white px-8 py-3 rounded-full font-bold flex items-center justify-center gap-2 hover:bg-[#ff9800] transition disabled:opacity-60"
+              className="flex items-center justify-center gap-2 px-8 py-3 rounded-xl bg-blue-600 text-white font-extrabold hover:bg-blue-700 transition-all shadow disabled:opacity-60 text-lg w-full sm:w-auto"
+              style={{ letterSpacing: ".01em", minWidth: 170 }}
             >
-              {salvando && <Loader2 className="animate-spin" size={20} />}
-              {salvando ? "Salvando..." : "Salvar"}
+              {salvando ? <Loader2 className="animate-spin inline-block" size={22} /> : <Save size={21} />}
+              {salvando ? "Salvando..." : "Salvar Alterações"}
             </button>
-            <Link
-              href="/admin/demandas"
-              className="bg-gray-200 text-gray-700 px-8 py-3 rounded-full font-bold hover:bg-gray-300 transition flex items-center justify-center"
+            <button
+              type="button"
+              disabled={removendo}
+              onClick={handleDelete}
+              className="flex items-center justify-center gap-2 px-8 py-3 rounded-xl bg-red-600 text-white font-extrabold hover:bg-red-700 transition-all shadow disabled:opacity-70 text-lg w-full sm:w-auto"
+              style={{ minWidth: 160 }}
             >
-              Cancelar
-            </Link>
+              {removendo ? <Loader2 className="animate-spin inline-block" size={22} /> : <Trash2 size={22} />}
+              {removendo ? "Excluindo..." : "Excluir"}
+            </button>
           </div>
-        </form>
-      </div>
-    </main>
+        </div>
+      </form>
+    </div>
   );
 }
-
-export default withRoleProtection(EditarDemandaAdmin, { allowed: ["admin"] });

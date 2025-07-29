@@ -1,239 +1,259 @@
 "use client";
-import { useEffect, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { db } from "@/firebaseConfig";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import Link from "next/link";
+import { Loader2, Plus, Trash2, Save } from "lucide-react";
 
-type Lead = {
-  nome: string;
-  email: string;
-  telefone: string;
-  machineNome?: string;
-  status?: string;
-  valorLead?: number;
-};
+type Vendedor = { email: string; userId: string; status: string; dataPagamento?: any };
 
 export default function EditLeadPage() {
+  const { id } = useParams();
   const router = useRouter();
-  const params = useParams();
-  const id = params?.id as string;
-
-  const [lead, setLead] = useState<Lead | null>(null);
+  const [lead, setLead] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Campos principais
+  const [nome, setNome] = useState("");
+  const [email, setEmail] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [valor, setValor] = useState<number | string>("");
+  const [tipo, setTipo] = useState("");
+  const [status, setStatus] = useState("");
+  const [premium, setPremium] = useState(false);
+  const [origem, setOrigem] = useState("");
+  const [observacao, setObservacao] = useState("");
+  const [comprador, setComprador] = useState("");
+  const [adminObs, setAdminObs] = useState("");
+
+  // Campos vendedores
+  const [vendEmail, setVendEmail] = useState("");
+  const [vendUserId, setVendUserId] = useState("");
+  const [vendedores, setVendedores] = useState<Vendedor[]>([]);
 
   useEffect(() => {
     async function fetchLead() {
-      if (!id) return;
-      const ref = doc(db, "leads", id);
+      setLoading(true);
+      const ref = doc(db, "leads", id as string);
       const snap = await getDoc(ref);
       if (snap.exists()) {
-        setLead(snap.data() as Lead);
-      } else {
-        setError("Lead não encontrado.");
+        const data = snap.data();
+        setLead(data);
+        setNome(data.nome || "");
+        setEmail(data.email || "");
+        setTelefone(data.telefone || "");
+        setValor(data.valor || "");
+        setTipo(data.tipo || "");
+        setStatus(data.status || "");
+        setPremium(!!data.premium);
+        setOrigem(data.origem || "");
+        setObservacao(data.observacao || "");
+        setComprador(data.comprador || "");
+        setAdminObs(data.adminObs || "");
+        setVendedores(data.vendedoresLiberados || []);
       }
       setLoading(false);
     }
     fetchLead();
   }, [id]);
 
-  async function handleSave(e: React.FormEvent) {
+  // --- Vendedores ---
+  const addVendedor = () => {
+    if (
+      !vendEmail.trim() ||
+      !vendUserId.trim() ||
+      vendedores.some(v => v.email === vendEmail.trim() || v.userId === vendUserId.trim())
+    ) {
+      setError("Preencha e-mail, userId e evite duplicar vendedor.");
+      return;
+    }
+    setVendedores([
+      ...vendedores,
+      { email: vendEmail.trim(), userId: vendUserId.trim(), status: "ofertado" }
+    ]);
+    setVendEmail("");
+    setVendUserId("");
+    setError(null);
+  };
+
+  const removeVendedor = (userId: string) => {
+    setVendedores(vendedores.filter(v => v.userId !== userId));
+  };
+
+  const handleStatusChange = (userId: string, status: string) => {
+    setVendedores(vendedores.map(v =>
+      v.userId === userId ? { ...v, status } : v
+    ));
+  };
+
+  // --- Salvar tudo ---
+  async function handleSave(e: any) {
     e.preventDefault();
-    if (!lead) return;
-    setSaving(true);
-    setError("");
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+
+    // Cria o array de userIds para facilitar o filtro depois
+    const vendedoresUserIds = vendedores.map(v => v.userId);
+
     try {
-      await updateDoc(doc(db, "leads", id), { ...lead });
-      router.push("/admin/leads");
+      await updateDoc(doc(db, "leads", id as string), {
+        nome,
+        email,
+        telefone,
+        valor: Number(valor),
+        tipo,
+        status,
+        premium,
+        origem,
+        observacao,
+        comprador,
+        adminObs,
+        vendedoresLiberados: vendedores,
+        vendedoresUserIds, // campo novo, para o filtro!
+      });
+      setSuccess("Alterações salvas com sucesso!");
+      setTimeout(() => router.push("/admin/leads"), 1000);
     } catch (err) {
       setError("Erro ao salvar alterações.");
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   }
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
-    const { name, value } = e.target;
-    setLead((prev: any) => ({
-      ...prev,
-      [name]: name === "valorLead" ? Number(value) : value,
-    }));
-  }
-
   if (loading) {
-    return <div style={{ textAlign: "center", marginTop: 100, color: "#219EBC" }}>Carregando dados...</div>;
+    return <div className="p-12 text-center text-lg text-blue-800"><Loader2 className="animate-spin inline" /> Carregando...</div>;
   }
-
-  if (error) {
-    return <div style={{ color: "#dc2626", textAlign: "center", marginTop: 100 }}>{error}</div>;
-  }
-
-  if (!lead) return null;
 
   return (
-    <main style={{
-      minHeight: "100vh",
-      background: "#f9fafb",
-      padding: "36px 0"
-    }}>
-      <div style={{
-        maxWidth: 480, margin: "0 auto", background: "#fff",
-        borderRadius: 16, boxShadow: "0 2px 12px #0001",
-        padding: "32px 28px 22px 28px"
-      }}>
-        <h2 style={{
-          fontWeight: 900,
-          fontSize: "1.6rem",
-          color: "#134074",
-          letterSpacing: "-1px",
-          marginBottom: 25,
-          textAlign: "center"
-        }}>
-          Editar Lead
-        </h2>
-        <form onSubmit={handleSave}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Nome</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="nome"
-              value={lead.nome || ""}
-              onChange={handleChange}
-              required
-            />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>E-mail</label>
-            <input
-              style={inputStyle}
-              type="email"
-              name="email"
-              value={lead.email || ""}
-              onChange={handleChange}
-              required
-            />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Telefone</label>
-            <input
-              style={inputStyle}
-              type="tel"
-              name="telefone"
-              value={lead.telefone || ""}
-              onChange={handleChange}
-              required
-            />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Máquina</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="machineNome"
-              value={lead.machineNome || ""}
-              onChange={handleChange}
-              placeholder="Ex: Pá Carregadeira"
-            />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Status</label>
-            <select
-              style={inputStyle}
-              name="status"
-              value={lead.status || ""}
-              onChange={handleChange}
-            >
-              <option value="">Selecione</option>
-              <option value="pendente">Pendente</option>
-              <option value="pago">Pago</option>
-              <option value="contatado">Contatado</option>
-            </select>
-          </div>
-          <div style={{ marginBottom: 26 }}>
-            <label style={labelStyle}>Valor do Lead (R$)</label>
-            <input
-              style={inputStyle}
-              type="number"
-              name="valorLead"
-              value={lead.valorLead || ""}
-              onChange={handleChange}
-              placeholder="Ex: 150"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={saving}
-            style={{
-              background: "#219EBC",
-              color: "#fff",
-              fontWeight: 700,
-              fontSize: "1.01rem",
-              borderRadius: "13px",
-              padding: "13px 0",
-              width: "100%",
-              border: "none",
-              boxShadow: "0 4px 14px #0001",
-              letterSpacing: ".01em",
-              transition: "background .15s",
-              marginBottom: 10,
-              cursor: "pointer",
-              opacity: saving ? 0.7 : 1
-            }}
-          >
-            {saving ? "Salvando..." : "Salvar Alterações"}
-          </button>
-          <div style={{ textAlign: "center" }}>
-            <Link href="/admin/leads" legacyBehavior>
-              <a style={{
-                color: "#219EBC",
-                fontWeight: 700,
-                fontSize: "1rem",
-                marginTop: 9,
-                textDecoration: "underline"
-              }}>
-                ← Voltar para listagem
-              </a>
-            </Link>
-          </div>
-          {error && (
-            <div style={{ color: "#dc2626", textAlign: "center", marginTop: 10 }}>{error}</div>
-          )}
-        </form>
+    <form onSubmit={handleSave} className="max-w-2xl mx-auto p-8 bg-white rounded-xl shadow-xl space-y-7">
+      <h1 className="text-2xl font-extrabold text-blue-900 mb-3">Editar Lead</h1>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div>
+          <label className="font-bold text-blue-700">Nome:</label>
+          <input className="border rounded-lg px-3 py-2 w-full"
+            value={nome} onChange={e => setNome(e.target.value)} />
+        </div>
+        <div>
+          <label className="font-bold text-blue-700">E-mail:</label>
+          <input className="border rounded-lg px-3 py-2 w-full"
+            value={email} onChange={e => setEmail(e.target.value)} />
+        </div>
+        <div>
+          <label className="font-bold text-blue-700">Telefone:</label>
+          <input className="border rounded-lg px-3 py-2 w-full"
+            value={telefone} onChange={e => setTelefone(e.target.value)} />
+        </div>
+        <div>
+          <label className="font-bold text-blue-700">Valor:</label>
+          <input className="border rounded-lg px-3 py-2 w-full"
+            type="number" min={0}
+            value={valor} onChange={e => setValor(e.target.value)} />
+        </div>
+        <div>
+          <label className="font-bold text-blue-700">Tipo:</label>
+          <select className="border rounded-lg px-3 py-2 w-full"
+            value={tipo} onChange={e => setTipo(e.target.value)}>
+            <option value="">Selecione</option>
+            <option value="produto">Produto</option>
+            <option value="máquina">Máquina</option>
+            <option value="serviço">Serviço</option>
+            <option value="demanda">Demanda</option>
+          </select>
+        </div>
+        <div>
+          <label className="font-bold text-blue-700">Status:</label>
+          <select className="border rounded-lg px-3 py-2 w-full"
+            value={status} onChange={e => setStatus(e.target.value)}>
+            <option value="">Selecione</option>
+            <option value="pendente">Pendente</option>
+            <option value="pago">Pago</option>
+            <option value="vendido">Vendido</option>
+            <option value="cancelado">Cancelado</option>
+            <option value="contatado">Contatado</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-3">
+          <input type="checkbox" checked={premium}
+            onChange={e => setPremium(e.target.checked)} />
+          <label className="font-bold text-blue-700">Lead Premium?</label>
+        </div>
+        <div>
+          <label className="font-bold text-blue-700">Origem / Interesse:</label>
+          <input className="border rounded-lg px-3 py-2 w-full"
+            value={origem} onChange={e => setOrigem(e.target.value)} />
+        </div>
+        <div>
+          <label className="font-bold text-blue-700">Comprador (nome/email):</label>
+          <input className="border rounded-lg px-3 py-2 w-full"
+            value={comprador} onChange={e => setComprador(e.target.value)} />
+        </div>
       </div>
-      <style>{`
-        @media (max-width: 600px) {
-          main > div {
-            padding: 17px 7vw 17px 7vw !important;
-            max-width: 98vw !important;
-          }
-        }
-      `}</style>
-    </main>
+
+      <div>
+        <label className="font-bold text-blue-700">Observação:</label>
+        <textarea className="border rounded-lg px-3 py-2 w-full"
+          value={observacao} onChange={e => setObservacao(e.target.value)} />
+      </div>
+
+      <div>
+        <label className="font-bold text-blue-700">Observação Admin:</label>
+        <textarea className="border rounded-lg px-3 py-2 w-full"
+          value={adminObs} onChange={e => setAdminObs(e.target.value)} />
+      </div>
+
+      {/* --- Vendedores ofertados --- */}
+      <div className="rounded-xl bg-blue-50 border p-4 mb-2">
+        <label className="font-bold text-blue-700 mb-1 block">Adicionar Vendedor:</label>
+        <div className="flex flex-col sm:flex-row gap-2 mb-3">
+          <input
+            value={vendEmail}
+            onChange={e => setVendEmail(e.target.value)}
+            className="border rounded-lg px-3 py-2 flex-1"
+            placeholder="vendedor@email.com"
+          />
+          <input
+            value={vendUserId}
+            onChange={e => setVendUserId(e.target.value)}
+            className="border rounded-lg px-3 py-2 flex-1"
+            placeholder="userId do vendedor"
+          />
+          <button type="button" onClick={addVendedor}
+            className="bg-orange-500 px-4 py-2 rounded-lg text-white font-bold hover:bg-orange-600 flex items-center gap-1">
+            <Plus size={18} /> Adicionar
+          </button>
+        </div>
+        <h2 className="font-bold text-blue-700 mb-2">Vendedores Ofertados:</h2>
+        <ul className="space-y-2">
+          {vendedores.map((v, idx) => (
+            <li key={v.userId} className="flex items-center gap-3 border rounded-lg p-2 bg-white">
+              <span className="flex-1 font-semibold text-blue-900">
+                {v.email} <span className="text-xs text-gray-400">({v.userId})</span>
+              </span>
+              <select value={v.status} onChange={e => handleStatusChange(v.userId, e.target.value)}
+                className="rounded border px-2 py-1 text-sm">
+                <option value="ofertado">Ofertado</option>
+                <option value="pago">Pago</option>
+              </select>
+              <button type="button" onClick={() => removeVendedor(v.userId)}
+                className="text-red-500 hover:text-red-700 ml-2"><Trash2 size={18} /></button>
+            </li>
+          ))}
+          {vendedores.length === 0 && <li className="text-gray-400">Nenhum vendedor ofertado ainda.</li>}
+        </ul>
+      </div>
+
+      {error && <div className="text-red-500 font-bold text-center">{error}</div>}
+      {success && <div className="text-green-700 font-bold text-center">{success}</div>}
+
+      {/* --- Botão Salvar --- */}
+      <button type="submit"
+        className="w-full bg-blue-700 text-white font-bold rounded-xl px-7 py-3 flex gap-2 items-center justify-center text-lg hover:bg-blue-900 transition mt-3 active:scale-95 shadow">
+        <Save size={21} /> {loading ? "Salvando..." : "Salvar Alterações"}
+      </button>
+    </form>
   );
 }
-
-const labelStyle = {
-  display: "block",
-  marginBottom: 5,
-  fontWeight: 700,
-  color: "#023047",
-};
-
-const inputStyle = {
-  width: "100%",
-  padding: "10px 13px",
-  borderRadius: "10px",
-  border: "1.5px solid #e5e7eb",
-  background: "#f8fafb",
-  fontSize: "1.04rem",
-  fontWeight: 500,
-  outline: "none",
-  marginTop: 2,
-  marginBottom: 2,
-  color: "#023047",
-  transition: "border .15s",
-};
-

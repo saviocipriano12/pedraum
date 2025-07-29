@@ -37,11 +37,6 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
     setForm({ ...form, [e.target.name]: e.target.value });
   }
 
-  function handleSubmit(e) {
-    e.preventDefault();
-    onSubmit(form);
-  }
-
   return (
     <AnimatePresence>
       {open && (
@@ -76,163 +71,172 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
               position: "relative"
             }}
           >
-           <button
-  onClick={onClose}
-  style={{
-    position: "absolute",
-    top: 16,
-    right: 20,
-    fontSize: 22,
-    background: "none",
-    border: "none",
-    color: "#219EBC",
-    cursor: "pointer",
-    fontWeight: 900,
-  }}
-  aria-label="Fechar"
->
-  ×
-</button>
-<h2 style={{ fontSize: "1.42rem", fontWeight: 900, color: "#023047", marginBottom: 16 }}>
-  Fale com o anunciante
-</h2>
-<form
-  onSubmit={async (e) => {
-    e.preventDefault();
-    
-    const user = auth.currentUser;
-    if (!user) {
-      alert("Faça login para entrar em contato.");
-      return;
-    }
+            <button
+              onClick={onClose}
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 20,
+                fontSize: 22,
+                background: "none",
+                border: "none",
+                color: "#219EBC",
+                cursor: "pointer",
+                fontWeight: 900,
+              }}
+              aria-label="Fechar"
+            >
+              ×
+            </button>
+            <h2 style={{ fontSize: "1.42rem", fontWeight: 900, color: "#023047", marginBottom: 16 }}>
+              Fale com o anunciante
+            </h2>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
 
-    try {
-      await addDoc(collection(db, "leads"), {
-        nome: form.nome,
-        telefone: form.telefone,
-        email: form.email,
-        cidade: form.cidade,
-        cpf: form.cpf,
-        mensagem: form.mensagem,
-        createdAt: serverTimestamp(),
-        produtoId: produto.id,
-        produtoNome: produto.nome,
-        vendedorId: produto.userId, 
-        userId: user.uid, 
-        status: "novo",
-        statusPagamento: "pendente",
-        valorLead: 19.9,
-        metodoPagamento: "mercado_pago",
-        paymentLink: "",
-        pagoEm: "",
-        liberadoEm: "",
-        idTransacao: "",
-        isTest: false,
-        imagens: produto.imagens || [],
-      });
+                const user = auth.currentUser;
+                if (!user) {
+                  alert("Faça login para entrar em contato.");
+                  return;
+                }
 
-      alert("Mensagem enviada com sucesso!");
-      setForm({
-        nome: usuario.nome || "",
-        telefone: usuario.telefone || "",
-        email: usuario.email || "",
-        cidade: usuario.cidade || "",
-        cpf: usuario.cpf || "",
-        mensagem: "",
-      });
-      onClose();
-    } catch (error) {
-      console.error(error);
-      alert("Erro ao enviar a mensagem. Tente novamente.");
-    }
-  }}
-  style={{ display: "flex", flexDirection: "column", gap: 13 }}
->
-  <input
-    name="nome"
-    placeholder="Nome completo"
-    value={form.nome}
-    onChange={handleChange}
-    required
-    className="input-modal"
-  />
-  <input
-    name="telefone"
-    placeholder="Telefone / WhatsApp"
-    value={form.telefone}
-    onChange={handleChange}
-    required
-    className="input-modal"
-  />
-  <input
-    name="email"
-    type="email"
-    placeholder="E-mail"
-    value={form.email}
-    onChange={handleChange}
-    required
-    className="input-modal"
-  />
-  <input
-    name="cidade"
-    placeholder="Cidade"
-    value={form.cidade}
-    onChange={handleChange}
-    className="input-modal"
-  />
-  <input
-    name="cpf"
-    placeholder="CPF ou CNPJ"
-    value={form.cpf}
-    onChange={handleChange}
-    className="input-modal"
-  />
-  <textarea
-    name="mensagem"
-    placeholder="Mensagem (opcional)"
-    value={form.mensagem}
-    onChange={handleChange}
-    className="input-modal"
-    rows={3}
-  />
-  <button type="submit" className="btn-modal-laranja">
-    Enviar mensagem
-  </button>
-  <span style={{ fontSize: "0.8rem", marginTop: 6, color: "#777", textAlign: "center" }}>
-    Ao continuar, você concorda que a Pedraum Brasil não participa das negociações nem garante pagamentos, entregas ou resultados.
-  </span>
-</form>
+                // Buscar email do vendedor (dono do produto)
+                let vendedorEmail = "";
+                if (produto.userId) {
+                  const vendedorDoc = await getDoc(doc(db, "usuarios", produto.userId));
+                  if (vendedorDoc.exists()) {
+                    vendedorEmail = vendedorDoc.data().email || "";
+                  }
+                }
 
+                // Salva o lead, já com campo interesse/mensagem e vendedor liberado
+                await addDoc(collection(db, "leads"), {
+  nome: form.nome,
+  telefone: form.telefone,
+  email: form.email,
+  cidade: form.cidade,
+  cpf: form.cpf,
+  mensagem: form.mensagem,
+  createdAt: serverTimestamp(),
+  produtoId: produto.id,
+  produtoNome: produto.nome,
+  tipoProduto: produto.categoria || produto.tipo || "", // Salva tipo/categoria do produto
+  userId: user.uid,
+  vendedorId: produto.userId,
+  vendedoresLiberados: [
+    { email: produto.emailVendedor || "", status: "ofertado" } // ajuste conforme seu fluxo
+  ],
+  status: "novo",
+  statusPagamento: "pendente",
+  valorLead: 19.9,
+  metodoPagamento: "mercado_pago",
+  paymentLink: "",
+  pagoEm: "",
+  liberadoEm: "",
+  idTransacao: "",
+  isTest: false,
+  imagens: produto.imagens || [],
+});
+
+
+                alert("Mensagem enviada com sucesso!");
+                setForm({
+                  nome: usuario.nome || "",
+                  telefone: usuario.telefone || "",
+                  email: usuario.email || "",
+                  cidade: usuario.cidade || "",
+                  cpf: usuario.cpf || "",
+                  mensagem: "",
+                });
+                onClose();
+              }}
+              style={{ display: "flex", flexDirection: "column", gap: 13 }}
+            >
+              <input
+                name="nome"
+                placeholder="Nome completo"
+                value={form.nome}
+                onChange={handleChange}
+                required
+                className="input-modal"
+              />
+              <input
+                name="telefone"
+                placeholder="Telefone / WhatsApp"
+                value={form.telefone}
+                onChange={handleChange}
+                required
+                className="input-modal"
+              />
+              <input
+                name="email"
+                type="email"
+                placeholder="E-mail"
+                value={form.email}
+                onChange={handleChange}
+                required
+                className="input-modal"
+              />
+              <input
+                name="cidade"
+                placeholder="Cidade"
+                value={form.cidade}
+                onChange={handleChange}
+                className="input-modal"
+              />
+              <input
+                name="cpf"
+                placeholder="CPF ou CNPJ"
+                value={form.cpf}
+                onChange={handleChange}
+                className="input-modal"
+              />
+              <textarea
+                name="mensagem"
+                placeholder="Mensagem/interesse (opcional)"
+                value={form.mensagem}
+                onChange={handleChange}
+                className="input-modal"
+                rows={3}
+              />
+              <button type="submit" className="btn-modal-laranja">
+                Enviar mensagem
+              </button>
+              <span style={{ fontSize: "0.8rem", marginTop: 6, color: "#777", textAlign: "center" }}>
+                Ao continuar, você concorda que a Pedraum Brasil não participa das negociações nem garante pagamentos, entregas ou resultados.
+              </span>
+            </form>
+            <style jsx>{`
+              .input-modal {
+                border: 1.5px solid #d4e3ed;
+                border-radius: 8px;
+                padding: 11px 14px;
+                font-size: 1rem;
+                margin-bottom: 2px;
+                outline: none;
+                transition: border 0.15s;
+              }
+              .input-modal:focus {
+                border: 1.5px solid #219EBC;
+              }
+              .btn-modal-laranja {
+                margin-top: 11px;
+                background: #FB8500;
+                color: #fff;
+                font-weight: 800;
+                font-size: 1.09rem;
+                border: none;
+                border-radius: 8px;
+                padding: 12px 0;
+                cursor: pointer;
+                transition: background .14s;
+              }
+              .btn-modal-laranja:hover {
+                background: #e17000;
+              }
+            `}</style>
           </motion.div>
-          <style jsx>{`
-            .input-modal {
-              border: 1.5px solid #d4e3ed;
-              border-radius: 8px;
-              padding: 11px 14px;
-              font-size: 1rem;
-              margin-bottom: 2px;
-              outline: none;
-              transition: border 0.15s;
-            }
-            .input-modal:focus {
-              border: 1.5px solid #219EBC;
-            }
-            .btn-modal-laranja {
-              margin-top: 11px;
-              background: #FB8500;
-              color: #fff;
-              font-weight: 800;
-              font-size: 1.09rem;
-              border: none;
-              border-radius: 8px;
-              padding: 12px 0;
-              cursor: pointer;
-              transition: background .14s;
-            }
-            .btn-modal-laranja:hover {
-              background: #e17000;
-            }
-          `}</style>
         </motion.div>
       )}
     </AnimatePresence>
@@ -283,7 +287,7 @@ export default function ProdutoDetalhePage() {
       if (!id) return;
       const docRef = doc(db, "produtos", String(id));
       const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) setProduto({ id: docSnap.id, ...docSnap.data() });
+      if (docSnap.exists()) setProduto({ id: docSnap.id, ...docSnap.data() }); // <-- pega todos os campos, inclusive userId
     }
     fetchProduto();
   }, [id]);
@@ -347,7 +351,7 @@ export default function ProdutoDetalhePage() {
           <div className="produto-detalhes-lista">
             <span><Tag size={19} /> {produto.categoria || "Peças"}</span>
             <span><Calendar size={19} /> {produto.ano || "2023"}</span>
-            <span><BadgeCheck size={19} /> {produto.conservacao || "Novo"}</span>
+            <span><BadgeCheck size={19} /> {produto.condicao || "Novo"}</span>
             <span><MapPin size={19} /> {produto.cidade || "Betim"},{produto.estado || "MG"}</span>
           </div>
 
@@ -382,7 +386,6 @@ export default function ProdutoDetalhePage() {
               </svg>
               WhatsApp
             </a>
-          
           </div>
         </div>
       </div>
@@ -424,7 +427,7 @@ export default function ProdutoDetalhePage() {
           margin-bottom: 24px;
           display: inline-block;
         }
-        .produto-grid {
+                .produto-grid {
           display: flex;
           gap: 36px;
         }
@@ -585,21 +588,7 @@ export default function ProdutoDetalhePage() {
           <ModalContato
             open={modalOpen}
             onClose={() => setModalOpen(false)}
-            onSubmit={async (dados) => {
-              // Salvando no Firestore coleção mensagensContato:
-              await addDoc(collection(db, "leads"), {
-                   ...dados,
-              produtoId: produto.id,
-              produtoNome: produto.nome,
-              userId_vendedor: produto.userId,
-              userId_comprador: usuarioLogado.id,
-              createdAt: serverTimestamp(),
-              status: "novo",
-              statusPagamento: "pendente",
-            });
-              alert("Mensagem enviada com sucesso!");
-              setModalOpen(false);
-            }}
+            onSubmit={() => {}} // Tudo já tratado no próprio ModalContato
             usuario={usuarioLogado}
             produto={produto}
           />
@@ -668,7 +657,6 @@ export default function ProdutoDetalhePage() {
           </AnimatePresence>
         )
       )}
-
     </section>
   );
 }

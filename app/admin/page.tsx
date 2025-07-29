@@ -1,254 +1,307 @@
 "use client";
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { db } from "@/firebaseConfig";
-import { collection, getDocs } from "firebase/firestore";
 import {
-  Users, Layers, Briefcase, ClipboardList, Star, Wallet2, BookOpen,
-  MessageCircle, Newspaper, ListChecks, PlusCircle, Inbox
+  collection, getCountFromServer, getDocs, orderBy, limit, query
+} from "firebase/firestore";
+import {
+  Users, Briefcase, ClipboardList, Star, Wallet2, BookOpen,
+  Newspaper, ListChecks, Inbox, Lightbulb, Building2, TrendingUp, Activity, ShieldCheck
 } from "lucide-react";
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
-import { withRoleProtection } from "@/utils/withRoleProtection";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 
-// Cores premium alinhadas ao header
-const COLORS = ["#FB8500", "#2563eb", "#219ebc", "#023047", "#00b4d8", "#ffc300"];
-
+// --- CARDS PRINCIPAIS
 const CARDS = [
   { label: "Usuários", icon: Users, key: "usuarios", link: "/admin/usuarios", color: "#2563eb" },
-  { label: "Máquinas", icon: Layers, key: "maquinas", link: "/admin/machines", color: "#FB8500" },
-  { label: "Serviços", icon: Briefcase, key: "servicos", link: "/admin/services", color: "#219ebc" },
+  { label: "Produtos", icon: TrendingUp, key: "produtos", link: "/admin/produtos", color: "#fb8500" },
+  { label: "Serviços", icon: Briefcase, key: "services", link: "/admin/services", color: "#219ebc" },
   { label: "Demandas", icon: ClipboardList, key: "demandas", link: "/admin/demandas", color: "#023047" },
   { label: "Leads", icon: ListChecks, key: "leads", link: "/admin/leads", color: "#00b4d8" },
+  { label: "Sugestões", icon: Lightbulb, key: "sugestoes", link: "/admin/sugestoes", color: "#fbbf24" },
+  { label: "Parceiros", icon: Building2, key: "parceiros", link: "/admin/parceiros", color: "#14b8a6" },
   { label: "Blog", icon: Newspaper, key: "blog", link: "/admin/blog", color: "#ffc300" },
-  { label: "Avaliações", icon: Star, key: "avaliacoes", link: "/admin/avaliacoes", color: "#ecb007" },
-  { label: "Transações", icon: Wallet2, key: "transacoes", link: "/admin/transacoes", color: "#4dd599" },
-  { label: "Mensagens", icon: MessageCircle, key: "mensagens", link: "/admin/mensagens", color: "#8a3ffc" }
 ];
 
-export default withRoleProtection(function AdminDashboardPage() {
-  const [stats, setStats] = useState({
-    usuarios: 0, maquinas: 0, servicos: 0, demandas: 0, leads: 0,
-    blog: 0, avaliacoes: 0, transacoes: 0, mensagens: 0
-  });
+const RECENT_COLLECTIONS = [
+  { label: "Usuários Novos", key: "usuarios", icon: Users, mainField: "nome", email: true },
+  { label: "Produtos Recentes", key: "produtos", icon: TrendingUp, mainField: "titulo" },
+  { label: "Serviços Recentes", key: "services", icon: Briefcase, mainField: "titulo" },
+  { label: "Demandas Novas", key: "demandas", icon: ClipboardList, mainField: "titulo" },
+  { label: "Leads Recentes", key: "leads", icon: Inbox, mainField: "nome" },
+];
+
+export default function AdminDashboard() {
+  const [stats, setStats] = useState<any>({});
+  const [adminInfo, setAdminInfo] = useState<any>(null);
+  const [recentData, setRecentData] = useState<any>({});
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchAll() {
-      const s = {};
-      for (const card of CARDS) {
+      setLoading(true);
+      // Busca info do admin autenticado
+      let userStr = localStorage.getItem("user");
+      let user = userStr ? JSON.parse(userStr) : null;
+      let nome = user?.nome || "Administrador";
+      let email = user?.email || "admin@pedraum.com.br";
+      let photoURL = user?.photoURL || "";
+      setAdminInfo({ nome, email, photoURL, papel: "Admin" });
+
+      // Busca contadores dos cards
+      const counts: any = {};
+      for (const { key } of CARDS) {
         try {
-          const snap = await getDocs(collection(db, card.key));
-          s[card.key] = snap.size;
+          const snap = await getCountFromServer(collection(db, key));
+          counts[key] = snap.data().count;
         } catch {
-          s[card.key] = 0;
+          counts[key] = 0;
         }
       }
-      setStats(s as typeof stats);
+      setStats(counts);
+
+      // Listas recentes
+      const rdata: any = {};
+      for (const c of RECENT_COLLECTIONS) {
+        try {
+          const snap = await getDocs(query(collection(db, c.key), orderBy("createdAt", "desc"), limit(5)));
+          rdata[c.key] = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        } catch {
+          rdata[c.key] = [];
+        }
+      }
+      setRecentData(rdata);
+      setLoading(false);
     }
     fetchAll();
   }, []);
 
-  const pieData = CARDS.map((c) => ({ name: c.label, value: stats[c.key] }));
+  // Gráficos
+  const pieData = CARDS.map((card) => ({
+    name: card.label,
+    value: stats[card.key] || 0,
+    color: card.color,
+  }));
+  const barData = [
+    { name: "Produtos", Quantidade: stats.produtos || 0 },
+    { name: "Serviços", Quantidade: stats.services || 0 },
+    { name: "Demandas", Quantidade: stats.demandas || 0 }
+  ];
 
   return (
-    <main style={{ minHeight: "100vh", background: "#f8fafc" }}>
-      <section style={{ maxWidth: 1380, margin: "0 auto", padding: "46px 2vw 0 2vw" }}>
-        {/* Título & Ações */}
+    <main style={{
+      minHeight: "100vh", background: "#f6f9fa", padding: "36px 0 0 0",
+      fontFamily: 'Inter, "Segoe UI", Arial, sans-serif'
+    }}>
+      <section style={{ maxWidth: 1480, margin: "0 auto", padding: "0 2vw" }}>
+        {/* HEADER */}
         <div style={{
-          marginBottom: 44,
-          display: "flex", flexDirection: "column", gap: 18,
-          alignItems: "flex-start",
+          background: "#fff", borderRadius: 30, boxShadow: "0 8px 40px #0001, 0 2px 8px #0001",
+          padding: "38px 34px", marginBottom: 36, display: "flex", alignItems: "center", gap: 28, flexWrap: "wrap"
         }}>
-          <h1 style={{
-            fontSize: "2.3rem", fontWeight: 900, color: "#023047", letterSpacing: "-1.2px"
+          <div style={{
+            width: 96, height: 96, borderRadius: "50%", background: "linear-gradient(135deg, #FB8500 65%, #2563eb 120%)",
+            color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 48, fontWeight: 900, border: "4px solid #fff", boxShadow: "0 4px 16px #0002"
           }}>
-            Painel Administrativo
-          </h1>
-          <span style={{ fontSize: "1.14rem", color: "#6b7680", marginTop: -12 }}>
-            Gerencie <b>todos os dados</b> e cadastros do Pedraum visualmente, rápido e fácil.
-          </span>
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 4 }}>
-            <Link href="/create-machine" className="action-btn orange">
-              <PlusCircle size={19} /> Nova Máquina
-            </Link>
-            <Link href="/admin/blog/create" className="action-btn blue">
-              <PlusCircle size={19} /> Novo Post Blog
-            </Link>
-            <Link href="/admin/leads" className="action-btn dark">
-              <Inbox size={17} /> Todos os Leads
+            {adminInfo?.photoURL
+              ? <img src={adminInfo.photoURL} alt={adminInfo.nome} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+              : adminInfo?.nome
+                ? adminInfo.nome.charAt(0).toUpperCase()
+                : <ShieldCheck size={58} />
+            }
+          </div>
+          <div style={{ flex: 1, minWidth: 250 }}>
+            <div style={{ fontWeight: 900, fontSize: "2.25rem", color: "#023047", marginBottom: 3, letterSpacing: "-1.2px" }}>
+              Painel do Administrador
+            </div>
+            <div style={{ color: "#8e97a3", fontSize: "1.14rem", marginBottom: 4 }}>
+              Olá, <b>{adminInfo?.nome || "Administrador"}</b> (<span style={{ color: "#fb8500" }}>{adminInfo?.papel || "Admin"}</span>). Gerencie <b>tudo</b> em tempo real e tenha o controle total da plataforma <b>Pedraum</b>.
+            </div>
+            <span style={{ color: "#219ebc", fontWeight: 700, fontSize: "1rem" }}>{adminInfo?.email}</span>
+          </div>
+          <div>
+            <Link href="/admin/usuarios" style={{
+              background: "#2563eb", color: "#fff", borderRadius: 20,
+              padding: "18px 40px", fontWeight: 900, fontSize: "1.19rem", textDecoration: "none",
+              boxShadow: "0 2px 16px #2563eb13"
+            }}>
+              Gerenciar Usuários
             </Link>
           </div>
         </div>
 
-        {/* Cards */}
+        {/* CARDS */}
         <div style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: "32px",
-          marginBottom: 54,
+          gap: "34px",
+          marginBottom: 46,
         }}>
-          {CARDS.map((card, idx) => (
-            <Link href={card.link} key={card.key} className="admin-card">
+          {CARDS.map((card) => (
+            <Link href={card.link} key={card.key} className="admin-card" style={{ textDecoration: "none" }}>
               <div style={{
                 background: "#fff",
-                border: "1.5px solid #e5e7eb",
-                borderRadius: 22,
-                boxShadow: "0 8px 40px #0001, 0 2px 8px #0001",
-                padding: "32px 12px 24px 12px",
+                border: `2.5px solid ${card.color}20`,
+                borderRadius: 25,
+                boxShadow: "0 8px 38px #0001",
+                padding: "40px 0 22px 0",
                 display: "flex", flexDirection: "column",
-                alignItems: "center", gap: 8,
-                transition: "box-shadow .16s, transform .13s",
-                cursor: "pointer"
-              }} className="hover:shadow-xl hover:scale-[1.04] transition">
-                <card.icon size={44} style={{ color: card.color, marginBottom: 10 }} />
-                <span style={{ fontWeight: 700, fontSize: "1.11rem", color: "#023047" }}>
+                alignItems: "center", gap: 10, minHeight: 165,
+                cursor: "pointer", transition: "box-shadow .18s, transform .13s"
+              }} className="hover:shadow-xl hover:scale-[1.06] transition">
+                <card.icon size={48} style={{ color: card.color, marginBottom: 8 }} />
+                <span style={{ fontWeight: 800, fontSize: 20, color: "#023047", marginBottom: 2 }}>
                   {card.label}
                 </span>
-                <span style={{ fontSize: "2.3rem", fontWeight: 900, color: card.color, marginTop: 3 }}>
-                  {stats[card.key] ?? 0}
+                <span style={{
+                  fontSize: 31, fontWeight: 900, color: card.color, letterSpacing: ".5px",
+                  background: "#f5faff", borderRadius: 12, padding: "6px 20px", minWidth: 56, textAlign: "center"
+                }}>
+                  {loading ? "..." : stats[card.key] ?? 0}
                 </span>
               </div>
             </Link>
           ))}
         </div>
 
-        {/* Gráfico */}
-        <div style={{
-          background: "#fff",
-          border: "1.5px solid #e5e7eb",
-          borderRadius: 22,
-          boxShadow: "0 8px 36px #0001",
-          padding: "32px 8vw 36px 8vw",
-          margin: "0 auto 56px auto",
-          maxWidth: 600,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center"
-        }}>
-          <h2 style={{ fontWeight: 800, fontSize: "1.24rem", color: "#023047", marginBottom: 16 }}>
-            Distribuição de Cadastros
-          </h2>
-          <div style={{ width: "100%", height: 250 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%" cy="50%" outerRadius={95}
-                  fill="#FB8500"
-                  label={({ name, value }) => value > 0 ? `${name}: ${value}` : ""}
-                  style={{ fontWeight: 700, fontSize: "1.01rem" }}
-                >
-                  {pieData.map((_, idx) => (
-                    <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+        {/* DASHBOARD E LISTAS */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.18fr 1fr", gap: 44, marginBottom: 50, alignItems: "stretch" }}>
+          {/* GRÁFICOS */}
+          <div style={{ background: "#fff", borderRadius: 28, boxShadow: "0 8px 40px #0001", padding: "42px 4vw 44px 4vw" }}>
+            <h2 style={{ fontWeight: 900, fontSize: "1.23rem", color: "#023047", marginBottom: 25 }}>
+              Visão Geral de Cadastros
+            </h2>
+            <div style={{ width: "100%", height: 265, marginBottom: 38 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%" cy="50%" outerRadius={92}
+                    label={({ name, value }) => value > 0 ? `${name}: ${value}` : ""}
+                    style={{ fontWeight: 800, fontSize: "1.08rem" }}
+                  >
+                    {pieData.map((entry, idx) => (
+                      <Cell key={idx} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ width: "100%", height: 180 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={barData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" fontWeight={700} />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="Quantidade" fill="#2563eb" radius={[12, 12, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
 
-        {/* Avisos & Atalhos */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-          gap: 28,
-          marginBottom: 56
-        }}>
-          <div style={{
-            background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 22,
-            boxShadow: "0 8px 32px #0001", padding: "32px 28px"
-          }}>
-            <div style={{ fontWeight: 700, color: "#2563eb", fontSize: "1.13rem", marginBottom: 15 }}>
-              Avisos & Dicas
+          {/* LISTAS RECENTES, ATALHOS, AVISOS */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 34, minHeight: 250 }}>
+            {/* Atalhos */}
+            <div style={{
+              background: "#fff", borderRadius: 24, boxShadow: "0 8px 32px #0001", padding: "24px 30px"
+            }}>
+              <div style={{ fontWeight: 900, color: "#2563eb", fontSize: "1.15rem", marginBottom: 19 }}>
+                Atalhos Administrativos
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 15, marginBottom: 7 }}>
+                <Link href="/create-produto" style={quickBtn("#fb8500", "#fff")}>+ Novo Produto</Link>
+                <Link href="/create-service" style={quickBtn("#219ebc", "#fff")}>+ Novo Serviço</Link>
+                <Link href="/admin/blog/create" style={quickBtn("#2563eb", "#fff")}>+ Novo Post Blog</Link>
+                <Link href="/admin/leads" style={quickBtn("#00b4d8", "#fff")}>Ver Leads</Link>
+                <Link href="/admin/usuarios" style={quickBtn("#2563eb", "#fff")}>Usuários</Link>
+                <Link href="/admin/parceiros" style={quickBtn("#14b8a6", "#fff")}>Parceiros</Link>
+              </div>
             </div>
-            <ul style={{ color: "#495668", fontSize: "1rem", lineHeight: 1.65 }}>
-              <li>✔️ Novo painel premium para admins.</li>
-              <li>✔️ Cadastros agora com análise gráfica em tempo real.</li>
-              <li>✔️ Acesse leads, blog, máquinas e muito mais direto do painel.</li>
-            </ul>
-          </div>
-          <div style={{
-            background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 22,
-            boxShadow: "0 8px 32px #0001", padding: "32px 28px"
-          }}>
-            <div style={{ fontWeight: 700, color: "#FB8500", fontSize: "1.13rem", marginBottom: 13 }}>
-              Atalhos Rápidos
+            {/* Últimos Cadastros */}
+            <div style={{
+              background: "#fff", borderRadius: 24, boxShadow: "0 8px 32px #0001", padding: "23px 30px"
+            }}>
+              <div style={{ fontWeight: 900, color: "#fb8500", fontSize: "1.12rem", marginBottom: 13 }}>
+                Últimos Cadastros
+              </div>
+              {RECENT_COLLECTIONS.map(rc => (
+                <div key={rc.key} style={{ marginBottom: 13 }}>
+                  <div style={{ fontWeight: 800, color: "#2563eb", marginBottom: 3, display: "flex", alignItems: "center", gap: 8 }}>
+                    <rc.icon size={17} /> {rc.label}
+                  </div>
+                  {(!recentData[rc.key] || recentData[rc.key].length === 0) && (
+                    <span style={{ color: "#aaa", fontSize: ".99rem" }}>Nenhum registro recente.</span>
+                  )}
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                    {recentData[rc.key]?.map((item: any) => (
+                      <li key={item.id} style={{
+                        display: "flex", alignItems: "center", gap: 10, padding: "3px 0"
+                      }}>
+                        <Activity size={15} color="#219ebc" />
+                        <span style={{ fontWeight: 700, color: "#023047" }}>
+                          {item[rc.mainField] || item.email || "—"}
+                        </span>
+                        {rc.email && item.email && (
+                          <span style={{ color: "#64748b", fontSize: ".93rem" }}>({item.email})</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              <Link href="/create-machine" className="admin-shortcut blue">+ Máquina</Link>
-              <Link href="/create-service" className="admin-shortcut orange">+ Serviço</Link>
-              <Link href="/admin/blog/create" className="admin-shortcut green">+ Post Blog</Link>
-              <Link href="/admin/leads" className="admin-shortcut dark">Ver Leads</Link>
+            {/* Avisos */}
+            <div style={{
+              background: "#fff", borderRadius: 22, boxShadow: "0 8px 32px #0001", padding: "22px 24px"
+            }}>
+              <div style={{ fontWeight: 900, color: "#14b8a6", fontSize: "1.09rem", marginBottom: 13 }}>
+                Avisos Inteligentes para Administrador
+              </div>
+              <ul style={{ color: "#495668", fontSize: "1.01rem", lineHeight: 1.65, marginLeft: 12 }}>
+                <li>✔️ Mantenha cadastros sempre atualizados.</li>
+                <li>✔️ Gerencie leads com atenção especial.</li>
+                <li>✔️ Responda às mensagens e sugestões de usuários.</li>
+                <li>✔️ Monitore parceiros e avaliações para garantir reputação da plataforma.</li>
+                <li>✔️ Use os gráficos para insights e decisões estratégicas.</li>
+                <li>✔️ Não esqueça de conferir notificações, blog e transações!</li>
+              </ul>
             </div>
           </div>
         </div>
+        {/* RODAPÉ */}
+        <footer style={{
+          marginTop: 45, paddingTop: 32, borderTop: "1.7px solid #e5e7eb",
+          textAlign: "center", fontSize: 16, color: "#6c7780", letterSpacing: ".01em"
+        }}>
+          © {new Date().getFullYear()} Pedraum Brasil · Painel Administrativo Premium.
+        </footer>
       </section>
-      {/* Rodapé */}
-      <footer style={{
-        marginTop: 36, paddingTop: 28, borderTop: "1.5px solid #e5e7eb",
-        textAlign: "center", fontSize: 15, color: "#6c7780"
-      }}>
-        © {new Date().getFullYear()} Pedraum Brasil · Dashboard Premium para Mineração e Britagem.
-      </footer>
-      {/* CSS das ações e atalhos */}
+      {/* ESTILO GLOBAL CARDS */}
       <style>{`
-        .action-btn {
-          display: inline-flex;
-          align-items: center;
-          font-weight: 700;
-          font-size: 1rem;
-          border-radius: 15px;
-          padding: 11px 25px;
-          box-shadow: 0 4px 14px #0001;
-          border: none;
-          outline: none;
-          gap: 8px;
-          letter-spacing: .01em;
-          transition: background .14s, transform .13s;
-          cursor: pointer;
-          margin-right: 4px;
+        .admin-card:hover { box-shadow: 0 12px 42px #0002 !important; }
+        @media (max-width: 1000px) {
+          section { padding: 0 1vw !important; }
+          .admin-card { min-width: 94vw !important; }
         }
-        .action-btn.orange {
-          background: #FB8500;
-          color: #fff;
-        }
-        .action-btn.blue {
-          background: #2563eb;
-          color: #fff;
-        }
-        .action-btn.dark {
-          background: #023047;
-          color: #fff;
-        }
-        .action-btn:hover {
-          transform: translateY(-1px) scale(1.04);
-          opacity: .95;
-        }
-        .admin-shortcut {
-          display: inline-block;
-          font-weight: 700;
-          padding: 8px 18px;
-          border-radius: 13px;
-          font-size: .99rem;
-          background: #f5f7fa;
-          color: #023047;
-          transition: background .14s, color .12s;
-          box-shadow: 0 2px 8px #0001;
-        }
-        .admin-shortcut.blue { background: #e8f0fe; color: #2563eb; }
-        .admin-shortcut.orange { background: #fff3e0; color: #FB8500; }
-        .admin-shortcut.green { background: #e8fbe8; color: #219e7a; }
-        .admin-shortcut.dark { background: #e0eaf6; color: #023047; }
-        .admin-shortcut:hover { background: #ececec; color: #023047; }
-        @media (max-width: 780px) {
-          section {
-            padding: 28px 2vw 0 2vw !important;
-          }
+        @media (max-width: 700px) {
+          .admin-card { min-width: 98vw !important; }
         }
       `}</style>
     </main>
   );
-}, { allowed: ["admin"] });
+}
+
+// --- GERADOR DE BOTÃO RÁPIDO ---
+function quickBtn(bg: string, color: string) {
+  return {
+    background: bg, color, borderRadius: 14, fontWeight: 900,
+    fontSize: ".99rem", padding: "14px 23px", textDecoration: "none",
+    boxShadow: "0 2px 9px #0001", transition: "background .16s",
+    display: "inline-block"
+  };
+}

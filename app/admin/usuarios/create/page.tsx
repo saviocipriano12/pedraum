@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { db } from "@/firebaseConfig";
-import { collection, addDoc, setDoc, doc, getDocs, query, where } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, where } from "firebase/firestore";
 import { Loader, ArrowLeft, Save, Key, Eye, EyeOff, Copy } from "lucide-react";
 import Link from "next/link";
 
@@ -154,7 +154,7 @@ export default function CreateUsuarioPage() {
             </button>
             <button type="button"
               tabIndex={-1}
-              onClick={gerarSenhaAleatoria}
+              onClick={() => gerarSenhaAleatoria()}   // <-- Correção aqui!
               style={{
                 border: "none", background: "transparent", cursor: "pointer", position: "absolute", right: 18, top: 13,
                 color: "#FB8500", padding: 0

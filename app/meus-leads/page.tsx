@@ -19,9 +19,15 @@ type Lead = {
   createdAt: any;
   valorLead: number;
   paymentLink?: string;
-  // Novos campos:
   produtoNome?: string;
   tipoProduto?: string;
+  vendedoresLiberados?: {
+    email: string;
+    userId: string;
+    status: string;
+    dataPagamento?: any;
+  }[];
+  vendedoresUserIds?: string[];
 };
 
 const whatsappPedraum = "5531990903613"; // Número oficial Pedraum
@@ -30,8 +36,7 @@ const getLeadWhatsappMsg = (lead: Lead) => {
   const tipo = lead.tipoProduto || lead.tipo || "";
   return (
     `Olá! Tenho interesse no lead do tipo: ${tipo} - ${lead.produtoNome || lead.serviceTitle || lead.machineNome || "Lead"}\n` +
-    `ID do lead: ${lead.id}\n` +
-    `.`
+    `ID do lead: ${lead.id}\n.`
   );
 };
 
@@ -58,13 +63,18 @@ export default function MeusLeadsPage() {
     async function fetchLeads() {
       if (!userId) return;
       setLoading(true);
-      const q = query(collection(db, "leads"), where("vendedorId", "==", userId));
-      const querySnapshot = await getDocs(q);
-      const data: Lead[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as Lead);
+      // Busca leads onde o usuário é vendedor principal OU foi ofertado
+      const q1 = query(collection(db, "leads"), where("vendedorId", "==", userId));
+      const q2 = query(collection(db, "leads"), where("vendedoresUserIds", "array-contains", userId));
+      const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+      const data: { [id: string]: Lead } = {};
+      snap1.forEach((doc) => {
+        data[doc.id] = { id: doc.id, ...doc.data() } as Lead;
       });
-      setLeads(data);
+      snap2.forEach((doc) => {
+        data[doc.id] = { id: doc.id, ...doc.data() } as Lead;
+      });
+      setLeads(Object.values(data));
       setLoading(false);
     }
     if (userId) fetchLeads();
@@ -174,141 +184,148 @@ export default function MeusLeadsPage() {
         }}>
           {leads
             .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
-            .map((lead) => (
-              <div
-                key={lead.id}
-                style={{
-                  borderRadius: 16,
-                  boxShadow: "0 2px 20px #0001",
-                  background: "#fff",
-                  border: "1.6px solid #f2f3f7",
-                  padding: "28px 26px 18px 26px",
-                  marginBottom: 2,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                  minHeight: 190,
-                  position: "relative",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <div style={{ fontSize: "1.14rem", fontWeight: 700, color: "#023047", display: "flex", alignItems: "center", gap: 10 }}>
+            .map((lead) => {
+              // Se for lead ofertado, pega status do vendedor
+              let statusVendedor = "";
+              if (lead.vendedoresLiberados && lead.vendedoresLiberados.length && userId) {
+                const vend = lead.vendedoresLiberados.find(v => v.userId === userId);
+                statusVendedor = vend?.status || "";
+              }
+              return (
+                <div
+                  key={lead.id}
+                  style={{
+                    borderRadius: 16,
+                    boxShadow: "0 2px 20px #0001",
+                    background: "#fff",
+                    border: "1.6px solid #f2f3f7",
+                    padding: "28px 26px 18px 26px",
+                    marginBottom: 2,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                    minHeight: 190,
+                    position: "relative",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: "1.14rem", fontWeight: 700, color: "#023047", display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{
+                        background: "#F1F5F9",
+                        borderRadius: 7,
+                        color: "#FB8500",
+                        fontWeight: 800,
+                        padding: "3px 15px",
+                        fontSize: 16,
+                        marginRight: 8,
+                        border: "1px solid #ffe5bb"
+                      }}>
+                        {lead.produtoNome
+                          ? `Produto: ${lead.produtoNome}`
+                          : lead.serviceTitle || lead.machineNome || "Lead"}
+                      </span>
+                    </div>
                     <span style={{
-                      background: "#F1F5F9",
-                      borderRadius: 7,
-                      color: "#FB8500",
                       fontWeight: 800,
-                      padding: "3px 15px",
-                      fontSize: 16,
-                      marginRight: 8,
-                      border: "1px solid #ffe5bb"
+                      fontSize: "0.99rem",
+                      borderRadius: 10,
+                      padding: "7px 15px",
+                      background: lead.statusPagamento === "pago" || statusVendedor === "pago" ? "#E6FAF0" : "#F9E8D0",
+                      color: lead.statusPagamento === "pago" || statusVendedor === "pago" ? "#18B56D" : "#FB8500",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      border: `1.5px solid ${lead.statusPagamento === "pago" || statusVendedor === "pago" ? "#18B56D33" : "#fb850033"}`
                     }}>
-                      {/* Nome e tipo do produto de interesse */}
-                      {lead.produtoNome
-                        ? `Produto: ${lead.produtoNome}`
-                        : lead.serviceTitle || lead.machineNome || "Lead"}
+                      {lead.statusPagamento === "pago" || statusVendedor === "pago" ? (
+                        <>
+                          <CheckCircle size={18} /> Pago
+                        </>
+                      ) : (
+                        <>
+                          <Lock size={17} /> {statusVendedor === "ofertado" ? "Ofertado" : "Pendente"}
+                        </>
+                      )}
                     </span>
                   </div>
-                  <span style={{
-                    fontWeight: 800,
-                    fontSize: "0.99rem",
-                    borderRadius: 10,
-                    padding: "7px 15px",
-                    background: lead.statusPagamento === "pago" ? "#E6FAF0" : "#F9E8D0",
-                    color: lead.statusPagamento === "pago" ? "#18B56D" : "#FB8500",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    border: `1.5px solid ${lead.statusPagamento === "pago" ? "#18B56D33" : "#fb850033"}`
+
+                  {/* Tipo/Categoria do produto */}
+                  <div style={{
+                    color: "#219EBC", fontWeight: 700, marginBottom: 5, fontSize: 15,
                   }}>
-                    {lead.statusPagamento === "pago" ? (
-                      <>
-                        <CheckCircle size={18} /> Pago
-                      </>
-                    ) : (
-                      <>
-                        <Lock size={17} /> Pendente
-                      </>
+                    {lead.tipoProduto && (
+                      <>Tipo: {lead.tipoProduto}</>
                     )}
-                  </span>
-                </div>
+                  </div>
 
-                {/* NOVO: Tipo/Categoria do produto */}
-                <div style={{
-                  color: "#219EBC", fontWeight: 700, marginBottom: 5, fontSize: 15,
-                }}>
-                  {lead.tipoProduto && (
-                    <>Tipo: {lead.tipoProduto}</>
-                  )}
-                </div>
-
-                <div style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: 8,
-                  marginBottom: 2
-                }}>
-                  <span style={{ color: "#767676", fontSize: "0.97rem" }}>
-                    Recebido em: {lead.createdAt?.seconds
-                      ? new Date(lead.createdAt.seconds * 1000).toLocaleString()
-                      : "---"}
-                  </span>
-                  <span style={{
-                    fontWeight: 800,
-                    fontSize: "1.07rem",
-                    color: "#219ebc",
-                    background: "#F2F6F9",
-                    borderRadius: 7,
-                    padding: "3.5px 12px",
-                    letterSpacing: ".01em",
-                    border: "1px solid #e5ecf2"
+                  <div style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: 8,
+                    marginBottom: 2
                   }}>
-                    Valor: R${lead.valorLead?.toFixed(2) || "0.00"}
-                  </span>
+                    <span style={{ color: "#767676", fontSize: "0.97rem" }}>
+                      Recebido em: {lead.createdAt?.seconds
+                        ? new Date(lead.createdAt.seconds * 1000).toLocaleString()
+                        : "---"}
+                    </span>
+                    <span style={{
+                      fontWeight: 800,
+                      fontSize: "1.07rem",
+                      color: "#219ebc",
+                      background: "#F2F6F9",
+                      borderRadius: 7,
+                      padding: "3.5px 12px",
+                      letterSpacing: ".01em",
+                      border: "1px solid #e5ecf2"
+                    }}>
+                      Valor: R${lead.valorLead?.toFixed(2) || "0.00"}
+                    </span>
+                  </div>
+                  <div style={{ borderTop: "1.2px solid #f3f3f5", paddingTop: 10, marginTop: 2 }}>
+                    {lead.statusPagamento === "pago" || statusVendedor === "pago" ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <div style={{ color: "#222", fontSize: "1rem", marginBottom: 2 }}>
+                          <span style={{ fontWeight: 700 }}>Nome:</span> {lead.nome}
+                        </div>
+                        <div style={{ color: "#222", fontSize: "1rem", marginBottom: 2 }}>
+                          <span style={{ fontWeight: 700 }}>Telefone:</span> {lead.telefone}
+                        </div>
+                        <div style={{ color: "#222", fontSize: "1rem" }}>
+                          <span style={{ fontWeight: 700 }}>E-mail:</span> {lead.email}
+                        </div>
+                      </div>
+                    ) : (
+                      <a
+                        href={`https://api.whatsapp.com/send?phone=${whatsappPedraum}&text=${encodeURIComponent(getLeadWhatsappMsg(lead))}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 9,
+                          background: "#FB8500",
+                          color: "#fff",
+                          borderRadius: 9,
+                          fontWeight: 800,
+                          fontSize: "1.03rem",
+                          padding: "9px 20px",
+                          boxShadow: "0 2px 8px #0001",
+                          marginTop: 7,
+                          border: "none",
+                          cursor: "pointer",
+                          opacity: 1
+                        }}
+                      >
+                        Liberar contato <ExternalLink size={19} />
+                      </a>
+                    )}
+                  </div>
                 </div>
-                <div style={{ borderTop: "1.2px solid #f3f3f5", paddingTop: 10, marginTop: 2 }}>
-                  {lead.statusPagamento === "pago" ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      <div style={{ color: "#222", fontSize: "1rem", marginBottom: 2 }}>
-                        <span style={{ fontWeight: 700 }}>Nome:</span> {lead.nome}
-                      </div>
-                      <div style={{ color: "#222", fontSize: "1rem", marginBottom: 2 }}>
-                        <span style={{ fontWeight: 700 }}>Telefone:</span> {lead.telefone}
-                      </div>
-                      <div style={{ color: "#222", fontSize: "1rem" }}>
-                        <span style={{ fontWeight: 700 }}>E-mail:</span> {lead.email}
-                      </div>
-                    </div>
-                  ) : (
-                    <a
-                      href={`https://api.whatsapp.com/send?phone=${whatsappPedraum}&text=${encodeURIComponent(getLeadWhatsappMsg(lead))}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 9,
-                        background: "#FB8500",
-                        color: "#fff",
-                        borderRadius: 9,
-                        fontWeight: 800,
-                        fontSize: "1.03rem",
-                        padding: "9px 20px",
-                        boxShadow: "0 2px 8px #0001",
-                        marginTop: 7,
-                        border: "none",
-                        cursor: "pointer",
-                        opacity: 1
-                      }}
-                    >
-                      Liberar contato <ExternalLink size={19} />
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
+              )
+            })}
         </div>
       )}
     </section>

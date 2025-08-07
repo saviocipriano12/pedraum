@@ -6,33 +6,58 @@ import { collection, getDocs, deleteDoc, doc, updateDoc } from "firebase/firesto
 import { Pencil, Trash2, PlusCircle, Search, Info, ArrowLeftRight } from "lucide-react";
 import { withRoleProtection } from "@/utils/withRoleProtection";
 
+// Categorias
+const categorias = [
+  "Equipamentos de Perfuração e Demolição",
+  "Equipamentos de Carregamento e Transporte",
+  "Britagem e Classificação",
+  "Beneficiamento e Processamento Mineral",
+  "Peças e Componentes Industriais",
+  "Desgaste e Revestimento",
+  "Automação, Elétrica e Controle",
+  "Lubrificação e Produtos Químicos",
+  "Equipamentos Auxiliares e Ferramentas",
+  "EPIs (Equipamentos de Proteção Individual)",
+  "Instrumentos de Medição e Controle",
+  "Manutenção e Serviços Industriais",
+  "Veículos e Pneus",
+  "Outros",
+];
+
+const statusLabel: any = {
+  aberta: { label: "Aberta", color: "#059669", bg: "#e7faec" },
+  fechada: { label: "Fechada", color: "#d90429", bg: "#ffeaea" },
+  andamento: { label: "Em andamento", color: "#FB8500", bg: "#fff9ec" },
+  inativa: { label: "Inativa", color: "#adb0b6", bg: "#f4f4f7" },
+};
+
 type Demanda = {
   id: string;
   titulo: string;
   categoria: string;
   criador: string;
-  status: string;
   emailCriador?: string;
+  status: string;
   createdAt?: any;
-};
-
-const statusLabel: any = {
-  aberta: { label: "Aberta", color: "#059669", bg: "#e7faec" },
-  fechada: { label: "Fechada", color: "#d90429", bg: "#ffeaea" },
-  andamento: { label: "Em andamento", color: "#FB8500", bg: "#fff9ec" }
 };
 
 function ListaDemandasAdmin() {
   const [demandas, setDemandas] = useState<Demanda[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Filtros
   const [busca, setBusca] = useState("");
+  const [buscaDebounced, setBuscaDebounced] = useState(busca);
   const [filtroStatus, setFiltroStatus] = useState("");
+  const [filtroCategoria, setFiltroCategoria] = useState("");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
+  const [filtroEmail, setFiltroEmail] = useState("");
   const [modal, setModal] = useState<Demanda | null>(null);
 
-  // Debounce da busca
-  const [buscaDebounced, setBuscaDebounced] = useState(busca);
+  // Debounce busca
   useEffect(() => {
-    const t = setTimeout(() => setBuscaDebounced(busca), 350);
+    const t = setTimeout(() => setBuscaDebounced(busca), 300);
     return () => clearTimeout(t);
   }, [busca]);
 
@@ -64,6 +89,8 @@ function ListaDemandasAdmin() {
         ? "andamento"
         : demanda.status === "andamento"
         ? "fechada"
+        : demanda.status === "fechada"
+        ? "inativa"
         : "aberta";
     await updateDoc(doc(db, "demandas", demanda.id), { status: proximo });
     setDemandas(ds =>
@@ -71,15 +98,43 @@ function ListaDemandasAdmin() {
     );
   }
 
-  // Filtros e busca
-  const demandasFiltradas = demandas.filter(d =>
-    (!buscaDebounced ||
+  // FILTRAGEM AVANÇADA
+  const demandasFiltradas = demandas.filter(d => {
+    // Filtro busca livre (titulo/categoria/criador)
+    const buscaOk =
+      !buscaDebounced ||
       d.titulo?.toLowerCase().includes(buscaDebounced.toLowerCase()) ||
       d.categoria?.toLowerCase().includes(buscaDebounced.toLowerCase()) ||
-      d.criador?.toLowerCase().includes(buscaDebounced.toLowerCase())
-    ) &&
-    (!filtroStatus || d.status === filtroStatus)
-  );
+      d.criador?.toLowerCase().includes(buscaDebounced.toLowerCase());
+
+    // Filtro status
+    const statusOk = !filtroStatus || d.status === filtroStatus;
+
+    // Filtro categoria
+    const catOk = !filtroCategoria || d.categoria === filtroCategoria;
+
+    // Filtro email do criador
+    const emailOk =
+      !filtroEmail ||
+      d.emailCriador?.toLowerCase().includes(filtroEmail.toLowerCase());
+
+    // Filtro de datas
+    let dataOk = true;
+    if ((dataInicio || dataFim) && d.createdAt?.seconds) {
+      const createdAt = new Date(d.createdAt.seconds * 1000);
+      if (dataInicio) {
+        const di = new Date(dataInicio);
+        if (createdAt < di) dataOk = false;
+      }
+      if (dataFim) {
+        const df = new Date(dataFim);
+        // inclui todo o dia final
+        if (createdAt > new Date(df.setHours(23, 59, 59, 999))) dataOk = false;
+      }
+    }
+
+    return buscaOk && statusOk && catOk && emailOk && dataOk;
+  });
 
   return (
     <main style={{ minHeight: "100vh", background: "#f9fafb", padding: "34px 0" }}>
@@ -108,14 +163,14 @@ function ListaDemandasAdmin() {
 
         {/* Filtros */}
         <div style={{
-          display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap", alignItems: "center"
+          display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap", alignItems: "center", flexDirection: "row"
         }}>
           <div style={{ position: "relative" }}>
             <Search size={18} style={{ position: "absolute", top: 9, left: 10, color: "#a0a0a0" }} />
             <input
               style={{
                 padding: "9px 9px 9px 33px", borderRadius: 11, border: "1px solid #e0e7ef",
-                minWidth: 220, fontSize: 15, fontWeight: 600, color: "#023047"
+                minWidth: 200, fontSize: 15, fontWeight: 600, color: "#023047"
               }}
               placeholder="Buscar título, categoria ou criador..."
               value={busca}
@@ -133,7 +188,52 @@ function ListaDemandasAdmin() {
             <option value="aberta">Aberta</option>
             <option value="fechada">Fechada</option>
             <option value="andamento">Em andamento</option>
+            <option value="inativa">Inativa</option>
           </select>
+          <select
+            value={filtroCategoria}
+            onChange={e => setFiltroCategoria(e.target.value)}
+            style={{
+              borderRadius: 10, border: "1px solid #e0e7ef", fontWeight: 700, color: "#FB8500", padding: "9px 14px"
+            }}
+          >
+            <option value="">Todas Categorias</option>
+            {categorias.map(cat => (
+              <option key={cat}>{cat}</option>
+            ))}
+          </select>
+          <input
+            type="email"
+            placeholder="Buscar e-mail do criador"
+            value={filtroEmail}
+            onChange={e => setFiltroEmail(e.target.value)}
+            style={{
+              padding: "9px 13px", borderRadius: 11, border: "1px solid #e0e7ef", minWidth: 180,
+              fontSize: 15, fontWeight: 600, color: "#219ebc"
+            }}
+          />
+          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <span style={{ color: "#aaa", fontWeight: 500, fontSize: 13 }}>De:</span>
+            <input
+              type="date"
+              value={dataInicio}
+              onChange={e => setDataInicio(e.target.value)}
+              style={{
+                padding: "7px 7px", borderRadius: 10, border: "1px solid #e0e7ef", minWidth: 100,
+                fontSize: 14, fontWeight: 600, color: "#219ebc"
+              }}
+            />
+            <span style={{ color: "#aaa", fontWeight: 500, fontSize: 13, marginLeft: 5 }}>Até:</span>
+            <input
+              type="date"
+              value={dataFim}
+              onChange={e => setDataFim(e.target.value)}
+              style={{
+                padding: "7px 7px", borderRadius: 10, border: "1px solid #e0e7ef", minWidth: 100,
+                fontSize: 14, fontWeight: 600, color: "#219ebc"
+              }}
+            />
+          </div>
         </div>
 
         {/* Lista de Demandas */}

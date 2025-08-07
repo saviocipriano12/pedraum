@@ -1,39 +1,115 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { doc, getDoc, addDoc, collection, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  addDoc,
+  collection,
+  serverTimestamp,
+  getDocs,
+  query,
+  where,
+  limit,
+} from "firebase/firestore";
 import { db, auth } from "@/firebaseConfig";
 import Link from "next/link";
-import { Tag, Calendar, MapPin, BadgeCheck, Heart, MessageCircle, Mail } from "lucide-react";
+import { Tag, Calendar, MapPin, BadgeCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { onAuthStateChanged } from "firebase/auth";
 
-// Modal de contato
-function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
+type ProdutoDoc = {
+  id: string;
+  userId?: string;
+  categoria?: string;
+  createdAt?: any;
+  expiraEm?: any;
+  imagens?: string[];
+  nome?: string;
+  descricao?: string;
+  preco?: number | string | null;
+  ano?: number | string;
+  condicao?: string;
+  cidade?: string;
+  estado?: string;
+  tipo?: string;
+  destaques?: string;
+  sobre?: string;
+  condicoes?: string;
+};
+
+// ======================= Utils =======================
+function getDateFromTs(ts?: any): Date | null {
+  if (!ts) return null;
+  if (typeof ts?.toDate === "function") return ts.toDate();
+  if (typeof ts?.seconds === "number") return new Date(ts.seconds * 1000);
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? null : d;
+}
+function isNovo(createdAt?: any) {
+  const d = getDateFromTs(createdAt);
+  if (!d) return false;
+  const diffDays = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
+  return diffDays <= 7;
+}
+function isExpired(createdAt?: any, expiraEm?: any) {
+  const now = Date.now();
+  const expDate = getDateFromTs(expiraEm);
+  if (expiraEm && expDate) return now > expDate.getTime();
+  const created = getDateFromTs(createdAt);
+  if (!created) return false;
+  const plus45 = new Date(created);
+  plus45.setDate(plus45.getDate() + 45);
+  return now > plus45.getTime();
+}
+function currency(preco: any) {
+  const n = Number(preco);
+  if (!preco || isNaN(n) || n <= 0) return "";
+  return `R$ ${n.toLocaleString("pt-BR")}`;
+}
+function resumo(str: string = "", len = 120) {
+  if (!str) return "";
+  return str.length <= len ? str : str.slice(0, len - 3) + "...";
+}
+
+// ======================= Modal de contato =======================
+function ModalContato({
+  open,
+  onClose,
+  usuario,
+  produto,
+  vendedorEmail,
+}: {
+  open: boolean;
+  onClose: () => void;
+  usuario: any;
+  produto: any;
+  vendedorEmail: string;
+}) {
   const [form, setForm] = useState({
     nome: usuario?.nome || "",
     telefone: usuario?.telefone || "",
     email: usuario?.email || "",
     cidade: usuario?.cidade || "",
     cpf: usuario?.cpf || "",
-    mensagem: ""
+    mensagem: "",
   });
 
   useEffect(() => {
     if (open && usuario) {
-      setForm(f => ({
+      setForm((f) => ({
         ...f,
         nome: usuario.nome || "",
         telefone: usuario.telefone || "",
         email: usuario.email || "",
         cidade: usuario.cidade || "",
-        cpf: usuario.cpf || ""
+        cpf: usuario.cpf || "",
       }));
     }
   }, [open, usuario]);
 
-  function handleChange(e) {
+  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
     setForm({ ...form, [e.target.name]: e.target.value });
   }
 
@@ -41,7 +117,6 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
     <AnimatePresence>
       {open && (
         <motion.div
-          className="modal-bg"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -56,7 +131,6 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
           }}
         >
           <motion.div
-            className="modal-contato"
             initial={{ scale: 0.94, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.94, opacity: 0 }}
@@ -68,7 +142,7 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
               padding: 38,
               maxWidth: 420,
               width: "98vw",
-              position: "relative"
+              position: "relative",
             }}
           >
             <button
@@ -88,67 +162,50 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
             >
               ×
             </button>
+
             <h2 style={{ fontSize: "1.42rem", fontWeight: 900, color: "#023047", marginBottom: 16 }}>
               Fale com o anunciante
             </h2>
+
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
-
                 const user = auth.currentUser;
                 if (!user) {
                   alert("Faça login para entrar em contato.");
                   return;
                 }
 
-                // Buscar email do vendedor (dono do produto)
-                let vendedorEmail = "";
-                if (produto.userId) {
-                  const vendedorDoc = await getDoc(doc(db, "usuarios", produto.userId));
-                  if (vendedorDoc.exists()) {
-                    vendedorEmail = vendedorDoc.data().email || "";
-                  }
-                }
-
-                // Salva o lead, já com campo interesse/mensagem e vendedor liberado
+                // Salva lead com vendedor original automaticamente em vendedoresLiberados
                 await addDoc(collection(db, "leads"), {
-  nome: form.nome,
-  telefone: form.telefone,
-  email: form.email,
-  cidade: form.cidade,
-  cpf: form.cpf,
-  mensagem: form.mensagem,
-  createdAt: serverTimestamp(),
-  produtoId: produto.id,
-  produtoNome: produto.nome,
-  tipoProduto: produto.categoria || produto.tipo || "", // Salva tipo/categoria do produto
-  userId: user.uid,
-  vendedorId: produto.userId,
-  vendedoresLiberados: [
-    { email: produto.emailVendedor || "", status: "ofertado" } // ajuste conforme seu fluxo
-  ],
-  status: "novo",
-  statusPagamento: "pendente",
-  valorLead: 19.9,
-  metodoPagamento: "mercado_pago",
-  paymentLink: "",
-  pagoEm: "",
-  liberadoEm: "",
-  idTransacao: "",
-  isTest: false,
-  imagens: produto.imagens || [],
-});
-
+                  nome: form.nome,
+                  telefone: form.telefone,
+                  email: form.email,
+                  cidade: form.cidade,
+                  cpf: form.cpf,
+                  mensagem: form.mensagem,
+                  createdAt: serverTimestamp(),
+                  produtoId: produto.id,
+                  produtoNome: produto.nome,
+                  tipoProduto: produto.categoria || produto.tipo || "",
+                  userId: user.uid,
+                  vendedorId: produto.userId,
+                  vendedoresLiberados: vendedorEmail
+                    ? [{ email: vendedorEmail, status: "ofertado" }]
+                    : [],
+                  status: "novo",
+                  statusPagamento: "pendente",
+                  valorLead: 19.9,
+                  metodoPagamento: "mercado_pago",
+                  paymentLink: "",
+                  pagoEm: "",
+                  liberadoEm: "",
+                  idTransacao: "",
+                  isTest: false,
+                  imagens: produto.imagens || [],
+                });
 
                 alert("Mensagem enviada com sucesso!");
-                setForm({
-                  nome: usuario.nome || "",
-                  telefone: usuario.telefone || "",
-                  email: usuario.email || "",
-                  cidade: usuario.cidade || "",
-                  cpf: usuario.cpf || "",
-                  mensagem: "",
-                });
                 onClose();
               }}
               style={{ display: "flex", flexDirection: "column", gap: 13 }}
@@ -204,9 +261,11 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
                 Enviar mensagem
               </button>
               <span style={{ fontSize: "0.8rem", marginTop: 6, color: "#777", textAlign: "center" }}>
-                Ao continuar, você concorda que a Pedraum Brasil não participa das negociações nem garante pagamentos, entregas ou resultados.
+                Ao continuar, você concorda que a Pedraum Brasil não participa das negociações nem garante
+                pagamentos, entregas ou resultados.
               </span>
             </form>
+
             <style jsx>{`
               .input-modal {
                 border: 1.5px solid #d4e3ed;
@@ -222,7 +281,7 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
               }
               .btn-modal-laranja {
                 margin-top: 11px;
-                background: #FB8500;
+                background: #fb8500;
                 color: #fff;
                 font-weight: 800;
                 font-size: 1.09rem;
@@ -230,7 +289,7 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
                 border-radius: 8px;
                 padding: 12px 0;
                 cursor: pointer;
-                transition: background .14s;
+                transition: background 0.14s;
               }
               .btn-modal-laranja:hover {
                 background: #e17000;
@@ -243,15 +302,23 @@ function ModalContato({ open, onClose, onSubmit, usuario, produto }) {
   );
 }
 
+// ======================= Página =======================
 export default function ProdutoDetalhePage() {
   const { id } = useParams();
   const [produto, setProduto] = useState<any>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-
-  // Usuário logado real
   const [usuarioLogado, setUsuarioLogado] = useState<any>(null);
   const [carregandoUsuario, setCarregandoUsuario] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [vendedorEmail, setVendedorEmail] = useState<string>("");
 
+  // galeria
+  const [imgIndex, setImgIndex] = useState(0);
+
+  // relacionados
+  const [relacionados, setRelacionados] = useState<any[]>([]);
+  const carrosselRef = useRef<HTMLDivElement>(null);
+
+  // auth
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -282,111 +349,190 @@ export default function ProdutoDetalhePage() {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    async function fetchProduto() {
-      if (!id) return;
-      const docRef = doc(db, "produtos", String(id));
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) setProduto({ id: docSnap.id, ...docSnap.data() }); // <-- pega todos os campos, inclusive userId
+  // produto
+useEffect(() => {
+  async function fetchProduto() {
+    if (!id) return;
+
+    const ref = doc(db, "produtos", String(id));
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+
+    const data = { id: snap.id, ...(snap.data() as any) } as ProdutoDoc;
+    setProduto(data);
+
+    // pega email do vendedor original a partir do userId
+    if (data.userId) {
+      const vendRef = doc(db, "usuarios", data.userId as string);
+      const vendSnap = await getDoc(vendRef);
+      if (vendSnap.exists()) {
+        const email = (vendSnap.data() as any)?.email || "";
+        setVendedorEmail(email);
+      }
     }
-    fetchProduto();
-  }, [id]);
+  }
 
-  if (!produto) return <div style={{ textAlign: "center", padding: 80 }}>Carregando...</div>;
+  fetchProduto();
+}, [id]);
 
-  const imagens = produto.imagens || [];
-  const imgPrincipal = imagens[0] || "/images/no-image.png";
+
+  // relacionados (mesma categoria)
+  useEffect(() => {
+    async function fetchRelacionados() {
+      if (!produto?.categoria) {
+        setRelacionados([]);
+        return;
+      }
+      const qy = query(
+        collection(db, "produtos"),
+        where("categoria", "==", produto.categoria),
+        limit(20)
+      );
+      const snap = await getDocs(qy);
+      const lista: any[] = [];
+      snap.forEach((d) => {
+        if (d.id !== produto.id) {
+          lista.push({ id: d.id, ...d.data() });
+        }
+      });
+      // remover expirados e ordenar por mais novo
+      const ativos = lista
+        .filter((x) => !isExpired(x.createdAt, x.expiraEm))
+        .sort((a, b) => {
+          const da = getDateFromTs(a.createdAt)?.getTime() || 0;
+          const dbt = getDateFromTs(b.createdAt)?.getTime() || 0;
+          return dbt - da;
+        });
+      setRelacionados(ativos.slice(0, 12));
+    }
+    fetchRelacionados();
+  }, [produto?.id, produto?.categoria]);
+
+  if (!produto) {
+    return <div style={{ textAlign: "center", padding: 80 }}>Carregando...</div>;
+  }
+
+  const imagens: string[] = Array.isArray(produto.imagens) ? produto.imagens : [];
+  const imgPrincipal = imagens[imgIndex] || "/images/no-image.png";
+  const expirado = isExpired(produto.createdAt, produto.expiraEm);
+  const precoFmt = currency(produto.preco);
+  const podeMostrarPreco = Boolean(precoFmt);
 
   return (
     <section className="produto-detalhe">
-      {/* Topo */}
+      {/* Topo / Breadcrumbs */}
       <div className="produto-header">
-        <div>
-          <Link href="/vitrine" className="produto-voltar">
-            &lt; Voltar para a Vitrine
-          </Link>
+        <Link href="/vitrine" className="produto-voltar">
+          &lt; Voltar para a Vitrine
+        </Link>
+        <div className="produto-badges">
+          {isNovo(produto.createdAt) && !expirado && <span className="badge badge-novo">NOVO</span>}
+          {expirado && <span className="badge badge-expirado">EXPIRADO</span>}
         </div>
       </div>
 
-      {/* Layout principal */}
+      {/* Grid principal */}
       <div className="produto-grid">
-        {/* Imagem principal e galeria */}
+        {/* Galeria */}
         <div className="produto-imagens">
-          <img src={imgPrincipal} alt={produto.nome} className="produto-img-principal" />
-          <div className="produto-miniaturas">
-            {imagens.map((img, idx) => (
-              <img key={idx} src={img} alt={"img" + idx} className="produto-miniatura" />
-            ))}
-          </div>
+          <img
+            src={imgPrincipal}
+            alt={produto.nome || "Produto"}
+            className="produto-img-principal"
+            onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
+          />
+          {imagens.length > 1 && (
+            <div className="produto-miniaturas">
+              {imagens.map((img, idx) => (
+                <img
+                  key={idx}
+                  src={img}
+                  alt={`Imagem ${idx + 1}`}
+                  className={`produto-miniatura ${idx === imgIndex ? "miniatura-ativa" : ""}`}
+                  onClick={() => setImgIndex(idx)}
+                  onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Bloco informações principais */}
+        {/* Infos */}
         <div className="produto-info">
-          {/* Preço + botão laranja */}
+          <h1 className="produto-titulo">{produto.nome || "Produto"}</h1>
+
+          <div className="produto-detalhes-lista">
+            {produto.categoria && (
+              <span>
+                <Tag size={18} /> {produto.categoria}
+              </span>
+            )}
+            {produto.ano && (
+              <span>
+                <Calendar size={18} /> {produto.ano}
+              </span>
+            )}
+            {produto.condicao && (
+              <span>
+                <BadgeCheck size={18} /> {produto.condicao}
+              </span>
+            )}
+            {(produto.cidade || produto.estado) && (
+              <span>
+                <MapPin size={18} /> {produto.cidade || "—"}, {produto.estado || "—"}
+              </span>
+            )}
+          </div>
+
+          {/* Preço + CTA */}
           <div className="produto-preco-box">
-            <div className="produto-preco">R$ {Number(produto.preco).toLocaleString("pt-BR")}</div>
+            {podeMostrarPreco && <div className="produto-preco">{precoFmt}</div>}
+
             <button
               className="produto-btn-laranja"
               onClick={() => setModalOpen(true)}
+              disabled={expirado || carregandoUsuario}
+              aria-disabled={expirado || carregandoUsuario}
               style={{
-                width: "100%",
-                background: "#FB8500",
+                background: expirado ? "#d1d5db" : "#FB8500",
                 color: "#fff",
-                fontWeight: 800,
-                fontSize: "1.25rem",
-                border: "none",
-                borderRadius: 10,
-                padding: "14px 0",
-                marginTop: 14,
-                cursor: "pointer",
-                transition: "background .14s"
+                cursor: expirado ? "not-allowed" : "pointer",
               }}
-              disabled={carregandoUsuario}
             >
-              Entrar em Contato
+              {expirado ? "Expirado" : "Entrar em Contato"}
             </button>
+
+            {/* WhatsApp secundário (se quiser manter) */}
+            {!expirado && (
+              <a
+                href={
+                  vendedorEmail
+                    ? `https://wa.me/?text=${encodeURIComponent(
+                        `Olá! Tenho interesse no produto "${produto?.nome || ""}".`
+                      )}`
+                    : `#`
+                }
+                target={vendedorEmail ? "_blank" : undefined}
+                rel="noopener noreferrer"
+                className="produto-btn-azul"
+                aria-disabled={!vendedorEmail}
+                style={{
+                  opacity: vendedorEmail ? 1 : 0.6,
+                  pointerEvents: vendedorEmail ? "auto" : "none",
+                }}
+              >
+                WhatsApp
+              </a>
+            )}
           </div>
 
-          {/* Detalhes com ícones */}
-          <div className="produto-detalhes-lista">
-            <span><Tag size={19} /> {produto.categoria || "Peças"}</span>
-            <span><Calendar size={19} /> {produto.ano || "2023"}</span>
-            <span><BadgeCheck size={19} /> {produto.condicao || "Novo"}</span>
-            <span><MapPin size={19} /> {produto.cidade || "Betim"},{produto.estado || "MG"}</span>
-          </div>
-
-          {/* Botões azuis */}
-          <div className="produto-btns-lista">
-            <a
-              href={`https://wa.me/5531990903613?text=Olá! Tenho interesse no produto: ${encodeURIComponent(produto?.nome || "")}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                width: "100%",
-                background: "#219EBC",
-                color: "#fff",
-                fontWeight: 700,
-                fontSize: "1.13rem",
-                border: "none",
-                borderRadius: 10,
-                padding: "14px 0",
-                marginTop: 12,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                textDecoration: "none",
-                transition: "background .13s",
-              }}
-              onMouseOver={e => (e.currentTarget.style.background = "#176684")}
-              onMouseOut={e => (e.currentTarget.style.background = "#219EBC")}
-            >
-              <svg width="21" height="21" fill="currentColor" style={{ marginBottom: 2 }}>
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.151-.172.2-.296.3-.494.099-.198.05-.372-.025-.52-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.511l-.57-.01c-.198 0-.52.074-.792.372-.273.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.1 3.201 5.077 4.363.71.306 1.263.489 1.695.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414-.074-.124-.273-.198-.57-.347zm-5.421 5.396h-.002A9.87 9.87 0 0 1 3.1 17.151c-2.567-2.562-3.448-6.264-2.253-9.555C2.013 3.594 6.084.418 10.442.413h.008c2.669 0 5.188 1.04 7.072 2.925a9.876 9.876 0 0 1 2.926 7.067c-.003 4.357-3.18 8.428-7.447 9.778zm7.668-17.034C15.846.956 13.247 0 10.45 0h-.009C4.659.01.013 4.66 0 10.45c.01 2.363.617 4.664 1.785 6.664L.058 20.944a1.127 1.127 0 0 0 1.392 1.392l3.83-1.725c1.964 1.056 4.215 1.619 6.636 1.621h.004c5.792 0 10.439-4.647 10.45-10.438-.004-2.797-.961-5.396-2.828-7.374z"/>
-              </svg>
-              WhatsApp
-            </a>
-          </div>
+          {/* Descrição curta */}
+          {produto.descricao && (
+            <div className="produto-resumo">
+              <div className="produto-desc-item-title">Resumo</div>
+              <div className="produto-desc-item-text">{produto.descricao}</div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -396,50 +542,189 @@ export default function ProdutoDetalhePage() {
         <div className="produto-desc-grid">
           <div>
             <div className="produto-desc-item-title">Destaques</div>
-            <div className="produto-desc-item-text">{produto.descricao || "Material de construção e durabilidade."}</div>
-            <div className="produto-desc-item-title" style={{ marginTop: 32 }}>Sobre o Produto</div>
-            <div className="produto-desc-item-text">{produto.sobre || "Com alta resistência e garantia de durabilidade."}</div>
-            <div className="produto-desc-item-title" style={{ marginTop: 32 }}>Condições</div>
-            <div className="produto-desc-item-text">{produto.condicoes1 || "Este produto está pronto para uso imediato."}</div>
+            <div className="produto-desc-item-text">
+              {produto.destaques || resumo(produto.descricao, 260) || "—"}
+            </div>
+
+            <div className="produto-desc-item-title" style={{ marginTop: 26 }}>
+              Sobre o Produto
+            </div>
+            <div className="produto-desc-item-text">{produto.sobre || "—"}</div>
           </div>
+
           <div>
             <div className="produto-desc-item-title">Condições</div>
-            <div className="produto-desc-item-text">{produto.condicoes || "Componente revisado e aprovado."}</div>
+            <div className="produto-desc-item-text">{produto.condicoes || produto.condicao || "—"}</div>
           </div>
         </div>
       </div>
+
+      {/* Relacionados - Você também pode gostar */}
+      {relacionados.length > 0 && (
+        <div className="relacionados-wrap">
+          <div className="relacionados-header">
+            <h3>Você também pode gostar</h3>
+            <div className="relacionados-nav">
+              <button
+                aria-label="Voltar"
+                onClick={() => carrosselRef.current?.scrollBy({ left: -320, behavior: "smooth" })}
+              >
+                <ChevronLeft />
+              </button>
+              <button
+                aria-label="Avançar"
+                onClick={() => carrosselRef.current?.scrollBy({ left: 320, behavior: "smooth" })}
+              >
+                <ChevronRight />
+              </button>
+            </div>
+          </div>
+          <div className="relacionados" ref={carrosselRef}>
+            {relacionados.map((r) => {
+              const precoR = currency(r.preco);
+              const showPreco = Boolean(precoR);
+              return (
+                <Link key={r.id} href={`/produtos/${r.id}`} className="relacionado-card">
+                  <div className="relacionado-img">
+                    <img
+                      src={r.imagens?.[0] || "/images/no-image.png"}
+                      alt={r.nome || "Produto"}
+                      onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
+                    />
+                  </div>
+                  <div className="relacionado-body">
+                    <div className="relacionado-titulo">{r.nome || "Produto"}</div>
+                    {r.categoria && <div className="relacionado-cat">{r.categoria}</div>}
+                    {showPreco && <div className="relacionado-preco">{precoR}</div>}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Modais */}
+      {!carregandoUsuario && usuarioLogado ? (
+        <ModalContato
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          usuario={usuarioLogado}
+          produto={produto}
+          vendedorEmail={vendedorEmail}
+        />
+      ) : (
+        <AnimatePresence>
+          {modalOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "#1119",
+                zIndex: 1002,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ type: "spring", duration: 0.32 }}
+                style={{
+                  background: "#fff",
+                  borderRadius: 18,
+                  boxShadow: "0 10px 36px #0003",
+                  padding: 38,
+                  maxWidth: 420,
+                  width: "98vw",
+                  position: "relative",
+                }}
+              >
+                <button
+                  onClick={() => setModalOpen(false)}
+                  style={{
+                    position: "absolute",
+                    top: 16,
+                    right: 20,
+                    fontSize: 22,
+                    background: "none",
+                    border: "none",
+                    color: "#219EBC",
+                    cursor: "pointer",
+                    fontWeight: 900,
+                  }}
+                  aria-label="Fechar"
+                >
+                  ×
+                </button>
+                <h2 style={{ fontSize: "1.25rem", fontWeight: 900, color: "#023047", marginBottom: 18 }}>
+                  Faça login para entrar em contato com o anunciante
+                </h2>
+                <Link href="/auth/login" className="btn-modal-laranja" style={{ display: "block", textAlign: "center" }}>
+                  Fazer Login
+                </Link>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
 
       {/* CSS */}
       <style jsx>{`
         .produto-detalhe {
           max-width: 1200px;
           margin: 0 auto;
-          padding: 40px 0 60px 0;
+          padding: 38px 0 60px 0;
           background: #f8fbfd;
         }
         .produto-header {
-          margin-bottom: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 14px;
         }
         .produto-voltar {
-          color: #219EBC;
+          color: #219ebc;
           font-size: 1rem;
           text-decoration: underline;
-          margin-bottom: 24px;
-          display: inline-block;
         }
-                .produto-grid {
-          display: flex;
-          gap: 36px;
+        .produto-badges .badge {
+          display: inline-block;
+          font-size: 0.82rem;
+          font-weight: 900;
+          padding: 5px 12px;
+          border-radius: 999px;
+          margin-left: 8px;
+        }
+        .badge-novo {
+          background: #10b981;
+          color: #fff;
+        }
+        .badge-expirado {
+          background: #9ca3af;
+          color: #fff;
+        }
+
+        .produto-grid {
+          display: grid;
+          grid-template-columns: 1.1fr 1fr;
+          gap: 32px;
+          margin-top: 10px;
         }
         .produto-imagens {
-          flex: 1.1;
           display: flex;
           flex-direction: column;
           align-items: center;
         }
         .produto-img-principal {
-          width: 370px;
-          height: 370px;
+          width: 100%;
+          max-width: 560px;
+          aspect-ratio: 1/1;
           border-radius: 22px;
           object-fit: cover;
           box-shadow: 0 4px 32px #0001;
@@ -447,216 +732,250 @@ export default function ProdutoDetalhePage() {
         }
         .produto-miniaturas {
           display: flex;
-          gap: 16px;
-          margin-top: 20px;
+          gap: 12px;
+          margin-top: 14px;
+          flex-wrap: wrap;
+          justify-content: center;
         }
         .produto-miniatura {
           width: 76px;
           height: 76px;
-          border-radius: 14px;
+          border-radius: 12px;
           object-fit: cover;
           border: 2px solid #fff;
           box-shadow: 0 1px 8px #0002;
           background: #fff;
-        }
-        .produto-info {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 22px;
-          min-width: 340px;
-        }
-        .produto-preco-box {
-          background: #FF8C20;
-          border-radius: 18px;
-          color: #fff;
-          padding: 32px 26px 18px 26px;
-          margin-bottom: 12px;
-          box-shadow: 0 4px 22px #fb850022;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-        }
-        .produto-preco {
-          font-size: 2.3rem;
-          font-weight: 900;
-          letter-spacing: 1px;
-          margin-bottom: 16px;
-        }
-        .produto-btn-laranja {
-          background: #fff;
-          color: #fb8500;
-          border: none;
-          border-radius: 9px;
-          padding: 14px 32px;
-          font-size: 1.18rem;
-          font-weight: 700;
-          margin-top: 4px;
           cursor: pointer;
-          box-shadow: 0 2px 8px #fff4;
-          transition: background .13s, color .13s;
+          transition: transform 0.12s, box-shadow 0.12s;
         }
-        .produto-btn-laranja:hover {
-          background: #ffb96b;
-          color: #fff;
+        .produto-miniatura:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px #0002;
+        }
+        .miniatura-ativa {
+          outline: 2px solid #219ebc;
+          outline-offset: 2px;
+        }
+
+        .produto-info {
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+          min-width: 320px;
+        }
+        .produto-titulo {
+          font-size: 2rem;
+          font-weight: 900;
+          color: #023047;
+          letter-spacing: -0.5px;
+          margin: 0;
         }
         .produto-detalhes-lista {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 14px 22px;
-          font-size: 1.1rem;
+          gap: 12px 18px;
+          font-size: 1.02rem;
           color: #222;
         }
         .produto-detalhes-lista span {
           display: flex;
           align-items: center;
           gap: 8px;
+          color: #334155;
+          font-weight: 700;
         }
-        .produto-btns-lista {
+
+        .produto-preco-box {
+          background: #fff;
+          border-radius: 16px;
+          border: 1.5px solid #eef2f6;
+          padding: 18px;
+          box-shadow: 0 2px 16px #0000000d;
           display: flex;
           flex-direction: column;
-          gap: 15px;
-          margin-top: 16px;
+          gap: 10px;
+        }
+        .produto-preco {
+          font-size: 2.1rem;
+          font-weight: 900;
+          color: #fb8500;
+          letter-spacing: 0.5px;
+        }
+        .produto-btn-laranja {
+          width: 100%;
+          border: none;
+          border-radius: 10px;
+          padding: 14px 0;
+          font-weight: 800;
+          font-size: 1.12rem;
+          box-shadow: 0 2px 10px #fb850022;
+          transition: background 0.14s, transform 0.12s;
+        }
+        .produto-btn-laranja:not([aria-disabled="true"]):hover {
+          background: #e17000 !important;
+          transform: translateY(-1px);
         }
         .produto-btn-azul {
-          display: flex;
+          width: 100%;
+          display: inline-flex;
           align-items: center;
-          gap: 11px;
-          background: #229ebc;
-          color: #fff;
-          font-weight: 700;
-          font-size: 1.16rem;
-          border-radius: 12px;
-          padding: 14px 0;
           justify-content: center;
-          text-decoration: none;
+          gap: 8px;
           border: none;
-          cursor: pointer;
+          border-radius: 10px;
+          padding: 13px 0;
+          font-weight: 800;
+          font-size: 1.05rem;
+          background: #219ebc;
+          color: #fff;
+          text-decoration: none;
           box-shadow: 0 2px 10px #219ebc22;
-          transition: background .13s;
+          transition: background 0.14s, transform 0.12s;
         }
         .produto-btn-azul:hover {
           background: #176684;
+          transform: translateY(-1px);
         }
+
+        .produto-resumo {
+          background: #fff;
+          border: 1.5px solid #eef2f6;
+          border-radius: 16px;
+          padding: 16px 18px;
+          box-shadow: 0 1px 10px #0000000a;
+        }
+
         .produto-desc {
           background: #fff;
           border-radius: 22px;
           box-shadow: 0 2px 18px #0001;
-          margin-top: 48px;
-          padding: 38px 38px 34px 38px;
+          margin-top: 34px;
+          padding: 28px 28px 28px 28px;
         }
         .produto-desc-title {
-          font-size: 1.6rem;
+          font-size: 1.45rem;
           font-weight: 900;
           color: #023047;
-          margin-bottom: 28px;
+          margin-bottom: 18px;
         }
         .produto-desc-grid {
           display: grid;
           grid-template-columns: 1.25fr 1fr;
-          gap: 0 60px;
+          gap: 0 50px;
         }
         .produto-desc-item-title {
-          font-size: 1.18rem;
+          font-size: 1.06rem;
           color: #023047;
-          font-weight: 700;
-          margin-bottom: 7px;
+          font-weight: 800;
+          margin-bottom: 6px;
         }
         .produto-desc-item-text {
-          font-size: 1.12rem;
-          color: #222;
+          font-size: 1.04rem;
+          color: #1f2937;
         }
+
+        .relacionados-wrap {
+          margin-top: 40px;
+        }
+        .relacionados-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 12px;
+        }
+        .relacionados-header h3 {
+          font-size: 1.3rem;
+          color: #023047;
+          font-weight: 900;
+          margin: 0;
+        }
+        .relacionados-nav button {
+          width: 38px;
+          height: 38px;
+          border-radius: 10px;
+          border: 1px solid #e5e7eb;
+          background: #fff;
+          cursor: pointer;
+          margin-left: 8px;
+        }
+        .relacionados {
+          display: grid;
+          grid-auto-flow: column;
+          grid-auto-columns: minmax(240px, 1fr);
+          gap: 14px;
+          overflow-x: auto;
+          scroll-snap-type: x mandatory;
+          padding-bottom: 4px;
+        }
+        .relacionado-card {
+          scroll-snap-align: start;
+          border: 1px solid #eef2f6;
+          border-radius: 14px;
+          background: #fff;
+          text-decoration: none;
+          color: inherit;
+          overflow: hidden;
+          box-shadow: 0 2px 12px #0000000a;
+          transition: transform 0.12s, box-shadow 0.12s;
+          display: flex;
+          flex-direction: column;
+        }
+        .relacionado-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 18px #00000014;
+        }
+        .relacionado-img {
+          width: 100%;
+          height: 140px;
+          background: #f3f6fa;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+        }
+        .relacionado-img img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .relacionado-body {
+          padding: 12px 12px 14px 12px;
+        }
+        .relacionado-titulo {
+          font-weight: 800;
+          font-size: 1rem;
+          color: #023047;
+          margin-bottom: 4px;
+        }
+        .relacionado-cat {
+          font-size: 0.86rem;
+          color: #219ebc;
+          font-weight: 700;
+        }
+        .relacionado-preco {
+          margin-top: 6px;
+          color: #fb8500;
+          font-weight: 900;
+        }
+
         @media (max-width: 900px) {
           .produto-grid {
-            flex-direction: column;
-            gap: 28px;
+            grid-template-columns: 1fr;
+            gap: 22px;
           }
-          .produto-info, .produto-imagens { min-width: 0; }
-        }
-        @media (max-width: 700px) {
-          .produto-detalhe { padding: 16px 2vw 60px 2vw; }
-          .produto-img-principal { width: 98vw; height: auto; max-width: 98vw; }
-          .produto-desc { padding: 18px 6px 20px 6px; }
-          .produto-desc-title { font-size: 1.19rem; }
-          .produto-desc-grid { grid-template-columns: 1fr; gap: 24px 0; }
+          .produto-desc-grid {
+            grid-template-columns: 1fr;
+            gap: 18px 0;
+          }
+          .produto-detalhe {
+            padding: 16px 2vw 48px 2vw;
+          }
+          .produto-img-principal {
+            max-width: 100%;
+            aspect-ratio: 4/3;
+          }
         }
       `}</style>
-
-      {/* Modal de contato */}
-      {!carregandoUsuario && (
-        usuarioLogado ? (
-          <ModalContato
-            open={modalOpen}
-            onClose={() => setModalOpen(false)}
-            onSubmit={() => {}} // Tudo já tratado no próprio ModalContato
-            usuario={usuarioLogado}
-            produto={produto}
-          />
-        ) : (
-          <AnimatePresence>
-            {modalOpen && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                style={{
-                  position: "fixed",
-                  inset: 0,
-                  background: "#1119",
-                  zIndex: 1002,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <motion.div
-                  initial={{ scale: 0.95, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.95, opacity: 0 }}
-                  transition={{ type: "spring", duration: 0.32 }}
-                  style={{
-                    background: "#fff",
-                    borderRadius: 18,
-                    boxShadow: "0 10px 36px #0003",
-                    padding: 38,
-                    maxWidth: 420,
-                    width: "98vw",
-                    position: "relative"
-                  }}
-                >
-                  <button
-                    onClick={() => setModalOpen(false)}
-                    style={{
-                      position: "absolute",
-                      top: 16,
-                      right: 20,
-                      fontSize: 22,
-                      background: "none",
-                      border: "none",
-                      color: "#219EBC",
-                      cursor: "pointer",
-                      fontWeight: 900
-                    }}
-                    aria-label="Fechar"
-                  >
-                    ×
-                  </button>
-                  <h2 style={{ fontSize: "1.25rem", fontWeight: 900, color: "#023047", marginBottom: 18 }}>
-                    Faça login para entrar em contato com o anunciante
-                  </h2>
-                  <Link
-                    href="/auth/login"
-                    className="btn-modal-laranja"
-                    style={{ display: "block", marginTop: 10, textAlign: "center" }}
-                  >
-                    Fazer Login
-                  </Link>
-                </motion.div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        )
-      )}
     </section>
   );
 }

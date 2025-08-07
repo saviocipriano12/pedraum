@@ -12,6 +12,8 @@ type Usuario = {
   email: string;
   tipo?: "admin" | "usuario";
   status?: "Ativo" | "Inativo" | "Bloqueado";
+  cidade?: string;
+  estado?: string;
   createdAt?: any;
   lastLogin?: any;
 };
@@ -21,6 +23,8 @@ function ListaUsuariosAdmin() {
   const [busca, setBusca] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -51,12 +55,38 @@ function ListaUsuariosAdmin() {
     navigator.clipboard.writeText(text);
   }
 
-  // Filtros poderosos
-  const usuariosFiltrados = usuarios.filter(u =>
-    (!busca || u.nome?.toLowerCase().includes(busca.toLowerCase()) || u.email?.toLowerCase().includes(busca.toLowerCase())) &&
-    (!filtroTipo || u.tipo === filtroTipo) &&
-    (!filtroStatus || u.status === filtroStatus)
-  );
+  // --- Filtros avançados ---
+  const usuariosFiltrados = usuarios.filter(u => {
+    // Filtro busca livre (nome, email ou id)
+    const buscaOk =
+      !busca ||
+      u.nome?.toLowerCase().includes(busca.toLowerCase()) ||
+      u.email?.toLowerCase().includes(busca.toLowerCase()) ||
+      u.id?.toLowerCase().includes(busca.toLowerCase());
+
+    // Filtro tipo
+    const tipoOk = !filtroTipo || u.tipo === filtroTipo;
+
+    // Filtro status
+    const statusOk = !filtroStatus || u.status === filtroStatus;
+
+    // Filtro por período de cadastro
+    let dataOk = true;
+    if ((dataInicio || dataFim) && u.createdAt?.seconds) {
+      const createdAt = new Date(u.createdAt.seconds * 1000);
+      if (dataInicio) {
+        const di = new Date(dataInicio);
+        if (createdAt < di) dataOk = false;
+      }
+      if (dataFim) {
+        const df = new Date(dataFim);
+        // inclui todo o dia final
+        if (createdAt > new Date(df.setHours(23, 59, 59, 999))) dataOk = false;
+      }
+    }
+
+    return buscaOk && tipoOk && statusOk && dataOk;
+  });
 
   // Resumo
   const total = usuarios.length;
@@ -93,7 +123,7 @@ function ListaUsuariosAdmin() {
                 padding: "8px 8px 8px 35px", borderRadius: 11, border: "1px solid #e0e7ef",
                 minWidth: 210, fontSize: 15, fontWeight: 600, color: "#023047"
               }}
-              placeholder="Buscar nome/email..."
+              placeholder="Buscar nome/email/ID..."
               value={busca}
               onChange={e => setBusca(e.target.value)}
             />
@@ -121,6 +151,26 @@ function ListaUsuariosAdmin() {
             <option value="Inativo">Inativo</option>
             <option value="Bloqueado">Bloqueado</option>
           </select>
+          <span style={{ color: "#aaa", fontWeight: 500, fontSize: 13 }}>De:</span>
+          <input
+            type="date"
+            value={dataInicio}
+            onChange={e => setDataInicio(e.target.value)}
+            style={{
+              padding: "7px 7px", borderRadius: 10, border: "1px solid #e0e7ef", minWidth: 110,
+              fontSize: 14, fontWeight: 600, color: "#219ebc"
+            }}
+          />
+          <span style={{ color: "#aaa", fontWeight: 500, fontSize: 13, marginLeft: 5 }}>Até:</span>
+          <input
+            type="date"
+            value={dataFim}
+            onChange={e => setDataFim(e.target.value)}
+            style={{
+              padding: "7px 7px", borderRadius: 10, border: "1px solid #e0e7ef", minWidth: 110,
+              fontSize: 14, fontWeight: 600, color: "#219ebc"
+            }}
+          />
         </div>
 
         {/* Lista de Usuários */}
@@ -154,24 +204,28 @@ function ListaUsuariosAdmin() {
                     <div style={{ color: "#219ebc", fontWeight: 700, fontSize: 15 }}>
                       {u.email}
                       <span title="Copiar e-mail">
-  <ClipboardCopy
-    size={16}
-    onClick={() => copyToClipboard(u.email)}
-    style={{ marginLeft: 7, cursor: "pointer", color: "#2563eb", verticalAlign: "middle" }}
-  />
-</span>
+                        <ClipboardCopy
+                          size={16}
+                          onClick={() => copyToClipboard(u.email)}
+                          style={{ marginLeft: 7, cursor: "pointer", color: "#2563eb", verticalAlign: "middle" }}
+                        />
+                      </span>
                     </div>
                     <div style={{ color: "#b6b6b6", fontWeight: 500, fontSize: 13 }}>
                       {u.id}
-                     <span title="Copiar ID">
-  <ClipboardCopy
-    size={15}
-    onClick={() => copyToClipboard(u.id)}
-    style={{ marginLeft: 6, cursor: "pointer", color: "#219ebc" }}
-  />
-</span>
-
+                      <span title="Copiar ID">
+                        <ClipboardCopy
+                          size={15}
+                          onClick={() => copyToClipboard(u.id)}
+                          style={{ marginLeft: 6, cursor: "pointer", color: "#219ebc" }}
+                        />
+                      </span>
                     </div>
+                    {u.cidade && u.estado && (
+                      <div style={{ color: "#aaa", fontWeight: 600, fontSize: 14, marginTop: 2 }}>
+                        {u.cidade} - {u.estado}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ marginTop: 4, display: "flex", gap: 10 }}>

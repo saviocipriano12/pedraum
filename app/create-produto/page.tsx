@@ -3,15 +3,121 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { db, auth } from "@/firebaseConfig";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import ImageUploader from "@/components/ImageUploader";
 import {
-  Loader2, Save, Tag, DollarSign, Layers, Calendar, MapPin, BookOpen, Package
+  Loader2, Save, Tag, DollarSign, Layers, Calendar, MapPin, BookOpen, Package, List
 } from "lucide-react";
 
+// Categorias com subcategorias
 const categorias = [
-  "Peças", "Máquina Pesada", "Equipamento de Mineração", "Ferramentas", "Outros"
+  {
+    nome: "Equipamentos de Perfuração e Demolição",
+    subcategorias: [
+      "Perfuratrizes – Rotativas", "Perfuratrizes – Pneumáticas", "Perfuratrizes – Hidráulicas",
+      "Martelos Demolidores – Hidráulicos", "Martelos Demolidores – Pneumáticos",
+      "Brocas para rocha", "Coroas diamantadas", "Varetas de extensão",
+      "Explosivos – Dinamite", "Explosivos – ANFO", "Detonadores", "Cordel detonante"
+    ]
+  },
+  {
+    nome: "Equipamentos de Carregamento e Transporte",
+    subcategorias: [
+      "Escavadeiras hidráulicas", "Pás carregadeiras", "Caminhões basculantes", "Caminhões pipa",
+      "Correias transportadoras", "Alimentadores vibratórios", "Esteiras rolantes"
+    ]
+  },
+  {
+    nome: "Britagem e Classificação",
+    subcategorias: [
+      "Britadores – Mandíbulas", "Britadores – Cônicos", "Britadores – Impacto", "Britadores – Rolos",
+      "Rebritadores", "Peneiras vibratórias", "Trommels", "Hidrociclones", "Classificadores",
+      "Moinhos de bolas", "Moinhos de barras", "Moinhos verticais",
+      "Lavadores de areia", "Silos e chutes", "Carcaças e bases metálicas"
+    ]
+  },
+  {
+    nome: "Beneficiamento e Processamento Mineral",
+    subcategorias: [
+      "Separadores Magnéticos", "Flotação – Células", "Flotação – Espumantes e coletores",
+      "Filtros prensa", "Espessadores", "Secadores rotativos"
+    ]
+  },
+  {
+    nome: "Peças e Componentes Industriais",
+    subcategorias: [
+      "Rolamentos", "Engrenagens", "Polias", "Eixos", "Mancais", "Buchas",
+      "Correntes", "Correias transportadoras", "Esticadores de correia", "Parafusos e porcas",
+      "Molas industriais"
+    ]
+  },
+  {
+    nome: "Desgaste e Revestimento",
+    subcategorias: [
+      "Mandíbulas", "Martelos", "Revestimentos de britadores", "Chapas de desgaste",
+      "Barras de impacto", "Grelhas", "Telas metálicas", "Telas em borracha"
+    ]
+  },
+  {
+    nome: "Automação, Elétrica e Controle",
+    subcategorias: [
+      "Motores elétricos", "Inversores de frequência", "Painéis elétricos", "Controladores ASRi",
+      "Soft starters", "Sensores e detectores", "Detectores de metais", "CLPs e módulos"
+    ]
+  },
+  {
+    nome: "Lubrificação e Produtos Químicos",
+    subcategorias: [
+      "Óleos lubrificantes", "Graxas industriais", "Selantes industriais",
+      "Desengripantes", "Produtos químicos para peneiramento"
+    ]
+  },
+  {
+    nome: "Equipamentos Auxiliares e Ferramentas",
+    subcategorias: [
+      "Compressores de Ar – Estacionários", "Compressores de Ar – Móveis", "Geradores de Energia",
+      "Bombas de água", "Bombas de lama", "Ferramentas manuais", "Ferramentas elétricas",
+      "Mangueiras e Conexões Hidráulicas", "Iluminação Industrial", "Abraçadeiras e Fixadores",
+      "Soldas e Eletrodos", "Equipamentos de Limpeza Industrial"
+    ]
+  },
+  {
+    nome: "EPIs (Equipamentos de Proteção Individual)",
+    subcategorias: [
+      "Capacetes", "Protetores auriculares", "Máscaras contra poeira", "Respiradores",
+      "Luvas", "Botas de segurança", "Óculos de proteção", "Colete refletivo"
+    ]
+  },
+  {
+    nome: "Instrumentos de Medição e Controle",
+    subcategorias: [
+      "Monitoramento de Estabilidade", "Inclinômetros", "Extensômetros", "Análise de Material",
+      "Teor de umidade", "Granulometria", "Sensores de nível e vazão", "Sistemas de controle remoto"
+    ]
+  },
+  {
+    nome: "Manutenção e Serviços Industriais",
+    subcategorias: [
+      "Filtros de ar e combustível", "Óleos hidráulicos e graxas", "Rolamentos e correias",
+      "Martelos e mandíbulas para britadores", "Pastilhas de desgaste",
+      "Serviços de manutenção industrial", "Usinagem e caldeiraria"
+    ]
+  },
+  {
+    nome: "Veículos e Pneus",
+    subcategorias: [
+      "Pneus industriais", "Rodas e aros", "Recapagens e reformas de pneus",
+      "Serviços de montagem e balanceamento"
+    ]
+  },
+  {
+    nome: "Outros",
+    subcategorias: [
+      "Outros equipamentos", "Produtos diversos", "Serviços diversos"
+    ]
+  }
 ];
+
 const condicoes = ["Nova", "Seminova", "Usada"];
 const estados = [
   "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
@@ -25,6 +131,7 @@ export default function CreateProdutoPage() {
     nome: "",
     tipo: "produto",
     categoria: "",
+    subcategoria: "",
     preco: "",
     cidade: "",
     estado: "",
@@ -38,6 +145,9 @@ export default function CreateProdutoPage() {
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
     setForm({ ...form, [e.target.name]: e.target.value });
+    if (e.target.name === "categoria") {
+      setForm((f) => ({ ...f, categoria: e.target.value, subcategoria: "" }));
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -53,7 +163,17 @@ export default function CreateProdutoPage() {
       return;
     }
 
-    if (!form.nome || !form.tipo || !form.preco || !form.estado || !form.cidade || !form.descricao || !form.categoria) {
+    if (
+      !form.nome ||
+      !form.tipo ||
+      !form.estado ||
+      !form.cidade ||
+      !form.descricao ||
+      !form.categoria ||
+      !form.subcategoria ||
+      !form.ano ||
+      !form.condicao
+    ) {
       setError("Preencha todos os campos obrigatórios.");
       setLoading(false);
       return;
@@ -66,12 +186,18 @@ export default function CreateProdutoPage() {
     }
 
     try {
+        const now = new Date();
+      const expiresAt = new Date(now);
+      expiresAt.setDate(now.getDate() + 45); // 45 dias
+
       await addDoc(collection(db, "produtos"), {
         ...form,
-        preco: parseFloat(form.preco),
+        preco: form.preco ? parseFloat(form.preco) : null,
         imagens,
         userId: user.uid,
         createdAt: serverTimestamp(),
+        expiraEm: Timestamp.fromDate(expiresAt),
+        status: "ativo",
         updatedAt: serverTimestamp(),
         visivel: true,
       });
@@ -80,6 +206,7 @@ export default function CreateProdutoPage() {
         nome: "",
         tipo: "produto",
         categoria: "",
+        subcategoria: "",
         preco: "",
         cidade: "",
         estado: "",
@@ -97,162 +224,305 @@ export default function CreateProdutoPage() {
     }
   }
 
+  const subcategoriasDisponiveis =
+    categorias.find((c) => c.nome === form.categoria)?.subcategorias || [];
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#f7f9fb] via-white to-[#e0e7ef] flex flex-col items-center py-8 px-2 sm:px-4">
-      <div className="w-full max-w-5xl bg-white rounded-3xl shadow-xl p-4 sm:p-7 md:p-10 lg:p-14 grid grid-cols-1 md:grid-cols-2 gap-7 md:gap-14 animate-fade-in">
-        <section className="flex flex-col gap-8">
-          <h2 className="text-lg sm:text-xl font-bold text-[#023047] mb-2 flex items-center gap-2">
-            <Layers className="w-5 h-5 text-blue-600" /> Imagens do Produto
-          </h2>
-          <div
-            className="w-full flex flex-col gap-2 items-stretch rounded-2xl bg-[#f3f6fa] border border-gray-200 p-4 md:p-6 lg:p-8 shadow-sm"
-            style={{ minHeight: 180, maxWidth: 460 }}
-          >
+      <section
+        style={{
+          maxWidth: 760,
+          width: "100%",
+          background: "#fff",
+          borderRadius: 22,
+          boxShadow: "0 4px 32px #0001",
+          padding: "48px 2vw 55px 2vw",
+          marginTop: 18,
+        }}
+      >
+        <h1
+          style={{
+            fontSize: "2.3rem",
+            fontWeight: 900,
+            color: "#023047",
+            letterSpacing: "-1px",
+            margin: "0 0 25px 0",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <Package className="w-9 h-9 text-orange-500" />
+          Cadastrar Produto
+        </h1>
+
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Imagens */}
+          <div style={{
+            background: "#f3f6fa",
+            borderRadius: 12,
+            padding: "24px 18px",
+            border: "1.6px solid #e8eaf0",
+            marginBottom: 12,
+          }}>
+            <h3 style={{ color: "#2563eb", fontWeight: 700, marginBottom: 12, fontSize: 18 }}>
+              Imagens do Produto
+            </h3>
             <ImageUploader imagens={imagens} setImagens={setImagens} max={5} />
-            <p className="text-xs text-gray-500 mt-2 text-center">
+            <p style={{ fontSize: 13, color: "#64748b", marginTop: 7 }}>
               Adicione até 5 imagens reais, mostrando ângulos diferentes e detalhes importantes.
             </p>
           </div>
-          <div className="bg-[#f7f7fa] border-l-4 border-blue-600 rounded-lg p-4 text-xs text-[#023047] shadow-sm">
-            <b>Dicas para anunciar melhor:</b>
-            <ul className="list-disc ml-5 mt-1 space-y-0.5">
-              <li>Use fotos reais e com boa qualidade</li>
-              <li>Informe o máximo de detalhes técnicos</li>
-              <li>Anuncie com preço competitivo</li>
-            </ul>
-          </div>
-        </section>
-        <form onSubmit={handleSubmit} className="space-y-5 flex flex-col justify-between">
-          <div>
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-[#023047] mb-4 flex items-center gap-3">
-              <Package className="w-6 h-6 text-orange-500" /> Cadastrar Produto
-            </h1>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><Tag size={15}/> Nome *</label>
-                <input
-                  name="nome"
-                  value={form.nome}
-                  onChange={handleChange}
-                  className="w-full border rounded-xl p-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 border-gray-300"
-                  placeholder="Ex: Pá carregadeira, motor, filtro, etc."
-                  required
-                />
-              </div>
-              <div>
-                <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><Layers size={15}/> Tipo *</label>
-                <select
-                  name="tipo"
-                  value={form.tipo}
-                  onChange={handleChange}
-                  className="w-full border rounded-xl p-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 border-gray-300"
-                  required
-                >
-                  <option value="produto">Produto</option>
-                  <option value="máquina">Máquina</option>
-                </select>
-              </div>
-              <div>
-                <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><Tag size={15}/> Categoria *</label>
-                <select
-                  name="categoria"
-                  value={form.categoria}
-                  onChange={handleChange}
-                  className="w-full border rounded-xl p-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 border-gray-300"
-                  required
-                >
-                  <option value="">Selecione</option>
-                  {categorias.map((c) => <option key={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><DollarSign size={15}/> Preço (R$) (opcional)</label>
-                <input
-                  name="preco"
-                  value={form.preco}
-                  onChange={handleChange}
-                  type="number"
-                  className="w-full border rounded-xl p-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 border-gray-300"
-                  placeholder="Ex: 15000"
-                
-                />
-              </div>
-              <div>
-                <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><Calendar size={15}/> Ano (opcional)</label>
-                <input
-                  name="ano"
-                  value={form.ano}
-                  onChange={handleChange}
-                  type="number"
-                  className="w-full border rounded-xl p-3 text-base border-gray-300"
-                  placeholder="Ex: 2021"
-                />
-              </div>
-              <div>
-                <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><Tag size={15}/> Condição</label>
-                <select
-                  name="condicao"
-                  value={form.condicao}
-                  onChange={handleChange}
-                  className="w-full border rounded-xl p-3 text-base border-gray-300"
-                >
-                  <option value="">Selecione</option>
-                  {condicoes.map((c) => <option key={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><MapPin size={15}/> Cidade *</label>
-                <input
-                  name="cidade"
-                  value={form.cidade}
-                  onChange={handleChange}
-                  className="w-full border rounded-xl p-3 text-base border-gray-300"
-                  placeholder="Ex: Contagem"
-                  required
-                />
-              </div>
-              <div>
-                <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><MapPin size={15}/> Estado *</label>
-                <select
-                  name="estado"
-                  value={form.estado}
-                  onChange={handleChange}
-                  className="w-full border rounded-xl p-3 text-base border-gray-300"
-                  required
-                >
-                  <option value="">Selecione</option>
-                  {estados.map((e) => <option key={e}>{e}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="mt-4">
-              <label className="font-semibold text-[#023047] block mb-1 flex gap-1 items-center"><BookOpen size={15}/> Descrição *</label>
-              <textarea
-                name="descricao"
-                value={form.descricao}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Nome */}
+            <div>
+              <label style={labelStyle}>
+                <Tag size={15} /> Nome *
+              </label>
+              <input
+                name="nome"
+                value={form.nome}
                 onChange={handleChange}
-                className="w-full border rounded-xl p-3 text-base border-gray-300"
-                placeholder="Descreva com detalhes o produto, condição, uso, etc."
-                rows={4}
+                style={inputStyle}
+                placeholder="Ex: Pá carregadeira, motor, filtro, etc."
                 required
               />
             </div>
+            {/* Tipo */}
+            <div>
+              <label style={labelStyle}>
+                <Layers size={15} /> Tipo *
+              </label>
+              <select
+                name="tipo"
+                value={form.tipo}
+                onChange={handleChange}
+                style={inputStyle}
+                required
+              >
+                <option value="produto">Produto</option>
+                <option value="máquina">Máquina</option>
+              </select>
+            </div>
+            {/* Categoria */}
+            <div>
+              <label style={labelStyle}>
+                <List size={15} /> Categoria *
+              </label>
+              <select
+                name="categoria"
+                value={form.categoria}
+                onChange={handleChange}
+                style={inputStyle}
+                required
+              >
+                <option value="">Selecione</option>
+                {categorias.map((cat) => (
+                  <option key={cat.nome} value={cat.nome}>
+                    {cat.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {/* Subcategoria */}
+            <div>
+              <label style={labelStyle}>
+                <Tag size={15} /> Subcategoria *
+              </label>
+              <select
+                name="subcategoria"
+                value={form.subcategoria}
+                onChange={handleChange}
+                style={inputStyle}
+                required
+                disabled={!form.categoria}
+              >
+                <option value="">Selecione</option>
+                {subcategoriasDisponiveis.map((sub) => (
+                  <option key={sub} value={sub}>
+                    {sub}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {/* Preço */}
+            <div>
+              <label style={labelStyle}>
+                <DollarSign size={15} /> Preço (R$)
+              </label>
+              <input
+                name="preco"
+                value={form.preco}
+                onChange={handleChange}
+                type="number"
+                style={inputStyle}
+                placeholder="Ex: 15000"
+                min={0}
+                step={0.01}
+              />
+            </div>
+            {/* Ano */}
+            <div>
+              <label style={labelStyle}>
+                <Calendar size={15} /> Ano *
+              </label>
+              <input
+                name="ano"
+                value={form.ano}
+                onChange={handleChange}
+                type="number"
+                style={inputStyle}
+                placeholder="Ex: 2021"
+                required
+                min={1900}
+              />
+            </div>
+            {/* Condição */}
+            <div>
+              <label style={labelStyle}>
+                <Tag size={15} /> Condição *
+              </label>
+              <select
+                name="condicao"
+                value={form.condicao}
+                onChange={handleChange}
+                style={inputStyle}
+                required
+              >
+                <option value="">Selecione</option>
+                {condicoes.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            {/* Cidade */}
+            <div>
+              <label style={labelStyle}>
+                <MapPin size={15} /> Cidade *
+              </label>
+              <input
+                name="cidade"
+                value={form.cidade}
+                onChange={handleChange}
+                style={inputStyle}
+                placeholder="Ex: Contagem"
+                required
+              />
+            </div>
+            {/* Estado */}
+            <div>
+              <label style={labelStyle}>
+                <MapPin size={15} /> Estado *
+              </label>
+              <select
+                name="estado"
+                value={form.estado}
+                onChange={handleChange}
+                style={inputStyle}
+                required
+              >
+                <option value="">Selecione</option>
+                {estados.map((e) => (
+                  <option key={e}>{e}</option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div className="flex flex-col gap-2 mt-2">
-            {error && <div className="text-red-500 text-sm text-center font-semibold px-2 py-1 bg-red-50 rounded-xl border border-red-100 animate-pulse">{error}</div>}
-            {success && <div className="text-green-600 text-sm text-center font-semibold px-2 py-1 bg-green-50 rounded-xl border border-green-100 animate-fade-in">{success}</div>}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-orange-400 to-blue-600 hover:from-orange-500 hover:to-blue-700 text-white font-bold rounded-2xl py-3 transition disabled:bg-blue-300 disabled:cursor-not-allowed text-lg shadow-lg mt-2 active:scale-95"
-              style={{ fontSize: '1.22rem', height: '3.2rem', minHeight: 52 }}
+          {/* Descrição */}
+          <div>
+            <label style={labelStyle}>
+              <BookOpen size={15} /> Descrição *
+            </label>
+            <textarea
+              name="descricao"
+              value={form.descricao}
+              onChange={handleChange}
+              style={{ ...inputStyle, height: 90 }}
+              placeholder="Descreva com detalhes o produto, condição, uso, etc."
+              rows={4}
+              required
+            />
+          </div>
+
+          {error && (
+            <div
+              style={{
+                background: "#fff7f7",
+                color: "#d90429",
+                border: "1.5px solid #ffe5e5",
+                padding: "12px 0",
+                borderRadius: 11,
+                textAlign: "center",
+                marginBottom: 10,
+                fontWeight: 700,
+              }}
             >
-              {loading ? <Loader2 className="animate-spin w-6 h-6" /> : <Save className="w-5 h-5" />}
-              {loading ? "Salvando..." : "Cadastrar Produto"}
-            </button>
-          </div>
+              {error}
+            </div>
+          )}
+          {success && (
+            <div
+              style={{
+                background: "#f7fafc",
+                color: "#16a34a",
+                border: "1.5px solid #c3f3d5",
+                padding: "12px 0",
+                borderRadius: 11,
+                textAlign: "center",
+                marginBottom: 10,
+                fontWeight: 700,
+              }}
+            >
+              {success}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              background: "linear-gradient(90deg,#fb8500,#219ebc)",
+              color: "#fff",
+              border: "none",
+              borderRadius: 13,
+              padding: "16px 0",
+              fontWeight: 800,
+              fontSize: 22,
+              boxShadow: "0 2px 20px #fb850022",
+              cursor: loading ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              marginTop: 10,
+            }}
+          >
+            {loading ? <Loader2 className="animate-spin w-7 h-7" /> : <Save className="w-6 h-6" />}
+            {loading ? "Salvando..." : "Cadastrar Produto"}
+          </button>
         </form>
-      </div>
+      </section>
     </main>
   );
 }
+
+// Estilos reutilizáveis
+const labelStyle: React.CSSProperties = {
+  fontWeight: 700, color: "#023047", marginBottom: 2, display: "flex", alignItems: "center", gap: 6
+};
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "13px 14px",
+  borderRadius: 10,
+  border: "1.6px solid #e5e7eb",
+  fontSize: 17,
+  color: "#222",
+  background: "#f8fafc",
+  fontWeight: 600,
+  marginBottom: 8,
+  outline: "none",
+  marginTop: 4,
+  minHeight: 46,
+};
+

@@ -82,10 +82,10 @@ export default function Header() {
             justifyContent: "center",
           }}>
             {[
-              { href: "/", label: "Início" },
+              
               { href: "/vitrine", label: "Produtos e Serviços" },
               { href: "/demandas", label: "Oportunidades" },
-              { href: "/contato", label: "Contato" },
+            
               { href: "/blog", label: "Blog" },
               { href: "/painel", label: "Painel" },
 

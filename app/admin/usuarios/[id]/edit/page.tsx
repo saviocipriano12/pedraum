@@ -1,324 +1,902 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
-import { db } from "@/firebaseConfig";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { Loader, ArrowLeft, Save, Key, EyeOff, Eye } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
+import { db, auth } from "@/firebaseConfig";
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { sendPasswordResetEmail } from "firebase/auth";
+import ImageUploader from "@/components/ImageUploader";
+import {
+  ChevronLeft, Save, Mail, Key, CheckCircle, Shield, DollarSign, MapPin, Tag
+} from "lucide-react";
 
-type Usuario = {
+/* ========= Constantes ========= */
+const estados = [
+  "BRASIL",
+  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
+  "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"
+];
+
+const categoriasBase = [
+  "Equipamentos de Perfuração e Demolição",
+  "Equipamentos de Carregamento e Transporte",
+  "Britagem e Classificação",
+  "Beneficiamento e Processamento Mineral",
+  "Peças e Componentes Industriais",
+  "Desgaste e Revestimento",
+  "Automação, Elétrica e Controle",
+  "Lubrificação e Produtos Químicos",
+  "Equipamentos Auxiliares e Ferramentas",
+  "EPIs (Equipamentos de Proteção Individual)",
+  "Instrumentos de Medição e Controle",
+  "Manutenção e Serviços Industriais",
+  "Veículos e Pneus",
+  "Outros",
+];
+
+const diasSemana = [
+  { key: "seg", label: "Segunda" },
+  { key: "ter", label: "Terça" },
+  { key: "qua", label: "Quarta" },
+  { key: "qui", label: "Quinta" },
+  { key: "sex", label: "Sexta" },
+  { key: "sab", label: "Sábado" },
+  { key: "dom", label: "Domingo" },
+];
+
+type AgendaDia = { ativo: boolean; das: string; ate: string };
+
+type PerfilForm = {
   id: string;
   nome: string;
   email: string;
-  whatsapp?: string;
+  telefone?: string;
   cidade?: string;
   estado?: string;
-  cpfCnpj?: string;
-  tipo?: "admin" | "usuario";
-  status?: "Ativo" | "Inativo" | "Bloqueado";
-  createdAt?: any;
-  lastLogin?: any;
+  cpf_cnpj?: string;
+  bio?: string;
+  avatar?: string;
+  tipo?: string;
+  prestaServicos: boolean;
+  vendeProdutos: boolean;
+  categoriasAtuacao: string[];
+  atendeBrasil: boolean;
+  ufsAtendidas: string[];
+  agenda: Record<string, AgendaDia>;
+  portfolioImagens: string[];
+  portfolioVideos: string[];
+  leadPreferencias: {
+    categorias: string[];
+    ufs: string[];
+    ticketMin?: number | null;
+    ticketMax?: number | null;
+  };
+  mpConnected?: boolean;
+  mpStatus?: string;
+
+  // -------- Extras do Admin --------
+  status?: "ativo" | "suspenso" | "banido";
+  verificado?: boolean;
+  role?: "user" | "seller" | "admin";
+  financeiro?: {
+    plano?: string;
+    situacao?: "pago" | "pendente";
+    valor?: number | null;
+    proxRenovacao?: any; // Timestamp | string
+  };
+  limites?: {
+    leadsDia?: number | null;
+    prioridade?: number | null; // 0-3
+    bloquearUFs?: string[];
+    bloquearCategorias?: string[];
+  };
+  observacoesInternas?: string;
+
+  // força troca no próximo login
+  requirePasswordChange?: boolean;
 };
 
-export default function EditUsuarioPage() {
-  const router = useRouter();
-  const params = useParams();
-  const userId = typeof params?.id === "string" ? params.id : (params?.id as string[])[0];
+export default function AdminEditarUsuarioPage() {
+  const { id } = useParams<{ id: string }>();
 
-  const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [loading, setLoading] = useState(true);
-  const [salvando, setSalvando] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
 
-  // Modal reset senha
-  const [showResetModal, setShowResetModal] = useState(false);
-  const [novaSenha, setNovaSenha] = useState("");
-  const [novaSenha2, setNovaSenha2] = useState("");
-  const [resetLoading, setResetLoading] = useState(false);
-  const [senhaVisivel, setSenhaVisivel] = useState(false);
+  const [form, setForm] = useState<PerfilForm | null>(null);
+
+  // auxiliares UI
+  const [catInput, setCatInput] = useState("");
+  const [leadCatInput, setLeadCatInput] = useState("");
+  const [leadUfInput, setLeadUfInput] = useState("");
+  const [novoVideo, setNovoVideo] = useState("");
+
+  // modal senha
+  const [showPwdModal, setShowPwdModal] = useState(false);
+  const [pwd1, setPwd1] = useState("");
+  const [pwd2, setPwd2] = useState("");
+  const [pwdVisible, setPwdVisible] = useState(false);
+  const [pwdSaving, setPwdSaving] = useState(false);
+
+  // avatar como lista pro ImageUploader
+  const avatarLista = useMemo(() => (form?.avatar ? [form.avatar] : []), [form?.avatar]);
 
   useEffect(() => {
-    async function fetchUser() {
-      if (!userId) return;
-      setLoading(true);
-      const ref = doc(db, "usuarios", userId);
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        setUsuario({ id: snap.id, ...snap.data() } as Usuario);
-      } else {
-        setUsuario(null);
-      }
-      setLoading(false);
-    }
-    fetchUser();
-  }, [userId]);
+    (async () => {
+      try {
+        const ref = doc(db, "usuarios", id);
+        const snap = await getDoc(ref);
+        if (!snap.exists()) {
+          setMsg("Usuário não encontrado.");
+          setLoading(false);
+          return;
+        }
+        const data = snap.data() || {};
+        const baseAgenda = Object.fromEntries(
+          diasSemana.map(d => [d.key, { ativo: d.key !== "dom", das: "08:00", ate: "18:00" }])
+        ) as Record<string, AgendaDia>;
 
-  async function handleSave(e: any) {
-    e.preventDefault();
-    if (!usuario) return;
-    setSalvando(true);
-    try {
-      const ref = doc(db, "usuarios", usuario.id);
-      await updateDoc(ref, {
-        nome: usuario.nome,
-        email: usuario.email,
-        whatsapp: usuario.whatsapp || "",
-        cidade: usuario.cidade || "",
-        estado: usuario.estado || "",
-        cpfCnpj: usuario.cpfCnpj || "",
-        tipo: usuario.tipo,
-        status: usuario.status,
-      });
-      alert("Usuário atualizado com sucesso!");
-      router.push("/admin/usuarios");
-    } catch (e) {
-      alert("Erro ao salvar!");
-    }
-    setSalvando(false);
+        setForm({
+          id,
+          nome: data.nome || "",
+          email: data.email || "",
+          telefone: data.telefone || data.whatsapp || "",
+          cidade: data.cidade || "",
+          estado: data.estado || "",
+          cpf_cnpj: data.cpf_cnpj || data.cpfCnpj || "",
+          bio: data.bio || "",
+          avatar: data.avatar || "",
+          tipo: data.tipo || "Usuário",
+          prestaServicos: !!data.prestaServicos,
+          vendeProdutos: !!data.vendeProdutos,
+          categoriasAtuacao: data.categoriasAtuacao || [],
+          atendeBrasil: !!data.atendeBrasil,
+          ufsAtendidas: data.ufsAtendidas || [],
+          agenda: data.agenda || baseAgenda,
+          portfolioImagens: data.portfolioImagens || [],
+          portfolioVideos: data.portfolioVideos || [],
+          leadPreferencias: {
+            categorias: data.leadPreferencias?.categorias || [],
+            ufs: data.leadPreferencias?.ufs || [],
+            ticketMin: data.leadPreferencias?.ticketMin ?? null,
+            ticketMax: data.leadPreferencias?.ticketMax ?? null,
+          },
+          mpConnected: !!data.mpConnected,
+          mpStatus: data.mpStatus || "desconectado",
+          // extras admin
+          status: (data.status as any) || "ativo",
+          verificado: !!data.verificado,
+          role: (data.role as any) || "user",
+          financeiro: {
+            plano: data.financeiro?.plano || "",
+            situacao: data.financeiro?.situacao || "pendente",
+            valor: data.financeiro?.valor ?? null,
+            proxRenovacao: data.financeiro?.proxRenovacao || "",
+          },
+          limites: {
+            leadsDia: data.limites?.leadsDia ?? 10,
+            prioridade: data.limites?.prioridade ?? 0,
+            bloquearUFs: data.limites?.bloquearUFs || [],
+            bloquearCategorias: data.limites?.bloquearCategorias || [],
+          },
+          observacoesInternas: data.observacoesInternas || "",
+          requirePasswordChange: !!data.requirePasswordChange,
+        });
+      } catch {
+        setMsg("Erro ao carregar dados.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [id]);
+
+  function setField<K extends keyof PerfilForm>(key: K, value: PerfilForm[K]) {
+    if (!form) return;
+    setForm({ ...form, [key]: value });
   }
 
-  async function handleResetSenha(e: any) {
-    e.preventDefault();
-    if (!novaSenha || novaSenha.length < 6) {
-      alert("A senha deve ter pelo menos 6 dígitos.");
-      return;
-    }
-    if (novaSenha !== novaSenha2) {
-      alert("As senhas não coincidem.");
-      return;
-    }
-    setResetLoading(true);
+  async function salvar(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!form) return;
+    setSaving(true);
+    setMsg("");
+
     try {
-      // Chama a rota da API que faz o reset da senha no Firebase Admin SDK
+      await updateDoc(doc(db, "usuarios", form.id), {
+        nome: form.nome,
+        email: form.email,
+        telefone: form.telefone || "",
+        cidade: form.estado === "BRASIL" ? "" : (form.cidade || ""),
+        estado: form.estado || "",
+        cpf_cnpj: form.cpf_cnpj || "",
+        bio: form.bio || "",
+        avatar: form.avatar || "",
+        tipo: form.tipo || "Usuário",
+        prestaServicos: form.prestaServicos,
+        vendeProdutos: form.vendeProdutos,
+        categoriasAtuacao: form.categoriasAtuacao || [],
+        atendeBrasil: form.atendeBrasil,
+        ufsAtendidas: form.atendeBrasil ? ["BRASIL"] : (form.ufsAtendidas || []),
+        agenda: form.agenda || {},
+        portfolioImagens: form.portfolioImagens || [],
+        portfolioVideos: form.portfolioVideos || [],
+        leadPreferencias: {
+          categorias: form.leadPreferencias?.categorias || [],
+          ufs: form.leadPreferencias?.ufs || [],
+          ticketMin: form.leadPreferencias?.ticketMin ?? null,
+          ticketMax: form.leadPreferencias?.ticketMax ?? null,
+        },
+        mpConnected: !!form.mpConnected,
+        mpStatus: form.mpStatus || "desconectado",
+
+        // extras admin
+        status: form.status || "ativo",
+        verificado: !!form.verificado,
+        role: form.role || "user",
+        financeiro: {
+          plano: form.financeiro?.plano || "",
+          situacao: form.financeiro?.situacao || "pendente",
+          valor: form.financeiro?.valor ?? null,
+          proxRenovacao: form.financeiro?.proxRenovacao || "",
+        },
+        limites: {
+          leadsDia: form.limites?.leadsDia ?? 10,
+          prioridade: form.limites?.prioridade ?? 0,
+          bloquearUFs: form.limites?.bloquearUFs || [],
+          bloquearCategorias: form.limites?.bloquearCategorias || [],
+        },
+        observacoesInternas: form.observacoesInternas || "",
+        requirePasswordChange: !!form.requirePasswordChange,
+        atualizadoEm: serverTimestamp(),
+      });
+
+      setMsg("Alterações salvas com sucesso.");
+    } catch (err) {
+      console.error(err);
+      setMsg("Erro ao salvar alterações.");
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMsg(""), 4000);
+    }
+  }
+
+  // ====== Ações de senha/sessão ======
+  async function enviarResetSenha() {
+    if (!form?.email) { setMsg("Usuário sem e-mail."); return; }
+    try {
+      await sendPasswordResetEmail(auth, form.email);
+      setMsg("E-mail de redefinição enviado.");
+    } catch {
+      setMsg("Falha ao enviar e-mail de redefinição.");
+    } finally {
+      setTimeout(()=>setMsg(""), 4000);
+    }
+  }
+
+  async function salvarNovaSenha() {
+    if (!form) return;
+    if (pwd1.length < 6) { setMsg("A senha deve ter ao menos 6 caracteres."); return; }
+    if (pwd1 !== pwd2) { setMsg("As senhas não coincidem."); return; }
+    setPwdSaving(true);
+    try {
       const res = await fetch("/api/admin-reset-senha", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid: userId, senha: novaSenha }),
+        body: JSON.stringify({ uid: form.id, senha: pwd1 }),
       });
-      if (!res.ok) throw new Error("Erro ao redefinir senha");
-      setShowResetModal(false);
-      setNovaSenha("");
-      setNovaSenha2("");
-      alert("Senha redefinida com sucesso!");
-    } catch (e) {
-      alert("Erro ao redefinir senha.");
+      if (!res.ok) throw new Error(await res.text());
+      setMsg("Senha redefinida com sucesso.");
+      setShowPwdModal(false);
+      setPwd1(""); setPwd2("");
+    } catch {
+      setMsg("Erro ao redefinir senha.");
+    } finally {
+      setPwdSaving(false);
+      setTimeout(()=>setMsg(""), 4000);
     }
-    setResetLoading(false);
+  }
+
+  async function revogarSessoes() {
+    if (!form) return;
+    try {
+      const res = await fetch("/api/admin-revoke-tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: form.id }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setMsg("Sessões encerradas. O usuário precisará logar novamente.");
+    } catch {
+      setMsg("Falha ao encerrar sessões.");
+    } finally {
+      setTimeout(()=>setMsg(""), 4000);
+    }
   }
 
   if (loading) {
     return (
-      <div style={{ minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "#2563eb" }}>
-        <Loader className="animate-spin" size={28} /> Carregando usuário...
-      </div>
-    );
-  }
-  if (!usuario) {
-    return (
-      <div style={{ minHeight: 300, textAlign: "center", color: "#d90429" }}>
-        Usuário não encontrado.
-        <br />
-        <Link href="/admin/usuarios" style={{ color: "#2563eb", fontWeight: 800, fontSize: 18 }}>Voltar para lista</Link>
-      </div>
+      <section style={{ maxWidth: 980, margin: "0 auto", padding: "50px 2vw 70px 2vw" }}>
+        <div style={{ textAlign: "center", color: "#219EBC", fontWeight: 800 }}>
+          Carregando usuário...
+        </div>
+      </section>
     );
   }
 
+  if (!form) {
+    return (
+      <section style={{ maxWidth: 980, margin: "0 auto", padding: "40px 2vw 70px 2vw" }}>
+        {msg || "Usuário não encontrado."}
+      </section>
+    );
+  }
+
+  const cidadesDesabilitadas = !form.estado || form.estado === "BRASIL";
+  const senhaForca = pwd1.length >= 12 ? "Alta" : pwd1.length >= 8 ? "Média" : "Baixa";
+
   return (
-    <section style={{ maxWidth: 540, margin: "0 auto", padding: "42px 2vw 60px 2vw" }}>
-      <Link href="/admin/usuarios" style={{ display: "flex", alignItems: "center", marginBottom: 24, color: "#2563eb", fontWeight: 700, fontSize: 16, textDecoration: "none" }}>
-        <ArrowLeft size={19} /> Voltar
+    <section style={{ maxWidth: 980, margin: "0 auto", padding: "40px 2vw 70px 2vw" }}>
+      <Link href="/admin/usuarios" className="hover:opacity-80" style={{ color: "#2563eb", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 20, textDecoration: "none" }}>
+        <ChevronLeft size={18} /> Voltar
       </Link>
-      <div style={{
-        background: "#fff", borderRadius: 18, boxShadow: "0 2px 16px #0001",
-        padding: "38px 32px", marginBottom: 30
-      }}>
-        <h2 style={{ fontWeight: 900, fontSize: "2rem", color: "#023047", marginBottom: 15 }}>Editar Usuário</h2>
-        <div style={{ marginBottom: 17, fontSize: 13, color: "#adb0b6" }}>
-          <div>
-            <b>ID:</b> {usuario.id}
-          </div>
-          <div>
-            <b>Cadastro:</b>{" "}
-            {usuario.createdAt?.seconds
-              ? new Date(usuario.createdAt.seconds * 1000).toLocaleString("pt-BR")
-              : "-"}
-          </div>
-          <div>
-            <b>Último login:</b>{" "}
-            {usuario.lastLogin?.seconds
-              ? new Date(usuario.lastLogin.seconds * 1000).toLocaleString("pt-BR")
-              : "-"}
+
+      <h1 style={{ fontSize: "2.2rem", fontWeight: 900, color: "#023047", letterSpacing: "-1px", marginBottom: 20 }}>
+        Editar Usuário (Admin)
+      </h1>
+
+      <form onSubmit={salvar} className="grid gap-16">
+        {/* Identidade */}
+        <div className="card">
+          <div className="card-title">Identidade e Contato</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
+            <div>
+              <div className="label">Foto do Perfil</div>
+              <ImageUploader imagens={avatarLista} setImagens={(imgs: string[]) => setField("avatar", imgs[0] || "")} max={1} />
+              <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>Use imagem quadrada para melhor resultado.</div>
+            </div>
+
+            <div className="grid gap-4">
+              <label className="label">Nome</label>
+              <input className="input" value={form.nome} onChange={(e) => setField("nome", e.target.value)} required />
+
+              <label className="label">E-mail</label>
+              <input className="input" value={form.email} onChange={(e)=>setField("email", e.target.value)} />
+
+              <label className="label">WhatsApp</label>
+              <input className="input" value={form.telefone || ""} onChange={(e) => setField("telefone", e.target.value)} placeholder="(xx) xxxxx-xxxx" />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Estado (UF)</label>
+                  <select
+                    className="input"
+                    value={form.estado || ""}
+                    onChange={(e) => setForm(f => ({ ...f!, estado: e.target.value, cidade: "" }))}
+                  >
+                    <option value="">Selecione</option>
+                    {estados.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Cidade</label>
+                  <input
+                    className="input"
+                    value={form.cidade || ""}
+                    onChange={(e)=>setField("cidade", e.target.value)}
+                    placeholder={cidadesDesabilitadas ? "—" : "Digite a cidade"}
+                    disabled={cidadesDesabilitadas}
+                  />
+                </div>
+              </div>
+
+              <label className="label">CPF ou CNPJ</label>
+              <input className="input" value={form.cpf_cnpj || ""} onChange={(e) => setField("cpf_cnpj", e.target.value)} />
+
+              <label className="label">Bio / Sobre</label>
+              <textarea className="input" rows={3} value={form.bio || ""} onChange={(e) => setField("bio", e.target.value)} />
+            </div>
           </div>
         </div>
 
-        <form onSubmit={handleSave}>
-          <label style={labelStyle}>Nome</label>
-          <input
-            type="text"
-            value={usuario.nome}
-            onChange={e => setUsuario(u => u ? { ...u, nome: e.target.value } : u)}
-            required
-            style={inputStyle}
-          />
-          <label style={labelStyle}>E-mail</label>
-          <input
-            type="email"
-            value={usuario.email}
-            onChange={e => setUsuario(u => u ? { ...u, email: e.target.value } : u)}
-            required
-            style={inputStyle}
-          />
-          <label style={labelStyle}>WhatsApp</label>
-          <input
-            type="text"
-            value={usuario.whatsapp || ""}
-            onChange={e => setUsuario(u => u ? { ...u, whatsapp: e.target.value } : u)}
-            placeholder="(99) 99999-9999"
-            style={inputStyle}
-          />
-          <label style={labelStyle}>Cidade</label>
-          <input
-            type="text"
-            value={usuario.cidade || ""}
-            onChange={e => setUsuario(u => u ? { ...u, cidade: e.target.value } : u)}
-            style={inputStyle}
-          />
-          <label style={labelStyle}>Estado</label>
-          <input
-            type="text"
-            value={usuario.estado || ""}
-            onChange={e => setUsuario(u => u ? { ...u, estado: e.target.value } : u)}
-            style={inputStyle}
-          />
-          <label style={labelStyle}>CPF ou CNPJ</label>
-          <input
-            type="text"
-            value={usuario.cpfCnpj || ""}
-            onChange={e => setUsuario(u => u ? { ...u, cpfCnpj: e.target.value } : u)}
-            placeholder="Somente números"
-            style={inputStyle}
-          />
-          <label style={labelStyle}>Tipo</label>
-          <select
-            value={usuario.tipo || ""}
-            onChange={e => setUsuario(u => u ? { ...u, tipo: e.target.value as "admin" | "usuario" } : u)}
-            style={inputStyle}
-          >
-            <option value="usuario">Usuário</option>
-            <option value="admin">Admin</option>
-          </select>
-          <label style={labelStyle}>Status</label>
-          <select
-            value={usuario.status || ""}
-            onChange={e => setUsuario(u => u ? { ...u, status: e.target.value as "Ativo" | "Inativo" | "Bloqueado" } : u)}
-            style={inputStyle}
-          >
-            <option value="Ativo">Ativo</option>
-            <option value="Inativo">Inativo</option>
-            <option value="Bloqueado">Bloqueado</option>
-          </select>
+        {/* Atuação */}
+        <div className="card">
+          <div className="card-title">Atuação</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+            <div className="grid gap-2">
+              <label className="checkbox">
+                <input type="checkbox" checked={form.prestaServicos} onChange={(e) => setField("prestaServicos", e.target.checked)} />
+                <span>Presta serviços</span>
+              </label>
+              <label className="checkbox">
+                <input type="checkbox" checked={form.vendeProdutos} onChange={(e) => setField("vendeProdutos", e.target.checked)} />
+                <span>Vende produtos</span>
+              </label>
+            </div>
 
-          {/* Botão de Resetar Senha (modal) */}
-          <button
-            type="button"
-            onClick={() => setShowResetModal(true)}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              gap: 10, background: "#fff7ea", color: "#fb8500", border: "1px solid #ffeccc",
-              fontWeight: 700, fontSize: "1.09rem", padding: "11px 0", borderRadius: 12,
-              textDecoration: "none", margin: "24px 0 7px 0", width: "100%", cursor: "pointer"
-            }}
-          >
-            <Key size={18} /> Redefinir Senha
-          </button>
-
-          <button
-            type="submit"
-            disabled={salvando}
-            style={{
-              marginTop: 16, width: "100%", background: "#2563eb", color: "#fff", fontWeight: 900,
-              fontSize: "1.18rem", padding: "13px 0", borderRadius: 13, border: "none",
-              boxShadow: "0 2px 14px #0001", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 12
-            }}
-          >
-            <Save size={21} /> {salvando ? "Salvando..." : "Salvar Alterações"}
-          </button>
-        </form>
-      </div>
-
-      {/* Modal de redefinir senha */}
-      {showResetModal && (
-        <div style={{
-          position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-          background: "#0006", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50
-        }}>
-          <div style={{
-            background: "#fff", borderRadius: 16, padding: "34px 24px 20px 24px",
-            minWidth: 320, boxShadow: "0 2px 32px #0003", maxWidth: "92vw"
-          }}>
-            <h3 style={{ fontWeight: 900, color: "#FB8500", fontSize: 23, marginBottom: 16 }}>Redefinir Senha</h3>
-            <form onSubmit={handleResetSenha}>
-              <label style={labelStyle}>Nova Senha</label>
-              <div style={{ position: "relative" }}>
-                <input
-                  type={senhaVisivel ? "text" : "password"}
-                  value={novaSenha}
-                  onChange={e => setNovaSenha(e.target.value)}
-                  style={{ ...inputStyle, paddingRight: 40 }}
-                  minLength={6}
-                  autoFocus
-                />
-                <span
-                  onClick={() => setSenhaVisivel(v => !v)}
-                  style={{
-                    position: "absolute", top: 9, right: 14, cursor: "pointer",
-                    color: "#bbb", background: "#fff"
-                  }}>
-                  {senhaVisivel ? <EyeOff size={20} /> : <Eye size={20} />}
-                </span>
+            <div>
+              <div className="label">Categorias (até 5)</div>
+              <div className="flex gap-2 items-center">
+                <select className="input" value={catInput} onChange={(e) => setCatInput(e.target.value)}>
+                  <option value="">Selecionar categoria...</option>
+                  {categoriasBase.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button
+                  type="button" className="btn-sec"
+                  onClick={() => {
+                    if (!catInput) return;
+                    if (form.categoriasAtuacao.includes(catInput)) return;
+                    if (form.categoriasAtuacao.length >= 5) { setMsg("Até 5 categorias de atuação."); return; }
+                    setField("categoriasAtuacao", [...form.categoriasAtuacao, catInput]);
+                    setCatInput("");
+                  }}
+                >+ Adicionar</button>
               </div>
-              <label style={labelStyle}>Confirmar Senha</label>
-              <input
-                type={senhaVisivel ? "text" : "password"}
-                value={novaSenha2}
-                onChange={e => setNovaSenha2(e.target.value)}
-                style={inputStyle}
-                minLength={6}
+              {form.categoriasAtuacao.length > 0 && (
+                <div className="chips">
+                  {form.categoriasAtuacao.map((c) => (
+                    <span key={c} className="chip">
+                      <Tag size={14} /> {c}
+                      <button type="button" onClick={() => setField("categoriasAtuacao", form.categoriasAtuacao.filter(x => x !== c))}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Cobertura */}
+        <div className="card">
+          <div className="card-title">Cobertura / UFs Atendidas</div>
+          <label className="checkbox" style={{ marginBottom: 10 }}>
+            <input
+              type="checkbox"
+              checked={form.atendeBrasil}
+              onChange={() => {
+                const atendeBrasil = !form.atendeBrasil;
+                setForm({ ...form, atendeBrasil, ufsAtendidas: atendeBrasil ? ["BRASIL"] : [] });
+              }}
+            />
+            <span>Atende o Brasil inteiro</span>
+          </label>
+          {!form.atendeBrasil && (
+            <>
+              <div className="label">Selecione UFs</div>
+              <div className="grid grid-cols-8 gap-2 max-sm:grid-cols-4">
+                {estados.filter(e => e !== "BRASIL").map((uf) => {
+                  const checked = form.ufsAtendidas.includes(uf);
+                  return (
+                    <button
+                      key={uf}
+                      type="button"
+                      onClick={() => {
+                        const has = form.ufsAtendidas.includes(uf);
+                        setField("ufsAtendidas", has ? form.ufsAtendidas.filter(u => u !== uf) : [...form.ufsAtendidas, uf]);
+                      }}
+                      className="pill"
+                      style={{
+                        background: checked ? "#219EBC" : "#f3f6fa",
+                        color: checked ? "#fff" : "#023047",
+                        borderColor: checked ? "#1a7a93" : "#e6e9ef"
+                      }}
+                    >{uf}</button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Agenda */}
+        <div className="card">
+          <div className="card-title">Disponibilidade / Agenda</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {diasSemana.map((d) => {
+              const dia = form.agenda[d.key] || { ativo: false, das: "08:00", ate: "18:00" };
+              return (
+                <div key={d.key} className="agenda-row">
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={dia.ativo}
+                      onChange={(e) => setForm(f => ({
+                        ...f!, agenda: { ...f!.agenda, [d.key]: { ...dia, ativo: e.target.checked } }
+                      }))}
+                    />
+                    <span>{d.label}</span>
+                  </label>
+                  <div className="flex gap-3 items-center">
+                    <input
+                      type="time"
+                      className="input"
+                      value={dia.das}
+                      disabled={!dia.ativo}
+                      onChange={(e) => setForm(f => ({
+                        ...f!, agenda: { ...f!.agenda, [d.key]: { ...dia, das: e.target.value } }
+                      }))}
+                    />
+                    <span>às</span>
+                    <input
+                      type="time"
+                      className="input"
+                      value={dia.ate}
+                      disabled={!dia.ativo}
+                      onChange={(e) => setForm(f => ({
+                        ...f!, agenda: { ...f!.agenda, [d.key]: { ...dia, ate: e.target.value } }
+                      }))}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Portfólio */}
+        <div className="card">
+          <div className="card-title">Portfólio</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+            <div>
+              <div className="label">Imagens (até 12)</div>
+              <ImageUploader
+                imagens={form.portfolioImagens}
+                setImagens={(arr: string[]) => setField("portfolioImagens", arr)}
+                max={12}
               />
-              <div style={{ display: "flex", gap: 12, marginTop: 21 }}>
+            </div>
+            <div>
+              <div className="label">Vídeos (URLs)</div>
+              <div className="flex gap-2">
+                <input className="input" placeholder="https://..." value={novoVideo} onChange={(e) => setNovoVideo(e.target.value)} />
                 <button
                   type="button"
-                  onClick={() => { setShowResetModal(false); setNovaSenha(""); setNovaSenha2(""); }}
-                  style={{
-                    flex: 1, background: "#f9f9f9", color: "#888", border: "1.5px solid #eee", fontWeight: 700,
-                    fontSize: "1.01rem", padding: "11px 0", borderRadius: 9, cursor: "pointer"
-                  }}>
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={resetLoading}
-                  style={{
-                    flex: 1, background: "#FB8500", color: "#fff", border: "none", fontWeight: 800,
-                    fontSize: "1.1rem", padding: "11px 0", borderRadius: 9, cursor: "pointer"
-                  }}>
-                  {resetLoading ? "Salvando..." : "Salvar"}
-                </button>
+                  className="btn-sec"
+                  onClick={() => {
+                    if (!novoVideo.trim()) return;
+                    setField("portfolioVideos", [...form.portfolioVideos, novoVideo.trim()]);
+                    setNovoVideo("");
+                  }}
+                >+ Adicionar</button>
               </div>
-            </form>
+              {form.portfolioVideos.length > 0 && (
+                <ul style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                  {form.portfolioVideos.map((v) => (
+                    <li key={v} className="video-row">
+                      <a href={v} target="_blank" className="a">{v}</a>
+                      <button type="button" onClick={() => setField("portfolioVideos", form.portfolioVideos.filter(x => x !== v))} title="Remover">×</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Preferências de Lead */}
+        <div className="card">
+          <div className="card-title">Preferências de Lead</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+            <div>
+              <div className="label">Categorias preferidas</div>
+              <div className="flex gap-2 items-center">
+                <select className="input" value={leadCatInput} onChange={(e) => setLeadCatInput(e.target.value)}>
+                  <option value="">Selecionar...</option>
+                  {categoriasBase.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button
+                  type="button"
+                  className="btn-sec"
+                  onClick={()=>{
+                    if (!leadCatInput) return;
+                    if (!form.leadPreferencias.categorias.includes(leadCatInput)) {
+                      setField("leadPreferencias", {
+                        ...form.leadPreferencias,
+                        categorias: [...form.leadPreferencias.categorias, leadCatInput]
+                      });
+                    }
+                    setLeadCatInput("");
+                  }}
+                >+ Adicionar</button>
+              </div>
+              {form.leadPreferencias.categorias.length > 0 && (
+                <div className="chips">
+                  {form.leadPreferencias.categorias.map((c) => (
+                    <span key={c} className="chip">
+                      <Tag size={14} /> {c}
+                      <button
+                        type="button"
+                        onClick={() => setField("leadPreferencias", {
+                          ...form.leadPreferencias,
+                          categorias: form.leadPreferencias.categorias.filter(x => x !== c)
+                        })}
+                      >×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <div className="label">UFs preferidas</div>
+              <div className="flex gap-2 items-center">
+                <select className="input" value={leadUfInput} onChange={(e) => setLeadUfInput(e.target.value)}>
+                  <option value="">Selecionar UF...</option>
+                  {estados.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
+                <button
+                  type="button"
+                  className="btn-sec"
+                  onClick={()=>{
+                    if (!leadUfInput) return;
+                    if (!form.leadPreferencias.ufs.includes(leadUfInput)) {
+                      setField("leadPreferencias", {
+                        ...form.leadPreferencias,
+                        ufs: [...form.leadPreferencias.ufs, leadUfInput]
+                      });
+                    }
+                    setLeadUfInput("");
+                  }}
+                >+ Adicionar</button>
+              </div>
+              {form.leadPreferencias.ufs.length > 0 && (
+                <div className="chips">
+                  {form.leadPreferencias.ufs.map((u) => (
+                    <span key={u} className="chip">
+                      <MapPin size={14} /> {u}
+                      <button
+                        type="button"
+                        onClick={() => setField("leadPreferencias", {
+                          ...form.leadPreferencias,
+                          ufs: form.leadPreferencias.ufs.filter(x => x !== u)
+                        })}
+                      >×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3" style={{ marginTop: 10 }}>
+                <div>
+                  <div className="label">Ticket mínimo (R$)</div>
+                  <input
+                    type="number"
+                    className="input"
+                    value={form.leadPreferencias.ticketMin ?? ""}
+                    onChange={(e) => setField("leadPreferencias", { ...form.leadPreferencias, ticketMin: e.target.value ? Number(e.target.value) : null })}
+                    min={0}
+                  />
+                </div>
+                <div>
+                  <div className="label">Ticket máximo (R$)</div>
+                  <input
+                    type="number"
+                    className="input"
+                    value={form.leadPreferencias.ticketMax ?? ""}
+                    onChange={(e) => setField("leadPreferencias", { ...form.leadPreferencias, ticketMax: e.target.value ? Number(e.target.value) : null })}
+                    min={0}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ======= BLOCO EXCLUSIVO DO ADMIN ======= */}
+        <div className="card">
+          <div className="card-title">Controles do Admin</div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+            <div className="grid gap-4">
+              <label className="label">Status da conta</label>
+              <select className="input" value={form.status || "ativo"} onChange={(e)=>setField("status", e.target.value as any)}>
+                <option value="ativo">Ativo</option>
+                <option value="suspenso">Suspenso</option>
+                <option value="banido">Banido</option>
+              </select>
+
+              <label className="label">Verificação</label>
+              <button
+                type="button"
+                className="btn-sec"
+                onClick={() => setField("verificado", !form.verificado)}
+                style={{ background: form.verificado ? "#ecfeff" : "#f7f9fc", color: form.verificado ? "#0ea5e9" : "#2563eb" }}
+              >
+                <CheckCircle size={16} /> {form.verificado ? "Usuário verificado" : "Marcar como verificado"}
+              </button>
+
+              <label className="label">Role</label>
+              <select className="input" value={form.role || "user"} onChange={(e)=>setField("role", e.target.value as any)}>
+                <option value="user">User</option>
+                <option value="seller">Seller</option>
+                <option value="admin">Admin</option>
+              </select>
+
+              <label className="label">Observações internas</label>
+              <textarea className="input" rows={3} value={form.observacoesInternas || ""} onChange={(e)=>setField("observacoesInternas", e.target.value)} />
+            </div>
+
+            <div className="grid gap-4">
+              <label className="label">Financeiro</label>
+              <div className="grid grid-cols-2 gap-3">
+                <input className="input" placeholder="Plano" value={form.financeiro?.plano || ""} onChange={(e)=>setField("financeiro", { ...(form.financeiro||{}), plano: e.target.value })} />
+                <select
+                  className="input"
+                  value={form.financeiro?.situacao || "pendente"}
+                  onChange={(e)=>setField("financeiro", { ...(form.financeiro||{}), situacao: e.target.value as "pago"|"pendente" })}
+                >
+                  <option value="pago">Pago</option>
+                  <option value="pendente">Pendente</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="Valor (R$)"
+                  value={form.financeiro?.valor ?? ""}
+                  onChange={(e)=>setField("financeiro", { ...(form.financeiro||{}), valor: e.target.value ? Number(e.target.value) : null })}
+                  min={0}
+                />
+                <input
+                  className="input"
+                  placeholder="Próx. renovação (YYYY-MM-DD)"
+                  value={form.financeiro?.proxRenovacao?.toDate ? form.financeiro.proxRenovacao.toDate().toISOString().slice(0,10) : (form.financeiro?.proxRenovacao || "")}
+                  onChange={(e)=>setField("financeiro", { ...(form.financeiro||{}), proxRenovacao: e.target.value })}
+                />
+              </div>
+
+              <label className="label">Limites de lead</label>
+              <div className="grid grid-cols-3 gap-3">
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="Leads/dia"
+                  value={form.limites?.leadsDia ?? ""}
+                  onChange={(e)=>setField("limites", { ...(form.limites||{}), leadsDia: e.target.value ? Number(e.target.value) : null })}
+                />
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="Prioridade (0-3)"
+                  value={form.limites?.prioridade ?? ""}
+                  onChange={(e)=>setField("limites", { ...(form.limites||{}), prioridade: e.target.value ? Number(e.target.value) : null })}
+                />
+                <input
+                  className="input"
+                  placeholder="Bloquear UFs (ex: SP,RJ)"
+                  value={(form.limites?.bloquearUFs || []).join(",")}
+                  onChange={(e)=>setField("limites", { ...(form.limites||{}), bloquearUFs: e.target.value.split(",").map(s=>s.trim().toUpperCase()).filter(Boolean) })}
+                />
+              </div>
+              <input
+                className="input"
+                placeholder="Bloquear categorias (separe por vírgula)"
+                value={(form.limites?.bloquearCategorias || []).join(", ")}
+                onChange={(e)=>setField("limites", { ...(form.limites||{}), bloquearCategorias: e.target.value.split(",").map(s=>s.trim()).filter(Boolean) })}
+              />
+
+              <label className="label">Ações rápidas</label>
+              <div className="flex gap-2 flex-wrap">
+                <button type="button" className="btn-sec" onClick={()=>setShowPwdModal(true)}><Key size={16}/> Redefinir senha (definir nova)</button>
+                <button type="button" className="btn-sec" onClick={enviarResetSenha}><Mail size={16}/> Enviar link de redefinição</button>
+                <button type="button" className="btn-sec" onClick={revogarSessoes}><Shield size={16}/> Encerrar sessões</button>
+              </div>
+
+              <label className="checkbox" style={{ marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={!!form.requirePasswordChange}
+                  onChange={(e)=>setField("requirePasswordChange", e.target.checked)}
+                />
+                <span>Exigir troca de senha no próximo login</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        {/* ======= FIM DO BLOCO ADMIN ======= */}
+
+        {/* Ações */}
+        {msg && (
+          <div
+            style={{
+              background: msg.toLowerCase().includes("sucesso") || msg.toLowerCase().includes("salv")
+                ? "#f7fafc" : "#fff7f7",
+              color: msg.toLowerCase().includes("sucesso") || msg.toLowerCase().includes("salv")
+                ? "#16a34a" : "#b91c1c",
+              border: `1.5px solid ${msg.toLowerCase().includes("sucesso") || msg.toLowerCase().includes("salv") ? "#c3f3d5" : "#ffdada"}`,
+              padding: "12px",
+              borderRadius: 12,
+              textAlign: "center",
+              fontWeight: 800,
+              marginTop: -6
+            }}
+          >
+            {msg}
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <button type="submit" className="btn-gradient" disabled={saving}>
+            <Save size={16}/> {saving ? "Salvando..." : "Salvar Alterações"}
+          </button>
+        </div>
+      </form>
+
+      {/* Modal de nova senha */}
+      {showPwdModal && (
+        <div style={{
+          position:"fixed", inset:0, background:"#0006", display:"flex",
+          alignItems:"center", justifyContent:"center", zIndex:50
+        }}>
+          <div style={{
+            background:"#fff", borderRadius:16, padding:"24px", width:"min(520px,92vw)",
+            boxShadow:"0 10px 30px #0003"
+          }}>
+            <h3 style={{fontWeight:900, color:"#023047", fontSize:20, marginBottom:12}}>
+              Definir nova senha
+            </h3>
+
+            <label className="label">Nova senha</label>
+            <div style={{position:"relative"}}>
+              <input
+                type={pwdVisible ? "text" : "password"}
+                className="input"
+                value={pwd1}
+                minLength={6}
+                onChange={(e)=>setPwd1(e.target.value)}
+                placeholder="mín. 6 caracteres"
+                style={{paddingRight:42}}
+              />
+              <button type="button" onClick={()=>setPwdVisible(v=>!v)} style={{
+                position:"absolute", right:10, top:8, border:"none", background:"transparent", cursor:"pointer"
+              }}>
+                {pwdVisible ? "🙈" : "👁️"}
+              </button>
+            </div>
+
+            <label className="label" style={{marginTop:12}}>Confirmar senha</label>
+            <input
+              type={pwdVisible ? "text" : "password"}
+              className="input"
+              value={pwd2}
+              minLength={6}
+              onChange={(e)=>setPwd2(e.target.value)}
+            />
+
+            <div style={{marginTop:8, fontSize:12, color:"#6b7280"}}>
+              Força: {senhaForca}
+            </div>
+
+            <div style={{display:"flex", gap:10, marginTop:18}}>
+              <button type="button" className="btn-sec" onClick={()=>{ setShowPwdModal(false); setPwd1(""); setPwd2(""); }}>
+                Cancelar
+              </button>
+              <button type="button" className="btn-gradient" disabled={pwdSaving} onClick={salvarNovaSenha}>
+                {pwdSaving ? "Salvando..." : "Salvar nova senha"}
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      {/* CSS utilitário */}
+      <style jsx>{`
+        .card { background: #fff; border-radius: 20px; box-shadow: 0 4px 28px #0001; padding: 24px 22px; }
+        .card-title { font-weight: 900; color: #023047; font-size: 1.2rem; margin-bottom: 14px; }
+        .label { font-weight: 800; color: #023047; margin-bottom: 6px; display: block; }
+        .input { width: 100%; border: 1.6px solid #e5e7eb; border-radius: 10px; background: #f8fafc; padding: 11px 12px; font-size: 16px; color: #222; outline: none; }
+        .checkbox { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: #023047; }
+        .chips { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; background: #f3f7ff; color: #2563eb; border: 1px solid #e0ecff; padding: 6px 10px; border-radius: 10px; font-weight: 800; font-size: 0.95rem; }
+        .chip button { background: none; border: none; color: #999; font-weight: 900; cursor: pointer; }
+        .pill { border: 1px solid #e6e9ef; border-radius: 999px; padding: 6px 10px; font-weight: 800; font-size: 0.95rem; }
+        .agenda-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; border: 1px dashed #e8eaf0; border-radius: 12px; padding: 12px; background: #f9fafb; }
+        .btn-sec { background: #f7f9fc; color: #2563eb; border: 1px solid #e0ecff; font-weight: 800; border-radius: 10px; padding: 10px 14px; }
+        .btn-gradient { background: linear-gradient(90deg,#fb8500,#fb8500); color: #fff; font-weight: 900; border: none; border-radius: 14px; padding: 14px 26px; font-size: 1.08rem; box-shadow: 0 4px 18px #fb850033; }
+        .video-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; background: #f7fafc; border: 1px solid #e6edf6; border-radius: 10px; padding: 8px 10px; }
+        .video-row .a { color: #2563eb; text-decoration: none; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .video-row button { background: none; border: none; color: #999; font-weight: 900; cursor: pointer; }
+        @media (max-width: 650px) { .card { padding: 18px 14px; border-radius: 14px; } }
+      `}</style>
     </section>
   );
 }
-
-const labelStyle: React.CSSProperties = {
-  fontWeight: 800, fontSize: 15, color: "#2563eb", marginBottom: 7, marginTop: 18, display: "block"
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%", marginTop: 6, padding: "12px 13px", borderRadius: 9,
-  border: "1.5px solid #e5e7eb", fontSize: 16, color: "#023047",
-  background: "#f8fafc", fontWeight: 600, outline: "none", marginBottom: 3
-};

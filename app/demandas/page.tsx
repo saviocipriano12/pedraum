@@ -47,12 +47,29 @@ function isFechada(d: any) {
   return s === "fechada" || !!d?.fechada;
 }
 
+/* ================== Categorias oficiais (fixas) ================== */
+const CATEGORIAS_DEMANDAS = [
+  "Equipamentos de Perfuração e Demolição",
+  "Equipamentos de Carregamento e Transporte",
+  "Britagem e Classificação",
+  "Beneficiamento e Processamento Mineral",
+  "Peças e Componentes Industriais",
+  "Desgaste e Revestimento",
+  "Automação, Elétrica e Controle",
+  "Lubrificação e Produtos Químicos",
+  "Equipamentos Auxiliares e Ferramentas",
+  "EPIs (Equipamentos de Proteção Individual)",
+  "Instrumentos de Medição e Controle",
+  "Manutenção e Serviços Industriais",
+  "Veículos e Pneus",
+  "Outros",
+] as const;
+
 /* ================== Tipos ================== */
 type SortKey = "recentes" | "views_desc" | "interessados_desc";
 
 export default function VitrineDemandas() {
   // lista e paginação
-  
   const [demandas, setDemandas] = useState<any[]>([]);
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [carregandoMais, setCarregandoMais] = useState(false);
@@ -65,8 +82,11 @@ export default function VitrineDemandas() {
   const [estado, setEstado] = useState("");
   const [cidade, setCidade] = useState("");
   const [somenteAbertas, setSomenteAbertas] = useState(true);
-// começa mostrando as oficiais
-const [categoriasDisponiveis, setCategoriasDisponiveis] = useState<string[]>(CATEGORIAS_DEMANDAS);
+
+  // começa mostrando as oficiais
+  const [categoriasDisponiveis, setCategoriasDisponiveis] = useState<string[]>(
+    [...CATEGORIAS_DEMANDAS]
+  );
 
   // ordenação
   const [sortKey, setSortKey] = useState<SortKey>("recentes");
@@ -113,43 +133,22 @@ const [categoriasDisponiveis, setCategoriasDisponiveis] = useState<string[]>(CAT
       list.forEach((x) => x.estado && estSet.add(x.estado));
       setEstadosDisponiveis(Array.from(estSet).sort());
 
+      // categorias do banco + oficiais, sem duplicar
+      const categoriasBanco = new Set<string>();
+      list.forEach((d) => {
+        const cat = (d.categoria || "").trim();
+        if (cat) categoriasBanco.add(cat);
+      });
+      const categoriasMescladas = Array.from(
+        new Set([...CATEGORIAS_DEMANDAS, ...categoriasBanco])
+      ).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+      setCategoriasDisponiveis(categoriasMescladas);
+
       setDemandas(list);
       setCarregandoLista(false);
     })();
   }, []);
-  
-const CATEGORIAS_DEMANDAS = [
-  "Equipamentos de Perfuração e Demolição",
-  "Equipamentos de Carregamento e Transporte",
-  "Britagem e Classificação",
-  "Beneficiamento e Processamento Mineral",
-  "Peças e Componentes Industriais",
-  "Desgaste e Revestimento",
-  "Automação, Elétrica e Controle",
-  "Lubrificação e Produtos Químicos",
-  "Equipamentos Auxiliares e Ferramentas",
-  "EPIs (Equipamentos de Proteção Individual)",
-  "Instrumentos de Medição e Controle",
-  "Manutenção e Serviços Industriais",
-  "Veículos e Pneus",
-  "Outros",
-];
-const categoriasBanco = new Set<string>();
-list.forEach((d) => {
-  const cat = (d.categoria || "").trim();
-  if (cat) categoriasBanco.add(cat);
-});
 
-// 2) mesclar com as oficiais (removendo duplicadas)
-const categoriasMescladas = Array.from(
-  new Set([...CATEGORIAS_DEMANDAS, ...categoriasBanco])
-);
-
-// 3) ordenar alfabeticamente (pt-BR)
-categoriasMescladas.sort((a, b) => a.localeCompare(b, "pt-BR"));
-
-// 4) atualizar o estado usado pelo <select>
-setCategoriasDisponiveis(categoriasMescladas);
   // carregar mais
   async function carregarMais() {
     if (finishedRef.current || !lastDocRef.current) return;
@@ -163,10 +162,10 @@ setCategoriasDisponiveis(categoriasMescladas);
     );
     const snap = await getDocs(qRef);
 
-    const list: any[] = [];
+    const pageList: any[] = [];
     let last: QueryDocumentSnapshot<DocumentData> | null = null;
     snap.forEach((doc) => {
-      list.push({ id: doc.id, ...doc.data() });
+      pageList.push({ id: doc.id, ...doc.data() });
       last = doc;
     });
 
@@ -175,10 +174,22 @@ setCategoriasDisponiveis(categoriasMescladas);
 
     // atualizar estados disponíveis
     const estSet = new Set(estadosDisponiveis);
-    list.forEach((x) => x.estado && estSet.add(x.estado));
+    pageList.forEach((x) => x.estado && estSet.add(x.estado));
     setEstadosDisponiveis(Array.from(estSet).sort());
 
-    setDemandas((prev) => [...prev, ...list]);
+    // atualizar categorias disponíveis
+    const catSet = new Set(categoriasDisponiveis);
+    pageList.forEach((d) => {
+      const cat = (d.categoria || "").trim();
+      if (cat) catSet.add(cat);
+    });
+    setCategoriasDisponiveis(
+      Array.from(catSet).sort((a, b) =>
+        a.localeCompare(b, "pt-BR", { sensitivity: "base" })
+      )
+    );
+
+    setDemandas((prev) => [...prev, ...pageList]);
     setCarregandoMais(false);
   }
 
@@ -193,7 +204,9 @@ setCategoriasDisponiveis(categoriasMescladas);
     demandas.forEach((x) => {
       if (x.estado === estado && x.cidade) cidSet.add(x.cidade);
     });
-    const cidades = Array.from(cidSet).sort((a, b) => a.localeCompare(b, "pt-BR"));
+    const cidades = Array.from(cidSet).sort((a, b) =>
+      a.localeCompare(b, "pt-BR")
+    );
     setCidadesDisponiveis(cidades);
     if (cidade && !cidades.includes(cidade)) setCidade("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -302,26 +315,25 @@ setCategoriasDisponiveis(categoriasMescladas);
         <input
           aria-label="Buscar"
           className="filtro"
-          placeholder="Buscar por palavra‑chave"
+          placeholder="Buscar por palavra-chave"
           value={buscaRaw}
           onChange={(e) => setBuscaRaw(e.target.value)}
           style={{ minWidth: 220 }}
         />
 
         <select
-  aria-label="Categoria"
-  className="filtro"
-  value={categoria}
-  onChange={(e) => setCategoria(e.target.value)}
->
-  <option value="">Categoria</option>
-  {CATEGORIAS_DEMANDAS.map((cat) => (
-    <option key={cat} value={cat}>
-      {cat}
-    </option>
-  ))}
-</select>
-
+          aria-label="Categoria"
+          className="filtro"
+          value={categoria}
+          onChange={(e) => setCategoria(e.target.value)}
+        >
+          <option value="">Categoria</option>
+          {categoriasDisponiveis.map((cat) => (
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
+          ))}
+        </select>
 
         <select
           aria-label="Estado"

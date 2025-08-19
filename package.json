@@ -20,6 +20,7 @@
     "@uploadthing/react": "^7.3.1",
     "busboy": "^1.6.0",
     "firebase": "^11.8.1",
+    "firebase-admin": "^13.4.0",
     "framer-motion": "^12.23.0",
     "keen-slider": "^6.8.6",
     "lightningcss": "^1.30.1",

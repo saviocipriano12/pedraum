@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { db, auth } from "@/firebaseConfig";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp, addDoc, collection } from "firebase/firestore";
 import { sendPasswordResetEmail } from "firebase/auth";
 import ImageUploader from "@/components/ImageUploader";
 import {
@@ -49,6 +49,10 @@ type AgendaDia = { ativo: boolean; das: string; ate: string };
 
 type PerfilForm = {
   id: string;
+    // ===== Patrocinador =====
+  isPatrocinador?: boolean;
+  patrocinadorDesde?: any; // Timestamp | string | null
+  patrocinadorAte?: any;   // Timestamp | string | null
   nome: string;
   email: string;
   telefone?: string;
@@ -140,6 +144,10 @@ export default function AdminEditarUsuarioPage() {
         setForm({
           id,
           nome: data.nome || "",
+                    // ===== patrocinador =====
+          isPatrocinador: !!data.isPatrocinador,
+          patrocinadorDesde: data.patrocinadorDesde || null,
+          patrocinadorAte: data.patrocinadorAte || null,
           email: data.email || "",
           telefone: data.telefone || data.whatsapp || "",
           cidade: data.cidade || "",
@@ -219,6 +227,10 @@ export default function AdminEditarUsuarioPage() {
         atendeBrasil: form.atendeBrasil,
         ufsAtendidas: form.atendeBrasil ? ["BRASIL"] : (form.ufsAtendidas || []),
         agenda: form.agenda || {},
+                // patrocinador (mantém como está; alternância é feita pelo botão dedicado)
+        isPatrocinador: !!form.isPatrocinador,
+        patrocinadorDesde: form.patrocinadorDesde || null,
+        patrocinadorAte: form.patrocinadorAte || null,
         portfolioImagens: form.portfolioImagens || [],
         portfolioVideos: form.portfolioVideos || [],
         leadPreferencias: {
@@ -334,6 +346,59 @@ export default function AdminEditarUsuarioPage() {
 
   const cidadesDesabilitadas = !form.estado || form.estado === "BRASIL";
   const senhaForca = pwd1.length >= 12 ? "Alta" : pwd1.length >= 8 ? "Média" : "Baixa";
+  async function togglePatrocinador(ativar: boolean) {
+    if (!form) return;
+    const ok = window.confirm(`${ativar ? "Ativar" : "Desativar"} patrocínio para ${form.email || form.nome || form.id}?`);
+    if (!ok) return;
+
+    try {
+      setSaving(true);
+      const patch: any = { isPatrocinador: ativar };
+
+      if (ativar) {
+        patch.patrocinadorDesde = form.patrocinadorDesde || serverTimestamp();
+        patch.patrocinadorAte = null;
+      } else {
+        patch.patrocinadorAte = serverTimestamp();
+      }
+
+      // atualiza o usuário
+      await updateDoc(doc(db, "usuarios", form.id), patch);
+
+      // registra histórico simples
+      await addDoc(collection(db, "patrocinadores"), {
+        userId: form.id,
+        status: ativar ? "ativo" : "cancelado",
+        plano: "mensal",
+        dataInicio: ativar ? serverTimestamp() : (form.patrocinadorDesde || serverTimestamp()),
+        dataFim: ativar ? null : serverTimestamp(),
+        renovacao: true,
+        gateway: "manual-admin",
+        gatewayRef: "",
+        updatedAt: serverTimestamp(),
+      });
+// 3) **NOTIFICAÇÃO IN‑APP** para o usuário
+    await addDoc(collection(db, "notificacoes"), {
+      userId: form.id,
+      tipo: "patrocinio",
+      titulo: ativar ? "Patrocínio ativado! 🎉" : "Patrocínio desativado",
+      mensagem: ativar
+        ? "Você agora é patrocinador e tem acesso aos contatos completos das demandas."
+        : "Seu status de patrocinador foi removido. Você não verá mais os contatos completos.",
+      lido: false,
+      createdAt: serverTimestamp(),
+      readAt: null,
+    });
+      setForm(f => f ? { ...f, ...patch } : f);
+      setMsg(ativar ? "Patrocínio ativado." : "Patrocínio desativado.");
+    } catch (e) {
+      console.error(e);
+      setMsg("Falha ao alternar patrocínio.");
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMsg(""), 4000);
+    }
+  }
 
   return (
     <section style={{ maxWidth: 980, margin: "0 auto", padding: "40px 2vw 70px 2vw" }}>
@@ -779,6 +844,65 @@ export default function AdminEditarUsuarioPage() {
                 <button type="button" className="btn-sec" onClick={()=>setShowPwdModal(true)}><Key size={16}/> Redefinir senha (definir nova)</button>
                 <button type="button" className="btn-sec" onClick={enviarResetSenha}><Mail size={16}/> Enviar link de redefinição</button>
                 <button type="button" className="btn-sec" onClick={revogarSessoes}><Shield size={16}/> Encerrar sessões</button>
+              </div>
+              {/* ===== Patrocinador ===== */}
+              <div className="grid gap-2" style={{ marginTop: 6 }}>
+                <label className="label">Patrocinador</label>
+
+                <div className="flex items-center gap-8 flex-wrap">
+                  <div
+                    className="inline-flex items-center gap-8"
+                    style={{ background: "#f7f9fc", border: "1px solid #e6edf6", borderRadius: 12, padding: "10px 12px" }}
+                  >
+                    <span
+                      className="inline-flex items-center gap-6"
+                      style={{
+                        background: form.isPatrocinador ? "#e7faec" : "#ffecec",
+                        color: form.isPatrocinador ? "#059669" : "#D90429",
+                        border: `1px solid ${form.isPatrocinador ? "#baf3cd" : "#ffd5d5"}`,
+                        padding: "6px 12px",
+                        borderRadius: 10,
+                        fontWeight: 800
+                      }}
+                    >
+                      {form.isPatrocinador ? "ATIVO" : "INATIVO"}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => togglePatrocinador(!form.isPatrocinador)}
+                      className="btn-sec"
+                      style={{
+                        background: form.isPatrocinador ? "#fff0f0" : "#ecfdf5",
+                        color: form.isPatrocinador ? "#D90429" : "#059669",
+                        borderColor: form.isPatrocinador ? "#ffdada" : "#baf3cd"
+                      }}
+                      title={form.isPatrocinador ? "Desativar patrocínio" : "Ativar patrocínio"}
+                    >
+                      {form.isPatrocinador ? "Desativar patrocínio" : "Ativar patrocínio"}
+                    </button>
+                  </div>
+
+                  <div className="text-sm" style={{ color: "#6b7280" }}>
+                    {form.patrocinadorDesde?.toDate
+                      ? <>Desde: <b>{form.patrocinadorDesde.toDate().toLocaleDateString("pt-BR")}</b></>
+                      : form.patrocinadorDesde
+                        ? <>Desde: <b>{String(form.patrocinadorDesde)}</b></>
+                        : <>Desde: —</>
+                    }
+                    {`  `}
+                    {form.patrocinadorAte?.toDate
+                      ? <> | Até: <b>{form.patrocinadorAte.toDate().toLocaleDateString("pt-BR")}</b></>
+                      : form.patrocinadorAte
+                        ? <> | Até: <b>{String(form.patrocinadorAte)}</b></>
+                        : null
+                    }
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                  * Patrocinadores enxergam contatos completos das demandas (subcoleção <code>/privado</code>).
+                </div>
               </div>
 
               <label className="checkbox" style={{ marginTop: 8 }}>

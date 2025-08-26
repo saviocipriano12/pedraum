@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Menu, X, Bell, LogIn, User } from "lucide-react";
+import NotificationBell from "@/components/NotificationBell";
 
 export default function Header() {
   const [open, setOpen] = useState(false);

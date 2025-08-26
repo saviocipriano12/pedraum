@@ -12,6 +12,8 @@ import {
   query,
   DocumentData,
   QueryDocumentSnapshot,
+  doc,
+  getDoc,
 } from "firebase/firestore";
 import {
   ClipboardList,
@@ -23,7 +25,14 @@ import {
   Filter,
   ChevronDown,
   ChevronUp,
+  ShieldCheck,
+  Phone,
+  Mail,
+  User2,
+  Crown,
 } from "lucide-react";
+import { auth } from "@/firebaseConfig";
+import { onAuthStateChanged } from "firebase/auth";
 
 /* ================== Utils ================== */
 function toDate(ts?: any): Date | null {
@@ -42,9 +51,40 @@ function fmtData(ts?: any) {
   return d ? d.toLocaleDateString("pt-BR") : "-";
 }
 function isFechada(d: any) {
-  // aceita `status: "fechada"` ou `fechada: true`
   const s = (d?.status || "").toString().toLowerCase();
   return s === "fechada" || !!d?.fechada;
+}
+function getContatoFromDemanda(d: any) {
+  const nome =
+    d?.nomeContato || d?.contatoNome || d?.solicitante || d?.nome || null;
+  const whatsapp = d?.whatsapp || d?.telefone || d?.fone || null;
+  const email = d?.email || d?.contatoEmail || null;
+  return { nome, whatsapp, email };
+}
+function strEq(a?: any, b?: string) {
+  if (!a || !b) return false;
+  return String(a).trim().toLowerCase() === b.toLowerCase();
+}
+
+function detectPatrocinador(p: any): boolean {
+  if (!p || typeof p !== "object") return false;
+
+  if (p.isPatrocinador === true) return true;
+  if (p.patrocinador === true) return true;
+  if (p.patrocinadorAtivo === true) return true;
+  if (strEq(p.role, "patrocinador")) return true;
+  if (strEq(p.plano, "patrocinador")) return true;
+
+  if (p.patrocinador && typeof p.patrocinador === "object") {
+    if (p.patrocinador.ativo === true) return true;
+    if (strEq(p.patrocinador.status, "ativo")) return true;
+    if (strEq(p.patrocinador.plano, "patrocinador")) return true;
+  }
+  if (p.financeiro && typeof p.financeiro === "object") {
+    if (strEq(p.financeiro.plano, "patrocinador")) return true;
+    if (strEq(p.financeiro.status, "ativo") && strEq(p.financeiro.tipo, "patrocinador")) return true;
+  }
+  return false;
 }
 
 /* ================== Categorias oficiais (fixas) ================== */
@@ -69,6 +109,13 @@ const CATEGORIAS_DEMANDAS = [
 type SortKey = "recentes" | "views_desc" | "interessados_desc";
 
 export default function VitrineDemandas() {
+  // auth / perfil
+const [uid, setUid] = useState<string | null>(null);
+const [perfil, setPerfil] = useState<any>(null);
+const isPatrocinador = detectPatrocinador(perfil);
+console.log("[é patrocinador?]", isPatrocinador);
+
+
   // lista e paginação
   const [demandas, setDemandas] = useState<any[]>([]);
   const [carregandoLista, setCarregandoLista] = useState(true);
@@ -102,6 +149,42 @@ export default function VitrineDemandas() {
   // selects dependentes
   const [estadosDisponiveis, setEstadosDisponiveis] = useState<string[]>([]);
   const [cidadesDisponiveis, setCidadesDisponiveis] = useState<string[]>([]);
+
+  /* ================== Auth & Perfil ================== */
+useEffect(() => {
+  const unsub = onAuthStateChanged(auth, async (user) => {
+    try {
+      setUid(user ? user.uid : null);
+      if (!user?.uid) {
+        setPerfil(null);
+        return;
+      }
+
+      // tenta primeiro "usuarios/{uid}", depois "users/{uid}"
+      const refUsuarios = doc(db, "usuarios", user.uid);
+      const refUsers = doc(db, "users", user.uid);
+
+      let snap = await getDoc(refUsuarios);
+      if (!snap.exists()) {
+        snap = await getDoc(refUsers);
+      }
+
+      if (snap.exists()) {
+        const p = { id: snap.id, ...snap.data() };
+        console.log("[perfil carregado]", p);
+        setPerfil(p);
+      } else {
+        console.warn("Perfil não encontrado em 'usuarios' nem 'users'");
+        setPerfil(null);
+      }
+    } catch (e) {
+      console.error("Erro ao carregar perfil:", e);
+      setPerfil(null);
+    }
+  });
+  return () => unsub();
+}, []);
+
 
   // carregar primeira página
   useEffect(() => {
@@ -268,14 +351,36 @@ export default function VitrineDemandas() {
           fontWeight: 900,
           color: "#023047",
           letterSpacing: "-1px",
-          marginBottom: 24,
+          marginBottom: 14,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
         }}
       >
         Vitrine de Oportunidades
+        {isPatrocinador && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "#fef3c7",
+              color: "#9a6700",
+              border: "1px solid #fde68a",
+              padding: "6px 10px",
+              borderRadius: 999,
+              fontSize: 13,
+              fontWeight: 800,
+            }}
+            title="Você é patrocinador — contatos liberados"
+          >
+            <Crown size={14} /> Patrocinador ativo
+          </span>
+        )}
       </h1>
 
-      {/* Ação rápida */}
-      <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
+      {/* Barra de ação / CTA topo */}
+      <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
         <Link
           href="/create-demanda"
           className="hover:scale-[1.04] transition"
@@ -297,6 +402,30 @@ export default function VitrineDemandas() {
         >
           <Plus size={22} /> Postar uma Necessidade
         </Link>
+
+        {/* CTA para virar patrocinador — só aparece para não patrocinador */}
+        {!isPatrocinador && (
+          <Link
+            href="/planos"
+            className="hover:scale-[1.03] transition"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "11px 22px",
+              borderRadius: 14,
+              background: "#ecfeff",
+              color: "#0ea5e9",
+              fontWeight: 800,
+              fontSize: "1.02rem",
+              border: "1px solid #bae6fd",
+              textDecoration: "none",
+            }}
+            title="Contatos inclusos. Sem pagar extra por demanda."
+          >
+            <ShieldCheck size={18} /> Seja Patrocinador (contatos inclusos)
+          </Link>
+        )}
       </div>
 
       {/* Filtros */}
@@ -451,6 +580,7 @@ export default function VitrineDemandas() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))", gap: "34px" }}>
             {demandasProcessadas.map((item) => {
               const fechada = isFechada(item);
+              const contato = getContatoFromDemanda(item);
 
               return (
                 <div
@@ -488,6 +618,31 @@ export default function VitrineDemandas() {
                       }}
                     >
                       FECHADA
+                    </span>
+                  )}
+
+                  {/* Badge PATROCINADOR vê contatos */}
+                  {isPatrocinador && (
+                    <span
+                      style={{
+                        position: "absolute",
+                        top: 14,
+                        right: 14,
+                        background: "#DCFCE7",
+                        color: "#15803d",
+                        fontWeight: 900,
+                        fontSize: 12.5,
+                        padding: "3px 10px",
+                        borderRadius: 999,
+                        zIndex: 2,
+                        border: "1px solid #bbf7d0",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                      title="Contatos liberados para patrocinadores"
+                    >
+                      <ShieldCheck size={14} /> Contatos liberados
                     </span>
                   )}
 
@@ -557,7 +712,7 @@ export default function VitrineDemandas() {
                         gap: 13,
                         color: "#8c9199",
                         fontSize: 15,
-                        margin: "10px 0 4px 0",
+                        margin: "10px 0 8px 0",
                         fontWeight: 600,
                       }}
                     >
@@ -570,7 +725,55 @@ export default function VitrineDemandas() {
                       {item.qtdInteressados ?? 0}
                     </div>
 
-                    {/* Botão */}
+                    {/* Bloco de contato — apenas patrocinador vê */}
+                    {isPatrocinador && !fechada && (contato?.whatsapp || contato?.email || contato?.nome) && (
+                      <div
+                        style={{
+                          border: "1px dashed #bbf7d0",
+                          background: "#f0fdf4",
+                          padding: "12px 14px",
+                          borderRadius: 12,
+                          marginTop: 6,
+                          display: "grid",
+                          gap: 8,
+                        }}
+                        title="Visível apenas para patrocinadores"
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#166534", fontWeight: 800 }}>
+                          <ShieldCheck size={16} />
+                          Contato da Demanda (incluso no plano)
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, color: "#065f46", fontWeight: 600 }}>
+                          {contato?.nome && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <User2 size={16} />
+                              {contato.nome}
+                            </div>
+                          )}
+                          {contato?.whatsapp && (
+                            <Link
+                              href={`https://wa.me/${String(contato.whatsapp).replace(/\D/g, "")}`}
+                              target="_blank"
+                              style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none", color: "#065f46" }}
+                            >
+                              <Phone size={16} />
+                              {contato.whatsapp}
+                            </Link>
+                          )}
+                          {contato?.email && (
+                            <a
+                              href={`mailto:${contato.email}`}
+                              style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none", color: "#065f46" }}
+                            >
+                              <Mail size={16} />
+                              {contato.email}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Botões de ação */}
                     {fechada ? (
                       <button
                         type="button"
@@ -591,6 +794,65 @@ export default function VitrineDemandas() {
                       >
                         Fechada
                       </button>
+                    ) : isPatrocinador ? (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
+                        <Link
+                          href={`/demandas/${item.id}`}
+                          className="group-hover:scale-[1.02] transition"
+                          style={{
+                            background: "#e5f3f7",
+                            color: "#0b7285",
+                            padding: "13px 0",
+                            borderRadius: 12,
+                            fontWeight: 800,
+                            fontSize: "1.02rem",
+                            textDecoration: "none",
+                            textAlign: "center",
+                            border: "1px solid #cbe9f1",
+                          }}
+                        >
+                          Ver detalhes
+                        </Link>
+                        {/* Se houver whatsapp: falar agora */}
+                        {getContatoFromDemanda(item)?.whatsapp ? (
+                          <Link
+                            href={`https://wa.me/${String(getContatoFromDemanda(item).whatsapp).replace(/\D/g, "")}`}
+                            target="_blank"
+                            className="group-hover:scale-[1.02] transition"
+                            style={{
+                              background: "#219EBC",
+                              color: "#fff",
+                              padding: "13px 0",
+                              borderRadius: 12,
+                              fontWeight: 800,
+                              fontSize: "1.02rem",
+                              textDecoration: "none",
+                              textAlign: "center",
+                              boxShadow: "0 2px 10px #219EBC22",
+                            }}
+                          >
+                            Falar agora
+                          </Link>
+                        ) : (
+                          <Link
+                            href={`/demandas/${item.id}`}
+                            className="group-hover:scale-[1.02] transition"
+                            style={{
+                              background: "#219EBC",
+                              color: "#fff",
+                              padding: "13px 0",
+                              borderRadius: 12,
+                              fontWeight: 800,
+                              fontSize: "1.02rem",
+                              textDecoration: "none",
+                              textAlign: "center",
+                              boxShadow: "0 2px 10px #219EBC22",
+                            }}
+                          >
+                            Contato / opções
+                          </Link>
+                        )}
+                      </div>
                     ) : (
                       <Link
                         href={`/demandas/${item.id}`}

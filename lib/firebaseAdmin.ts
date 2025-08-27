@@ -1,49 +1,52 @@
-import "server-only";
-import admin from "firebase-admin";
+// lib/firebaseAdmin.ts
+import { getApps, initializeApp, cert } from "firebase-admin/app";
+import { getAuth as _getAuth } from "firebase-admin/auth";
+import { getFirestore as _getFirestore } from "firebase-admin/firestore";
 
-function getCreds() {
-  const json = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+/**
+ * Aceita dois formatos:
+ * 1) FIREBASE_SERVICE_ACCOUNT_JSON  -> JSON completo (recomendado no Vercel, cole como "Plaintext")
+ * 2) FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY (com \n escapado)
+ */
+function buildCredential() {
+  const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (json) {
-    try {
-      const c = JSON.parse(json);
-      return {
-        projectId: String(c.project_id),
-        clientEmail: String(c.client_email),
-        privateKey: String(c.private_key || "").replace(/\\n/g, "\n"),
-      };
-    } catch (e) {
-      console.error("FIREBASE_SERVICE_ACCOUNT_KEY inválida:", e);
+    const svc = JSON.parse(json);
+    if (typeof svc.private_key === "string" && svc.private_key.includes("\\n")) {
+      svc.private_key = svc.private_key.replace(/\\n/g, "\n");
     }
+    return svc;
   }
 
-  const proj = process.env.FIREBASE_PROJECT_ID;
-  const email = process.env.FIREBASE_CLIENT_EMAIL;
-  const key = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
-  if (proj && email && key) {
-    return { projectId: String(proj), clientEmail: String(email), privateKey: String(key) };
+  if (privateKey && privateKey.includes("\\n")) {
+    privateKey = privateKey.replace(/\\n/g, "\n");
   }
-  return null;
-}
 
-if (!admin.apps.length) {
-  const creds = getCreds();
-  if (!creds) {
-    // Evita quebrar o build com erro genérico e dá dica clara:
+  if (!projectId || !clientEmail || !privateKey) {
     throw new Error(
-      "Firebase Admin: credenciais ausentes. Defina FIREBASE_SERVICE_ACCOUNT_KEY (JSON) " +
-      "ou FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY."
+      "Firebase Admin misconfigured: defina FIREBASE_SERVICE_ACCOUNT_JSON (ou KEY) " +
+      "OU FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY."
     );
   }
 
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: creds.projectId,
-      clientEmail: creds.clientEmail,
-      privateKey: creds.privateKey,
-    }),
-  });
+  return { projectId, clientEmail, privateKey };
 }
 
-export const dbAdmin = admin.firestore();
-export const auth = admin.auth();
+function ensureAdmin() {
+  if (!getApps().length) {
+    const credential = buildCredential();
+    initializeApp({ credential: cert(credential as any) });
+  }
+}
+
+export function getAdmin() {
+  ensureAdmin();
+  return {
+    auth: _getAuth(),
+    db: _getFirestore(),
+  };
+}

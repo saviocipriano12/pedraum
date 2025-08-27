@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth as serverAuth, dbAdmin } from "@/lib/firebaseAdmin"; // <- aqui
 import { Timestamp } from "firebase-admin/firestore";
+import { getAdmin } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs"; // garante Node no Vercel
 
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization") || "";
-    const token = authHeader.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "no token" }, { status: 401 });
+    // Inicializa Admin somente quando a rota é invocada
+    const { auth: serverAuth, db } = getAdmin();
+
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    if (!token) {
+      return NextResponse.json({ error: "no token" }, { status: 401 });
+    }
 
     const decoded = await serverAuth.verifyIdToken(token);
 
-    const meSnap = await dbAdmin.collection("usuarios").doc(decoded.uid).get();
+    const meSnap = await db.collection("usuarios").doc(decoded.uid).get();
     if (!meSnap.exists || meSnap.data()?.role !== "admin") {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
@@ -23,7 +28,7 @@ export async function POST(req: NextRequest) {
     }
 
     const now = Timestamp.now();
-    const userRef = dbAdmin.collection("usuarios").doc(targetUid);
+    const userRef = db.collection("usuarios").doc(targetUid);
 
     await userRef.set(
       {
@@ -34,7 +39,7 @@ export async function POST(req: NextRequest) {
       { merge: true }
     );
 
-    await dbAdmin.collection("patrocinadores").add({
+    await db.collection("patrocinadores").add({
       userId: targetUid,
       status: ativo ? "ativo" : "cancelado",
       plano: "mensal",
@@ -48,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    console.error(e);
+    console.error("patrocinador route error:", e);
     return NextResponse.json({ error: e?.message ?? "error" }, { status: 500 });
   }
 }

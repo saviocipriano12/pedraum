@@ -56,13 +56,24 @@ type DemandFire = {
   titulo?: string;
   descricao?: string;
   categoria?: string;
-  tipo?: string;
+  subcategoria?: string;
+  outraCategoriaTexto?: string;
+
+  tipo?: string; // legado
   estado?: string;
   cidade?: string;
   prazo?: string;
   orcamento?: string;
-  imagens?: string[];   // preferencial
-  imagem?: string;      // fallback
+
+  imagens?: string[]; // preferencial
+  imagem?: string;    // fallback
+
+  // contatos (novos)
+  autorNome?: string;
+  autorEmail?: string;
+  autorWhatsapp?: string;
+
+  // contatos (legados)
   whatsapp?: string;
   email?: string;
   nomeContato?: string;
@@ -70,7 +81,7 @@ type DemandFire = {
   userId?: string;
   liberadoPara?: string[];
   priceCents?: number;
-   pricingDefault?: { amount?: number; currency?: string }; // 👈 fallback legado
+  pricingDefault?: { amount?: number; currency?: string }; // fallback legado
   createdAt?: any;
   expiraEm?: any;
   status?: "aberta" | "andamento" | "fechada" | "expirada";
@@ -87,6 +98,7 @@ type Perfil = {
   plano?: string;
   planoExpiraEm?: string;
   isPatrocinador?: boolean;
+  email?: string;
 };
 
 type DemandaMini = {
@@ -243,32 +255,45 @@ export default function DemandaDetalhePage() {
       return () => clearTimeout(t);
     }
   }, [searchParams]);
-  // ===== Meta (PREÇO SEMPRE DO ADMIN)
-// ===== Meta (PREÇO SEMPRE DO ADMIN, com fallback p/ legado)
-const adminPriceCents = Number(
-  demanda?.priceCents ??
-  demanda?.pricingDefault?.amount ??
-  DEFAULT_PRICE_CENTS
-);
-const priceCents = adminPriceCents; // <- fonte única na UI e no checkout
-const priceFmt = currencyCents(priceCents);
 
-
+  // ===== Meta (PREÇO SEMPRE DO ADMIN, com fallback p/ legado)
+  const adminPriceCents = Number(
+    demanda?.priceCents ??
+    demanda?.pricingDefault?.amount ??
+    DEFAULT_PRICE_CENTS
+  );
+  const priceCents = adminPriceCents;
+  const priceFmt = currencyCents(priceCents);
 
   const title = demanda?.titulo || "Demanda";
   const description = demanda?.descricao || "";
   const category = demanda?.categoria || "Sem categoria";
-  const tipo = demanda?.tipo || "—";
+  const subcat = demanda?.subcategoria || demanda?.outraCategoriaTexto || "";
+  const tipo = demanda?.tipo || "—"; // legado
   const uf = demanda?.estado || "—";
   const city = demanda?.cidade || "—";
   const prazoStr = demanda?.prazo || "";
   const orcamento = demanda?.orcamento || "—";
   const viewCount = demanda?.viewCount || 0;
 
-  const contatoNome = demanda?.nomeContato?.trim();
-  const contatoEmail = demanda?.email?.trim();
-  const contatoWpp = (demanda?.whatsapp && demanda.whatsapp.trim()) || undefined;
+  // ===== Contato (preferir campos novos; manter fallback p/ legado)
+  const contatoNome =
+    (demanda?.autorNome && demanda.autorNome.trim()) ||
+    (demanda?.nomeContato && demanda.nomeContato.trim()) ||
+    "";
+
+  const contatoEmail =
+    (demanda?.autorEmail && demanda.autorEmail.trim()) ||
+    (demanda?.email && demanda.email.trim()) ||
+    "";
+
+  const contatoWpp =
+    (demanda?.autorWhatsapp && demanda.autorWhatsapp.trim()) ||
+    (demanda?.whatsapp && demanda.whatsapp.trim()) ||
+    "";
+
   const wppDigits = contatoWpp ? String(contatoWpp).replace(/\D/g, "") : "";
+
   // ===== Assignment virtual (somente para exibir status antes de existir)
   const effectiveAssignment: Assignment | null = useMemo(() => {
     if (!uid || !demanda) return assignment;
@@ -278,16 +303,11 @@ const priceFmt = currencyCents(priceCents);
       demandId: String(id),
       supplierId: uid,
       status: "sent",
-      pricing: {
-          amount: adminPriceCents, // 👈 garante que o virtual espelha o admin
-        currency: "BRL",
-        exclusive: false,
-        cap: 3,
-      },
+      pricing: { amount: adminPriceCents, currency: "BRL", exclusive: false, cap: 3 },
       createdAt: null,
       updatedAt: null,
     };
-  }, [assignment, demanda, id, uid]);
+  }, [assignment, demanda, id, uid, adminPriceCents]);
 
   // ===== Regras de acesso
   const isOwner = !!(demanda?.userId && uid && demanda.userId === uid);
@@ -330,8 +350,6 @@ const priceFmt = currencyCents(priceCents);
     setImgOk(!!imagens.length);
   }, [imagens.length]);
 
-
-
   // ===== Status + Countdown
   const statusInfo = resolveStatus(demanda || {});
   const expDate: Date | null = toDate(demanda?.expiraEm) || parsePrazoStr(prazoStr);
@@ -343,62 +361,53 @@ const priceFmt = currencyCents(priceCents);
 
   // ===== Relacionadas
   useEffect(() => {
-  (async () => {
-    try {
-      if (!demanda?.categoria) { setRelacionadas([]); return; }
-
-      const col = collection(db, "demandas");
-
-      let snaps;
+    (async () => {
       try {
-        // tenta com orderBy (precisa de índice composto)
-        const q1 = fsQuery(
-          col,
-          where("categoria", "==", demanda.categoria),
-          orderBy("createdAt", "desc"),
-          limit(10)
-        );
-        snaps = await getDocs(q1);
-      } catch (e: any) {
-        // se exigir índice, cai no fallback sem orderBy e ordena no cliente
-        const q2 = fsQuery(col, where("categoria", "==", demanda.categoria), limit(20));
-        snaps = await getDocs(q2);
+        if (!demanda?.categoria) { setRelacionadas([]); return; }
+
+        const col = collection(db, "demandas");
+
+        let snaps;
+        try {
+          const q1 = fsQuery(
+            col,
+            where("categoria", "==", demanda.categoria),
+            orderBy("createdAt", "desc"),
+            limit(10)
+          );
+          snaps = await getDocs(q1);
+        } catch {
+          const q2 = fsQuery(col, where("categoria", "==", demanda.categoria), limit(20));
+          snaps = await getDocs(q2);
+        }
+
+        const rows: DemandaMini[] = [];
+        snaps.forEach(s => {
+          if (s.id === demanda.id) return;
+          const d = s.data() as DemandFire;
+
+          const raw = d.priceCents ?? d.pricingDefault?.amount ?? DEFAULT_PRICE_CENTS;
+          const cents = Number(raw);
+          const normalized = !Number.isFinite(cents) || cents <= 0 ? DEFAULT_PRICE_CENTS : cents;
+
+          rows.push({
+            id: s.id,
+            titulo: d.titulo,
+            categoria: d.categoria,
+            cidade: d.cidade,
+            estado: d.estado,
+            priceCents: normalized,
+            createdAt: d.createdAt,
+          });
+        });
+
+        rows.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
+        setRelacionadas(rows.slice(0, 10));
+      } catch {
+        setRelacionadas([]);
       }
-
-      const rows: DemandaMini[] = [];
-     snaps.forEach(s => {
-  if (s.id === demanda.id) return;
-  const d = s.data() as DemandFire;
-
-  // normaliza preço: admin -> legado -> default (e desconsidera 0/NaN)
-  const raw =
-    d.priceCents ??
-    d.pricingDefault?.amount ??
-    DEFAULT_PRICE_CENTS;
-
-  const cents = Number(raw);
-  const normalized = !Number.isFinite(cents) || cents <= 0 ? DEFAULT_PRICE_CENTS : cents;
-
-  rows.push({
-    id: s.id,
-    titulo: d.titulo,
-    categoria: d.categoria,
-    cidade: d.cidade,
-    estado: d.estado,
-    priceCents: normalized,   // 👈 garante valor no card
-    createdAt: d.createdAt,
-  });
-});
-
-      // ordena no cliente por createdAt desc
-      rows.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
-      setRelacionadas(rows.slice(0, 10));
-    } catch {
-      setRelacionadas([]);
-    }
-  })();
-}, [demanda?.id, demanda?.categoria]);
-
+    })();
+  }, [demanda?.id, demanda?.categoria]);
 
   // ===== Ações
   async function ensureAssignmentDoc() {
@@ -406,13 +415,7 @@ const priceFmt = currencyCents(priceCents);
     const aRef = doc(db, "demandAssignments", `${id}_${uid}`);
     const aSnap = await getDoc(aRef);
 
-    // sempre usa o preço do ADMIN
-    const pricing = {
-      amount: adminPriceCents,
-      currency: "BRL",
-      exclusive: false,
-      cap: 3,
-    };
+    const pricing = { amount: adminPriceCents, currency: "BRL", exclusive: false, cap: 3 };
 
     if (!aSnap.exists()) {
       await setDoc(aRef, {
@@ -441,7 +444,7 @@ const priceFmt = currencyCents(priceCents);
       await ensureAssignmentDoc();
 
       const tituloPagamento = `Contato da demanda ${title}`;
-      const precoReais = Number(priceCents) / 100; // MP espera em reais
+      const precoReais = Number(priceCents) / 100;
 
       const res = await fetch("/api/mp/create-preference", {
         method: "POST",
@@ -453,7 +456,7 @@ const priceFmt = currencyCents(priceCents);
           userId: uid,
           kind: "lead",
           resourceId: String(id),
-          payerEmail: auth.currentUser?.email || (perfil as any)?.email,
+          payerEmail: auth.currentUser?.email || perfil?.email,
         }),
       });
 
@@ -585,7 +588,7 @@ const priceFmt = currencyCents(priceCents);
               <div className="op-noimg-avatar">{initials(title)}</div>
               <div className="op-noimg-title" title={title}>{title}</div>
               <div className="op-noimg-meta">
-                <span><Tag size={16} /> {category} • {tipo}</span>
+                <span><Tag size={16} /> {category}{subcat ? ` • ${subcat}` : ""}</span>
                 <span><MapPin size={16} /> {city}, {uf}</span>
               </div>
             </div>
@@ -596,7 +599,7 @@ const priceFmt = currencyCents(priceCents);
         <div className="op-info">
           {/* Meta list */}
           <div className="op-meta-list">
-            <span><Tag size={18} /> {category} • {tipo}</span>
+            <span><Tag size={18} /> {category}{subcat ? ` • ${subcat}` : ""}</span>
             <span><MapPin size={18} /> {city}, {uf}</span>
             <span><Calendar size={18} /> Prazo: {prazoStr || "—"}</span>
             <span><BadgeCheck size={18} /> Orçamento: {orcamento}</span>
@@ -693,7 +696,6 @@ const priceFmt = currencyCents(priceCents);
           )}
         </div>
       </div>
-
 
       {relacionadas.length > 0 && (
         <div className="op-recomenda">

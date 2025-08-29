@@ -49,125 +49,124 @@ export default function Hero() {
         background: "linear-gradient(to bottom, rgba(0,0,0,0) 10%, #f6f9fa 100%)",
         pointerEvents: "none",
       }} />
-      {/* Conteúdo centralizado */}
-      <div
-        ref={containerRef}
-        className="hero-content"
-        style={{
-          position: "relative",
-          zIndex: 3,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-start",
-          maxWidth: "640px",
-          width: "100%",
-          padding: "40px 24px 48px 24px",
-          animation: "none",
-        }}
-        tabIndex={-1}
-      >
-        <h1
-          style={{
-            color: "#fff",
-            fontSize: "clamp(2.3rem, 7vw, 3.6rem)",
-            fontWeight: 800,
-            lineHeight: 1.08,
-            marginBottom: "22px",
-            textShadow: "0 4px 24px #2226, 0 1px 0 #0003",
-            width: "100%",
-            letterSpacing: "-1.5px",
-          }}
-        >
-          Conecte-se às Melhores <br />
-         Oportunidades do Setor de Britagem e Mineração<br /> 
-        </h1>
-        {/* Subtítulo */}
-        <p
-          style={{
-            color: "#fff",
-            fontSize: "1.14rem",
-            lineHeight: 1.54,
-            marginBottom: "34px",
-            textShadow: "0 2px 12px #0008",
-            maxWidth: 460,
-            opacity: 0.93,
-            fontWeight: 500,
-            width: "100%",
-          }}
-        >
-         Encontre, anuncie e atenda demandas de todo o Brasil 
-         de forma direta, sem intermediação!
-        </p>
-        {/* Botões */}
-        <div
-          className="hero-buttons"
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            gap: "14px",
-            width: "100%",
-            flexWrap: "wrap",
-            justifyContent: "flex-start",
-            marginBottom: "8px",
-          }}
-        >
-          <Link href="/demandas" passHref legacyBehavior>
-            <a
-              style={{
-                background: "#FB8500",
-                color: "#fff",
-                fontSize: "1.09rem",
-                fontWeight: 700,
-                borderRadius: "18px",
-                padding: "14px 28px",
-                boxShadow: "0 4px 20px #0003",
-                cursor: "pointer",
-                transition: "background .15s, transform .13s",
-                border: "none",
-                outline: "none",
-                textDecoration: "none",
-                marginBottom: "0px",
-                display: "inline-block",
-                width: "auto",
-                minWidth: "160px",
-                textAlign: "center",
-                letterSpacing: "-.5px",
-              }}
-              onMouseOver={e => (e.currentTarget.style.background = "#e17000")}
-              onMouseOut={e => (e.currentTarget.style.background = "#FB8500")}
-              tabIndex={0}
-            >
-              Ver Oportunidades
-            </a>
-          </Link>
-          <Link href="/vitrine" passHref legacyBehavior>
-            <a
-              style={{
-                background: "#FB8500",
-                color: "#fff",
-                fontSize: "1.09rem",
-                fontWeight: 700,
-                borderRadius: "18px",
-                padding: "14px 28px",
-                boxShadow: "0 4px 20px #0003",
-                cursor: "pointer",
-                transition: "background .15s, transform .13s",
-                border: "none",
-                outline: "none",
-                textDecoration: "none",
-                marginBottom: "0px",
-                display: "inline-block",
-                width: "auto",
-                minWidth: "180px",
-                textAlign: "center",
-                letterSpacing: "-.5px",
-              }}
-              onMouseOver={e => (e.currentTarget.style.background = "#e17000")}
-              onMouseOut={e => (e.currentTarget.style.background = "#FB8500")}
-              tabIndex={0}
-            >
-              Ver Produtos Disponiveis
-            </a>
+     {/* Conteúdo */}
+           <div
+             ref={containerRef}
+             className="hero-content"
+             style={{
+               position: "relative",
+               zIndex: 3,
+               display: "flex",
+               flexDirection: "column",
+               alignItems: "flex-start",
+               maxWidth: "760px",
+               width: "100%",
+               padding: "40px 24px 48px 24px",
+             }}
+             tabIndex={-1}
+           >
+             <span
+               style={{
+                 background: "rgba(255,255,255,.18)",
+                 padding: "7px 12px",
+                 borderRadius: 999,
+                 display: "inline-block",
+                 fontSize: 12.5,
+                 letterSpacing: ".02em",
+                 marginBottom: 12,
+                 fontWeight: 600,
+                 color: "#fff",
+               }}
+             >
+               +200 fornecedores qualificados • retorno médio ~24h
+             </span>
+     
+             <h1
+               style={{
+                 color: "#fff",
+                 fontSize: "clamp(2.2rem, 6.2vw, 3.4rem)",
+                 fontWeight: 900,
+                 lineHeight: 1.08,
+                 marginBottom: 16,
+                 textShadow: "0 4px 24px #2226, 0 1px 0 #0003",
+                 letterSpacing: "-1.2px",
+                 fontFamily: "'Poppins','Inter',sans-serif",
+               }}
+             >
+               Encontre o <span style={{ color: "#FFB703" }}>Fornecedor Ideal</span>{" "}
+               para sua Mineradora, em Minutos
+             </h1>
+     
+             <p
+               style={{
+                 color: "#fff",
+                 fontSize: "1.08rem",
+                 lineHeight: 1.52,
+                 marginBottom: 26,
+                 textShadow: "0 2px 12px #0008",
+                 maxWidth: 640,
+                 opacity: 0.95,
+                 fontWeight: 500,
+               }}
+             >
+               Conectamos suas demandas a fornecedores <b>qualificados</b> de produtos e serviços
+               para britagem e mineração. <b>Mais opções</b>, <b>menos risco</b> e zero complicação.
+             </p>
+     
+             <div
+               className="hero-buttons"
+               style={{
+                 display: "flex",
+                 gap: 14,
+                 flexWrap: "wrap",
+                 justifyContent: "flex-start",
+               }}
+             >
+               <Link href="/demandas" passHref legacyBehavior>
+                 <a
+                   style={{
+                     background: "#FB8500",
+                     color: "#fff",
+                     fontSize: "1.06rem",
+                     fontWeight: 800,
+                     borderRadius: 18,
+                     padding: "14px 22px",
+                     boxShadow: "0 10px 24px #0003",
+                     textDecoration: "none",
+                     minWidth: 170,
+                     textAlign: "center",
+                     letterSpacing: ".01em",
+                     transition: "background .15s",
+                   }}
+                   onMouseOver={(e) => (e.currentTarget.style.background = "#e17000")}
+                   onMouseOut={(e) => (e.currentTarget.style.background = "#FB8500")}
+                 >
+                   Cadastrar Demanda
+                 </a>
+               </Link>
+     
+               <Link href="/vitrine" passHref legacyBehavior>
+                 <a
+                   style={{
+                     background: "rgba(255,255,255,.92)",
+                     color: "#023047",
+                     fontSize: "1.06rem",
+                     fontWeight: 800,
+                     borderRadius: 18,
+                     padding: "14px 22px",
+                     boxShadow: "0 10px 24px #0000001f",
+                     textDecoration: "none",
+                     minWidth: 180,
+                     textAlign: "center",
+                     letterSpacing: ".01em",
+                     transition: "background .15s",
+                   }}
+                   onMouseOver={(e) => (e.currentTarget.style.background = "#fff")}
+                   onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,.92)")}
+                 >
+                   Ver Fornecedores
+                 </a>
+               
           </Link>
         </div>
         {/* Seta animada */}

@@ -8,6 +8,15 @@ import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
 import { Eye, EyeOff, Mail, Lock, Loader2, LogIn, AlertTriangle } from "lucide-react";
 
+type UsuarioDB = {
+  tipo?: "usuario" | "admin" | "patrocinador";
+  role?: "usuario" | "admin" | "patrocinador";
+  status?: "Ativo" | "Inativo" | "Bloqueado";
+  patrocinador?: boolean;
+  isPatrocinador?: boolean;
+  [k: string]: any;
+};
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -21,22 +30,42 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setErro("");
+
     try {
       const cred = await signInWithEmailAndPassword(auth, email, senha);
       const uid = cred.user.uid;
-      const userRef = doc(db, "usuarios", uid);
-      const userSnap = await getDoc(userRef);
-      if (!userSnap.exists()) throw new Error("Usuário não encontrado no banco de dados.");
-      const user = userSnap.data() as any;
-      if (user.tipo === "usuario") {
-        router.push("/painel");
-      } else if (user.tipo === "admin") {
-        router.push("/admin");
-      } else {
-        setErro("Tipo de usuário não reconhecido. Contate o suporte.");
+
+      // Tenta buscar o doc do usuário. Se não existir, assume defaults:
+      const snap = await getDoc(doc(db, "usuarios", uid));
+      const data: UsuarioDB = snap.exists() ? (snap.data() as UsuarioDB) : {};
+
+      // Normaliza campos (compatível com variações que já usamos):
+      const tipo = (data.tipo || data.role || "usuario") as UsuarioDB["tipo"];
+      const isAdmin = tipo === "admin";
+      const isPatroFlag = Boolean(data.patrocinador || data.isPatrocinador);
+      const isPatroTipo = tipo === "patrocinador";
+
+      // Bloqueio opcional (se quiser manter):
+      if (data.status === "Bloqueado") {
+        setErro("Sua conta está bloqueada. Entre em contato com o suporte.");
         return;
       }
-    } catch (error: any) {
+
+      // Regras de rota:
+      if (isAdmin) {
+        router.push("/admin");
+        return;
+      }
+
+      // Patrocinador acessa o mesmo painel (ou mude a rota se tiver um painel específico):
+      if (isPatroTipo || isPatroFlag) {
+        router.push("/painel");
+        return;
+      }
+
+      // Usuário comum (ou sem doc ainda) também entra normalmente:
+      router.push("/painel");
+    } catch (err: any) {
       setErro("E-mail ou senha inválidos. Tente novamente.");
     } finally {
       setLoading(false);
@@ -81,7 +110,7 @@ export default function LoginPage() {
                 type="email"
                 required
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="exemplo@seudominio.com"
                 className="bg-transparent outline-none flex-1 text-[#023047] text-base font-semibold"
                 autoComplete="username"
@@ -96,7 +125,7 @@ export default function LoginPage() {
                 type={showSenha ? "text" : "password"}
                 required
                 value={senha}
-                onChange={e => setSenha(e.target.value)}
+                onChange={(e) => setSenha(e.target.value)}
                 placeholder="Sua senha"
                 className="bg-transparent outline-none flex-1 text-[#023047] text-base font-semibold"
                 onKeyUp={handleCapsLock}
@@ -104,7 +133,7 @@ export default function LoginPage() {
               />
               <button
                 type="button"
-                onClick={() => setShowSenha(s => !s)}
+                onClick={() => setShowSenha((s) => !s)}
                 className="ml-2 text-[#b6b6c2] hover:text-[#FB8500] focus:outline-none transition"
                 tabIndex={-1}
                 aria-label={showSenha ? "Ocultar senha" : "Mostrar senha"}

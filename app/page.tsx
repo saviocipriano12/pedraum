@@ -80,33 +80,38 @@ export default function HomePage() {
       <div className="mt-20">
         <FeaturesSection />
       </div>
-
+{/* Como funciona (3 passos) */}
+      <div className="mt-24">
+        <HowItWorks />
+      </div>
       
-
       {/* Vitrine de demandas (prova de movimento) */}
       <div className="mt-24">
         <DemandasShowcase />
       </div>
 
-      {/* Blog (autoridade/SEO) */}
-      <div className="mt-24">
-        <BlogShowcase />
-      </div>
-      {/* Transição estética + Newsletter */}
-      <div className="mt-24">
-        <SectionTransition />
-      </div>
-      <NewsletterSection />
+{/* Seção de fornecedores e serviços (clareza) */}
+            <div className="mt-24">
+              <SuppliersServices />
+            </div>
 
       {/* Vitrine de máquinas (manter no fim) */}
       <div className="mt-24">
         <MachinesShowcase />
       </div>
 
-      {/* Depoimentos */}
+      
+{/* Depoimentos */}
       <div className="mt-24 mb-24">
         <TestimonialsSection />
       </div>
+
+      
+       {/* Transição estética + Newsletter */}
+      <div className="mt-24">
+        <SectionTransition />
+      </div>
+      <NewsletterSection />
     </main>
   );
 }

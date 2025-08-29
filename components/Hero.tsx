@@ -78,7 +78,7 @@ export default function Hero() {
                  color: "#fff",
                }}
              >
-               +200 fornecedores qualificados • retorno médio ~24h
+               Fornecedores qualificados • retorno médio algumas horas
              </span>
      
              <h1

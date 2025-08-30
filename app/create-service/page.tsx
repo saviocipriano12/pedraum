@@ -1,5 +1,5 @@
 "use client";
-
+import AuthGateRedirect from "@/components/AuthGateRedirect";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { db, auth } from "@/firebaseConfig";
@@ -150,7 +150,7 @@ export default function CreateServicePage() {
           <Layers className="w-9 h-9 text-orange-500" />
           Cadastrar Serviço
         </h1>
-
+<AuthGateRedirect />
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 22 }}>
           {/* Imagem do Serviço */}
           <div style={{

@@ -1,5 +1,5 @@
 "use client";
-
+import AuthGateRedirect from "@/components/AuthGateRedirect";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import RelatedDemandsCarousel from "@/components/RelatedDemandsCarousel";
@@ -489,6 +489,7 @@ export default function DemandaDetalhePage() {
     } catch {}
   }
 
+
   /* ======================= Guards ======================= */
   if (!uid) {
     return (
@@ -842,3 +843,4 @@ const baseCss = `
   .op-headbar{flex-direction:column;align-items:flex-start;gap:10px}
 }
 `;
+ <AuthGateRedirect />

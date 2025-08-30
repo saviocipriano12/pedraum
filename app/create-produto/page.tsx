@@ -1,5 +1,5 @@
 "use client";
-
+import AuthGateRedirect from "@/components/AuthGateRedirect";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { db, auth } from "@/firebaseConfig";
@@ -228,7 +228,9 @@ export default function CreateProdutoPage() {
     categorias.find((c) => c.nome === form.categoria)?.subcategorias || [];
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-[#f7f9fb] via-white to-[#e0e7ef] flex flex-col items-center py-8 px-2 sm:px-4">
+  
+      
+   <main className="min-h-screen bg-gradient-to-br from-[#f7f9fb] via-white to-[#e0e7ef] flex flex-col items-center py-8 px-2 sm:px-4">
       <section
         style={{
           maxWidth: 760,
@@ -255,7 +257,7 @@ export default function CreateProdutoPage() {
           <Package className="w-9 h-9 text-orange-500" />
           Cadastrar Produto
         </h1>
-
+<AuthGateRedirect />
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           {/* Imagens */}
           <div style={{
@@ -525,4 +527,4 @@ const inputStyle: React.CSSProperties = {
   marginTop: 4,
   minHeight: 46,
 };
-
+ 

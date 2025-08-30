@@ -1,6 +1,6 @@
 // app/painel/page.tsx
 "use client";
-
+import RequireAuth from "@/components/RequireAuth";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -79,7 +79,20 @@ async function safeCount(qry: any) {
     return 0;
   }
 }
-
+function OportunidadesPage() {
+  return (
+    <RequireAuth
+      title="Área exclusiva"
+      description="Entre na sua conta para visualizar e interagir com as oportunidades."
+      // allowClose // ative se quiser permitir fechar o modal sem logar
+    >
+      <main className="max-w-6xl mx-auto px-4 py-10">
+        <h1 className="text-2xl font-bold">Oportunidades</h1>
+        {/* conteúdo real da página */}
+      </main>
+    </RequireAuth>
+  );
+}
 // Faz um “scan inteligente” dos N docs mais recentes (por __name__) e computa contadores
 async function smartScanCount(
   colName: string,

@@ -1,6 +1,6 @@
 // app/create-demanda/page.tsx
 "use client";
-
+import AuthGateRedirect from "@/components/AuthGateRedirect";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { db, auth } from "@/firebaseConfig";
@@ -214,7 +214,7 @@ export default function CreateDemandaPage() {
         const uref = doc(db, "usuarios", user.uid);
         const usnap = await getDoc(uref);
         const prof = usnap.exists() ? (usnap.data() as any) : {};
-
+  <AuthGateRedirect />
         setForm((prev) => ({
           ...prev,
           autorNome: prev.autorNome || prof?.nome || user.displayName || "",

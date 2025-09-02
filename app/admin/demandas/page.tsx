@@ -10,10 +10,14 @@ import {
   limit as fsLimit,
   startAfter,
   getDocs,
+  getCountFromServer,
   doc,
+  getDoc,
   updateDoc,
   deleteDoc,
+  where,
   DocumentData,
+  QueryConstraint,
   QueryDocumentSnapshot,
   Timestamp,
 } from "firebase/firestore";
@@ -21,18 +25,15 @@ import {
   ArrowLeft,
   PlusCircle,
   Search,
-  ChevronLeft,
-  ChevronRight,
   Info,
   Pencil,
   Trash2,
   ArrowLeftRight,
-  X,
-  Wallet,
-  BadgeDollarSign,
   Eye,
   EyeOff,
   Save,
+  BadgeDollarSign,
+  Wallet,
 } from "lucide-react";
 import { withRoleProtection } from "@/utils/withRoleProtection";
 
@@ -46,7 +47,6 @@ type Demanda = {
   status: "aberta" | "andamento" | "fechada" | "inativa" | string;
   createdAt?: Timestamp | any;
   visibilidade?: "publica" | "oculta";
-  // cobrança
   preco?: number;
   cobrancaStatus?: "pendente" | "pago" | "isento";
 };
@@ -78,7 +78,7 @@ const CATEGORIAS = [
   "Outros",
 ] as const;
 
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 30;
 
 /* =================== Helpers =================== */
 function toDate(ts?: any): Date | null {
@@ -98,14 +98,44 @@ function currency(n?: number) {
     ? n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
     : "—";
 }
+function startOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
 
-/* =================== Toast simples =================== */
+/* ======== busca (normalização / tokens / heurística id) ======== */
+function normalize(s = "") {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim();
+}
+function tokenizeTerm(s = ""): string[] {
+  const base = normalize(s);
+  if (!base) return [];
+  const parts = base.split(/[\s,.;:/\\\-_|]+/g).filter(Boolean);
+  return Array.from(new Set([base, ...parts])).slice(0, 10);
+}
+// IDs do Firestore costumam ter ~20+ chars; ajuste se quiser
+function looksLikeDocId(s = "") {
+  const t = s.trim();
+  return t.length >= 18;
+}
+
+/* =================== Toast =================== */
 function useToasts() {
   const [toasts, setToasts] = useState<{ id: number; text: string }[]>([]);
   function push(text: string) {
     const id = Date.now() + Math.random();
-    setToasts(t => [...t, { id, text }]);
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
+    setToasts((t) => [...t, { id, text }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
   }
   return { push, toasts };
 }
@@ -114,17 +144,31 @@ function useToasts() {
 function AdminDemandasPage() {
   const { push, toasts } = useToasts();
 
-  // data
+  // lista + carregamento
   const [items, setItems] = useState<Demanda[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  // filtros (client-side elegantes, com chips)
-  const [term, setTerm] = useState("");
+  // filtros
+  const [term, setTerm] = useState(""); // agora usado (id exato + searchKeywords)
   const [fStatus, setFStatus] = useState("");
   const [fCat, setFCat] = useState("");
   const [fEmail, setFEmail] = useState("");
   const [fIni, setFIni] = useState("");
   const [fFim, setFFim] = useState("");
+
+  // totais e KPIs
+  const [totalGeral, setTotalGeral] = useState(0);
+  const [totalFiltrado, setTotalFiltrado] = useState(0);
+  const [kpi, setKpi] = useState({ hoje: 0, andamento: 0, fechadas: 0, inativas: 0 });
+
+  // cursores p/ scroll infinito
+  const lastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const hasMoreRef = useRef<boolean>(false);
+
+  // sentinela p/ IntersectionObserver
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   // seleção / drawer
   const [sel, setSel] = useState<Record<string, boolean>>({});
@@ -132,133 +176,261 @@ function AdminDemandasPage() {
   const [drawer, setDrawer] = useState<Demanda | null>(null);
   const [editPreco, setEditPreco] = useState("");
 
-  // paginação (cursor)
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const lastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
+  /* ========= constraints a partir dos filtros ========= */
+  const buildConstraints = useCallback((): QueryConstraint[] => {
+    const c: QueryConstraint[] = [];
 
-  /* ============ fetch 1ª página ============ */
-  const loadFirst = useCallback(async () => {
-    setLoading(true);
-    const q = query(collection(db, "demandas"), orderBy("createdAt", "desc"), fsLimit(PAGE_SIZE));
-    const snap = await getDocs(q);
-    const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) as Demanda[];
-    setItems(list);
-    lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
+    if (fStatus) c.push(where("status", "==", fStatus));
+    if (fCat) c.push(where("categoria", "==", fCat));
+    if (fEmail.trim()) c.push(where("emailCriador", "==", fEmail.trim()));
 
-    if (lastDocRef.current) {
-      const nextSnap = await getDocs(
+    if (fIni) c.push(where("createdAt", ">=", startOfDay(new Date(fIni))));
+    if (fFim) c.push(where("createdAt", "<=", endOfDay(new Date(fFim))));
+
+    // Busca por palavra (requer campo searchKeywords e índice composto)
+    if (term.trim()) {
+      const tokens = tokenizeTerm(term);
+      if (tokens.length > 0) {
+        c.push(where("searchKeywords", "array-contains-any", tokens));
+      }
+    }
+
+    return c;
+  }, [fStatus, fCat, fEmail, fIni, fFim, term]);
+
+  /* =================== contagens =================== */
+  const refreshCounts = useCallback(async () => {
+    const totalAll = await getCountFromServer(collection(db, "demandas"));
+    setTotalGeral(totalAll.data().count);
+
+    const base = buildConstraints();
+    const totalSnap = await getCountFromServer(query(collection(db, "demandas"), ...base));
+    setTotalFiltrado(totalSnap.data().count);
+
+    const baseNoStatus = base.filter(
+      (cc: any) => !(cc?.type === "where" && cc?.fieldPath?.canonicalString === "status")
+    );
+
+    const today = startOfDay(new Date());
+    const [hojeC, andC, fecC, inaC] = await Promise.all([
+      getCountFromServer(
         query(
           collection(db, "demandas"),
+          ...baseNoStatus.filter((cc: any) => cc?.fieldPath?.canonicalString !== "createdAt"),
+          where("createdAt", ">=", today)
+        )
+      ),
+      getCountFromServer(query(collection(db, "demandas"), ...baseNoStatus, where("status", "==", "andamento"))),
+      getCountFromServer(query(collection(db, "demandas"), ...baseNoStatus, where("status", "==", "fechada"))),
+      getCountFromServer(query(collection(db, "demandas"), ...baseNoStatus, where("status", "==", "inativa"))),
+    ]);
+
+    setKpi({
+      hoje: hojeC.data().count,
+      andamento: andC.data().count,
+      fechadas: fecC.data().count,
+      inativas: inaC.data().count,
+    });
+  }, [buildConstraints]);
+
+  /* =================== 1ª carga =================== */
+  const loadFirst = useCallback(async () => {
+    setLoading(true);
+    setErrMsg(null);
+    setSel({});
+    try {
+      // 0) Se o termo parece um ID exato, tenta buscar direto o documento
+      try {
+        const raw = term.trim();
+        if (raw && looksLikeDocId(raw)) {
+          const dref = doc(db, "demandas", raw);
+          const dsnap = await getDoc(dref);
+          if (dsnap.exists()) {
+            const it = { id: dsnap.id, ...(dsnap.data() as any) } as Demanda;
+            setItems([it]);
+            lastDocRef.current = null;
+            hasMoreRef.current = false;
+
+            setTotalFiltrado(1);
+            const totalAll = await getCountFromServer(collection(db, "demandas"));
+            setTotalGeral(totalAll.data().count);
+
+            const today = startOfDay(new Date());
+            setKpi({
+              hoje: it.createdAt && toDate(it.createdAt)! >= today ? 1 : 0,
+              andamento: it.status === "andamento" ? 1 : 0,
+              fechadas: it.status === "fechada" ? 1 : 0,
+              inativas: it.status === "inativa" ? 1 : 0,
+            });
+
+            setLoading(false);
+            if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+            return; // não segue para a query paginada
+          }
+        }
+      } catch (e) {
+        console.warn("Lookup por ID falhou (segue query normal):", e);
+      }
+
+      // 1) Query paginada normal com filtros
+      const constraints = buildConstraints();
+      const qPage = query(
+        collection(db, "demandas"),
+        ...constraints,
+        orderBy("createdAt", "desc"),
+        fsLimit(PAGE_SIZE)
+      );
+      const snap = await getDocs(qPage);
+      const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Demanda[];
+      setItems(list);
+
+      lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
+      if (lastDocRef.current) {
+        const next = await getDocs(
+          query(
+            collection(db, "demandas"),
+            ...constraints,
+            orderBy("createdAt", "desc"),
+            startAfter(lastDocRef.current),
+            fsLimit(1)
+          )
+        );
+        hasMoreRef.current = !next.empty;
+      } else {
+        hasMoreRef.current = false;
+      }
+
+      await refreshCounts();
+    } catch (e: any) {
+      console.error(e);
+      setItems([]);
+      if (e?.message?.includes("FAILED_PRECONDITION") || e?.message?.includes("index")) {
+        setErrMsg("Faltou um índice composto no Firestore. Abra o link sugerido no console para criar.");
+      } else {
+        setErrMsg("Erro ao carregar demandas.");
+        push("Erro ao carregar demandas.");
+      }
+    } finally {
+      setLoading(false);
+      if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [buildConstraints, refreshCounts, push, term]);
+
+  /* =================== mais itens (scroll infinito) =================== */
+  const loadMore = useCallback(async () => {
+    if (!lastDocRef.current || !hasMoreRef.current || loadingMore) return;
+    setLoadingMore(true);
+    setErrMsg(null);
+    try {
+      const constraints = buildConstraints();
+      const snap = await getDocs(
+        query(
+          collection(db, "demandas"),
+          ...constraints,
           orderBy("createdAt", "desc"),
           startAfter(lastDocRef.current),
-          fsLimit(1)
+          fsLimit(PAGE_SIZE)
         )
       );
-      setHasMore(!nextSnap.empty);
-    } else setHasMore(false);
+      const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Demanda[];
+      setItems((prev) => [...prev, ...list]);
 
-    setPage(1);
-    setSel({});
-    setLoading(false);
+      lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
+      if (lastDocRef.current) {
+        const ns = await getDocs(
+          query(
+            collection(db, "demandas"),
+            ...constraints,
+            orderBy("createdAt", "desc"),
+            startAfter(lastDocRef.current),
+            fsLimit(1)
+          )
+        );
+        hasMoreRef.current = !ns.empty;
+      } else {
+        hasMoreRef.current = false;
+      }
+    } catch (e: any) {
+      console.error(e);
+      if (e?.message?.includes("FAILED_PRECONDITION") || e?.message?.includes("index")) {
+        setErrMsg("Faltou um índice composto no Firestore. Abra o link sugerido no console para criar.");
+      } else {
+        setErrMsg("Erro ao carregar mais demandas.");
+        push("Erro ao carregar mais demandas.");
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [buildConstraints, loadingMore, push]);
+
+  /* =================== efeitos =================== */
+  useEffect(() => {
+    loadFirst();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    loadFirst();
-  }, [loadFirst]);
+    const t = setTimeout(() => {
+      loadFirst();
+    }, 300);
+    return () => clearTimeout(t);
+  }, [term, fStatus, fCat, fEmail, fIni, fFim]); // eslint-disable-line
 
-  async function nextPage() {
-    if (!lastDocRef.current) return;
-    setLoading(true);
-    const snap = await getDocs(
-      query(collection(db, "demandas"), orderBy("createdAt", "desc"), startAfter(lastDocRef.current), fsLimit(PAGE_SIZE))
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+
+    const el = sentinelRef.current;
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting && !loading && !loadingMore && hasMoreRef.current) {
+            loadMore();
+          }
+        });
+      },
+      { rootMargin: "600px 0px 600px 0px" }
     );
-    const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) as Demanda[];
-    setItems(list);
-    lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
-    if (lastDocRef.current) {
-      const ns = await getDocs(
-        query(collection(db, "demandas"), orderBy("createdAt", "desc"), startAfter(lastDocRef.current), fsLimit(1))
-      );
-      setHasMore(!ns.empty);
-    } else setHasMore(false);
-    setPage(p => p + 1);
-    setSel({});
-    setLoading(false);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
 
-  /* ============ filtragem elegante ============ */
-  const list = useMemo(() => {
-    return items.filter(d => {
-      const t = term.trim().toLowerCase();
-      const tOk =
-        !t ||
-        d.titulo?.toLowerCase().includes(t) ||
-        d.categoria?.toLowerCase().includes(t) ||
-        d.criador?.toLowerCase().includes(t);
-      const sOk = !fStatus || d.status === fStatus;
-      const cOk = !fCat || d.categoria === fCat;
-      const eOk = !fEmail || d.emailCriador?.toLowerCase().includes(fEmail.toLowerCase());
-      let dOk = true;
-      if ((fIni || fFim) && d.createdAt) {
-        const c = toDate(d.createdAt)?.getTime() || 0;
-        if (fIni && c < new Date(fIni).getTime()) dOk = false;
-        if (fFim) {
-          const df = new Date(fFim);
-          df.setHours(23, 59, 59, 999);
-          if (c > df.getTime()) dOk = false;
-        }
-      }
-      return tOk && sOk && cOk && eOk && dOk;
-    });
-  }, [items, term, fStatus, fCat, fEmail, fIni, fFim]);
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loading, loadingMore, items.length, loadMore]);
 
-  /* ============ ações ============ */
+  /* =================== ações =================== */
   async function changeStatus(d: Demanda) {
     const next = STATUS_META[d.status]?.next || "aberta";
     await updateDoc(doc(db, "demandas", d.id), { status: next, updatedAt: new Date() as any });
-    push("Status atualizado.");
-    setItems(arr => arr.map(x => (x.id === d.id ? { ...x, status: next } : x)));
-    setDrawer(curr => (curr?.id === d.id ? { ...curr, status: next } : curr));
+    setItems((arr) => arr.map((x) => (x.id === d.id ? { ...x, status: next } : x)));
+    await refreshCounts();
   }
   async function remove(id: string) {
     if (!confirm("Excluir esta demanda?")) return;
     await deleteDoc(doc(db, "demandas", id));
-    push("Demanda excluída.");
-    setItems(arr => arr.filter(x => x.id !== id));
-    setSel(s => {
-      const n = { ...s };
-      delete n[id];
-      return n;
-    });
-    setDrawer(d => (d?.id === id ? null : d));
+    await loadFirst();
   }
   async function toggleVis(d: Demanda) {
     const next = d.visibilidade === "oculta" ? "publica" : "oculta";
     await updateDoc(doc(db, "demandas", d.id), { visibilidade: next, updatedAt: new Date() as any });
-    setItems(arr => arr.map(x => (x.id === d.id ? { ...x, visibilidade: next } : x)));
-    setDrawer(curr => (curr?.id === d.id ? { ...curr, visibilidade: next } : curr));
-    push(next === "publica" ? "Demanda agora está pública." : "Demanda oculta.");
+    setItems((arr) => arr.map((x) => (x.id === d.id ? { ...x, visibilidade: next } : x)));
   }
 
-  // bulk
-  const selectedIds = useMemo(() => Object.entries(sel).filter(([, v]) => v).map(([id]) => id), [sel]);
+  const selectedIds = useMemo(
+    () => Object.entries(sel).filter(([, v]) => v).map(([id]) => id),
+    [sel]
+  );
+
   async function bulkStatus(next: "aberta" | "andamento" | "fechada" | "inativa") {
     if (!selectedIds.length) return;
     if (!confirm(`Mudar status de ${selectedIds.length} demanda(s) para "${STATUS_META[next].label}"?`)) return;
-    await Promise.all(selectedIds.map(id => updateDoc(doc(db, "demandas", id), { status: next, updatedAt: new Date() as any })));
-    setItems(arr => arr.map(x => (selectedIds.includes(x.id) ? { ...x, status: next } : x)));
-    setSel({});
-    push("Status atualizado em massa.");
+    await Promise.all(
+      selectedIds.map((id) => updateDoc(doc(db, "demandas", id), { status: next, updatedAt: new Date() as any }))
+    );
+    await loadFirst();
   }
   async function bulkDelete() {
     if (!selectedIds.length) return;
     if (!confirm(`Excluir ${selectedIds.length} demanda(s)?`)) return;
-    await Promise.all(selectedIds.map(id => deleteDoc(doc(db, "demandas", id))));
-    setItems(arr => arr.filter(x => !selectedIds.includes(x.id)));
-    setSel({});
-    push("Demandas excluídas.");
+    await Promise.all(selectedIds.map((id) => deleteDoc(doc(db, "demandas", id))));
+    await loadFirst();
   }
 
   // cobrança
@@ -267,45 +439,44 @@ function AdminDemandasPage() {
     const val = Number(String(editPreco).replace(",", "."));
     if (isNaN(val)) return push("Informe um valor válido.");
     await updateDoc(doc(db, "demandas", drawer.id), { preco: val, updatedAt: new Date() as any });
-    setItems(a => a.map(x => (x.id === drawer.id ? { ...x, preco: val } : x)));
-    setDrawer(d => (d ? { ...d, preco: val } : d));
+    setItems((a) => a.map((x) => (x.id === drawer.id ? { ...x, preco: val } : x)));
+    setDrawer((d) => (d ? { ...d, preco: val } : d));
     push("Preço salvo.");
   }
   async function setCobranca(status: "pendente" | "pago" | "isento") {
     if (!drawer) return;
     await updateDoc(doc(db, "demandas", drawer.id), { cobrancaStatus: status, updatedAt: new Date() as any });
-    setItems(a => a.map(x => (x.id === drawer.id ? { ...x, cobrancaStatus: status } : x)));
-    setDrawer(d => (d ? { ...d, cobrancaStatus: status } : d));
+    setItems((a) => a.map((x) => (x.id === drawer.id ? { ...x, cobrancaStatus: status } : x)));
+    setDrawer((d) => (d ? { ...d, cobrancaStatus: status } : d));
     push(`Cobrança: ${status}`);
   }
 
-  /* ============ KPIs simples ============ */
-  const kpi = useMemo(() => {
-    const today = new Date(); today.setHours(0,0,0,0);
-    let hoje = 0, andamento = 0, fechadas = 0, inativas = 0;
-    for (const d of items) {
-      if (d.createdAt && toDate(d.createdAt)! >= today) hoje++;
-      if (d.status === "andamento") andamento++;
-      if (d.status === "fechada")   fechadas++;
-      if (d.status === "inativa")   inativas++;
-    }
-    return { hoje, andamento, fechadas, inativas };
-  }, [items]);
-
-  /* ============ render ============ */
+  /* =================== render =================== */
   return (
     <section className="adm">
       {/* Header */}
       <div className="adm-header">
         <div className="adm-left">
           <Link href="/admin" className="btn-sec">
-            <ArrowLeft size={18}/> Voltar ao Painel
+            <ArrowLeft size={18} /> Voltar ao Painel
           </Link>
           <h1>Demandas Publicadas</h1>
         </div>
         <Link href="/create-demanda" className="btn-cta">
-          <PlusCircle size={18}/> Nova Demanda
+          <PlusCircle size={18} /> Nova Demanda
         </Link>
+      </div>
+
+      {/* Totais globais */}
+      <div className="totals">
+        <div className="total-box">
+          <div className="total-label">Total de Demandas</div>
+          <div className="total-value">{totalGeral.toLocaleString("pt-BR")}</div>
+        </div>
+        <div className="total-box muted-box">
+          <div className="total-label">Total (com filtros)</div>
+          <div className="total-value">{totalFiltrado.toLocaleString("pt-BR")}</div>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -331,15 +502,15 @@ function AdminDemandasPage() {
       {/* Filtros */}
       <div className="filters">
         <div className="input-with-icon">
-          <Search size={18} className="icon"/>
+          <Search size={18} className="icon" />
           <input
             value={term}
-            onChange={e => setTerm(e.target.value)}
-            placeholder="Buscar título, categoria ou criador…"
+            onChange={(e) => setTerm(e.target.value)}
+            placeholder="Buscar (id, id curto, título, criador, e-mail, categoria, etc.)"
           />
         </div>
 
-        <select value={fStatus} onChange={e => setFStatus(e.target.value)}>
+        <select value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
           <option value="">Todos Status</option>
           <option value="aberta">Aberta</option>
           <option value="andamento">Em andamento</option>
@@ -347,31 +518,43 @@ function AdminDemandasPage() {
           <option value="inativa">Inativa</option>
         </select>
 
-        <select value={fCat} onChange={e => setFCat(e.target.value)}>
+        <select value={fCat} onChange={(e) => setFCat(e.target.value)}>
           <option value="">Todas Categorias</option>
-          {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+          {CATEGORIAS.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
         </select>
 
         <input
-          type="email"
-          placeholder="E-mail do criador"
+          type="text"
+          placeholder="E-mail do criador (igual ao salvo)"
           value={fEmail}
-          onChange={e => setFEmail(e.target.value)}
+          onChange={(e) => setFEmail(e.target.value)}
         />
 
         <div className="date-group">
           <span>De:</span>
-          <input type="date" value={fIni} onChange={e => setFIni(e.target.value)}/>
+          <input type="date" value={fIni} onChange={(e) => setFIni(e.target.value)} />
           <span>Até:</span>
-          <input type="date" value={fFim} onChange={e => setFFim(e.target.value)}/>
+          <input type="date" value={fFim} onChange={(e) => setFFim(e.target.value)} />
         </div>
 
-        <button className="btn-sec" onClick={() => { setTerm(""); setFStatus(""); setFCat(""); setFEmail(""); setFIni(""); setFFim(""); loadFirst(); }}>
+        <button
+          className="btn-sec"
+          onClick={() => {
+            setTerm("");
+            setFStatus("");
+            setFCat("");
+            setFEmail("");
+            setFIni("");
+            setFFim("");
+          }}
+        >
           Limpar
         </button>
       </div>
 
-      {/* Chips ativos */}
+      {/* Chips */}
       <div className="chips">
         {term && <Chip onX={() => setTerm("")}>Busca: “{term}”</Chip>}
         {fStatus && <Chip onX={() => setFStatus("")}>Status: {STATUS_META[fStatus]?.label || fStatus}</Chip>}
@@ -381,65 +564,71 @@ function AdminDemandasPage() {
         {fFim && <Chip onX={() => setFFim("")}>Até: {fFim}</Chip>}
       </div>
 
-      {/* Toolbar seleção em massa */}
-      {selCount > 0 && (
-        <div className="bulk">
-          <span className="bulk-count">{selCount} selecionada{selCount > 1 ? "s" : ""}</span>
-          <button className="pill pill-warn" onClick={() => bulkStatus("andamento")}>Em andamento</button>
-          <button className="pill pill-danger" onClick={() => bulkStatus("fechada")}>Fechada</button>
-          <button className="pill pill-mute" onClick={() => bulkStatus("inativa")}>Inativa</button>
-          <button className="pill pill-danger" style={{ marginLeft: "auto" }} onClick={bulkDelete}>
-            <Trash2 size={16}/> Excluir
-          </button>
-        </div>
-      )}
-
       {/* Lista */}
+      {errMsg && <div className="error">{errMsg}</div>}
+
       {loading ? (
         <div className="loading">Carregando demandas…</div>
-      ) : list.length === 0 ? (
+      ) : items.length === 0 ? (
         <div className="empty">
           <h3>Nada por aqui…</h3>
           <p>Tente ajustar os filtros ou criar uma nova demanda.</p>
-          <div className="empty-actions">
-            <button className="btn-sec" onClick={loadFirst}>Reiniciar</button>
-            <Link href="/create-demanda" className="btn-cta"><PlusCircle size={18}/> Nova Demanda</Link>
-          </div>
+          <Link href="/create-demanda" className="btn-cta">
+            <PlusCircle size={18} /> Nova Demanda
+          </Link>
         </div>
       ) : (
         <>
+          {/* seleção em massa */}
+          {selCount > 0 && (
+            <div className="bulk">
+              <span className="bulk-count">
+                {selCount} selecionada{selCount > 1 ? "s" : ""}
+              </span>
+              <button className="pill pill-warn" onClick={() => bulkStatus("andamento")}>Em andamento</button>
+              <button className="pill pill-danger" onClick={() => bulkStatus("fechada")}>Fechada</button>
+              <button className="pill pill-mute" onClick={() => bulkStatus("inativa")}>Inativa</button>
+              <button className="pill pill-danger" style={{ marginLeft: "auto" }} onClick={bulkDelete}>
+                <Trash2 size={16} /> Excluir
+              </button>
+            </div>
+          )}
+
           <div className="select-all">
             <label>
               <input
                 type="checkbox"
-                checked={list.length > 0 && list.every(d => sel[d.id])}
+                checked={items.length > 0 && items.every((d) => sel[d.id])}
                 onChange={() => {
-                  const all = list.every(d => sel[d.id]);
+                  const all = items.every((d) => sel[d.id]);
                   const n: Record<string, boolean> = {};
-                  list.forEach(d => (n[d.id] = !all));
+                  items.forEach((d) => (n[d.id] = !all));
                   setSel(n);
                 }}
               />
-              Selecionar todos
+              Selecionar todos (desta tela)
             </label>
-            <span className="page">Página {page}</span>
+            <span className="muted">
+              Mostrando {items.length} de {totalFiltrado.toLocaleString("pt-BR")}
+            </span>
           </div>
 
           <div className="grid-cards">
-            {list.map(d => {
-              const meta = STATUS_META[d.status] || { label: d.status, color: "#6b7280", bg: "#f3f4f6", next: "aberta" };
+            {items.map((d) => {
+              const meta =
+                STATUS_META[d.status] || ({ label: d.status, color: "#6b7280", bg: "#f3f4f6", next: "aberta" } as const);
               return (
                 <article key={d.id} className="card">
                   <div className="card-top">
                     <input
                       type="checkbox"
                       checked={!!sel[d.id]}
-                      onChange={() => setSel(s => ({ ...s, [d.id]: !s[d.id] }))}
+                      onChange={() => setSel((s) => ({ ...s, [d.id]: !s[d.id] }))}
                       className="chk"
                     />
                     <h3 className="card-title">{d.titulo}</h3>
                     <button className="icon-btn" title="Detalhes" onClick={() => setDrawer(d)}>
-                      <Info size={18} color="#2563eb"/>
+                      <Info size={18} color="#2563eb" />
                     </button>
                   </div>
 
@@ -451,7 +640,9 @@ function AdminDemandasPage() {
                   )}
 
                   <div className="badges">
-                    <span className="status" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
+                    <span className="status" style={{ background: meta.bg, color: meta.color }}>
+                      {meta.label}
+                    </span>
                     <span className={d.visibilidade === "oculta" ? "vis-badge oculta" : "vis-badge publica"}>
                       {d.visibilidade === "oculta" ? "Oculta" : "Pública"}
                     </span>
@@ -459,11 +650,15 @@ function AdminDemandasPage() {
                   </div>
 
                   <div className="card-actions">
-                    <Link href={`/admin/demandas/${d.id}/edit`} className="pill pill-edit"><Pencil size={16}/> Editar</Link>
+                    <Link href={`/admin/demandas/${d.id}/edit`} className="pill pill-edit">
+                      <Pencil size={16} /> Editar
+                    </Link>
                     <button className="pill pill-warn" onClick={() => changeStatus(d)} title="Trocar status">
-                      <ArrowLeftRight size={16}/> Mudar Status
+                      <ArrowLeftRight size={16} /> Mudar Status
                     </button>
-                    <button className="pill" onClick={() => setDrawer(d)}>Ações</button>
+                    <button className="pill" onClick={() => setDrawer(d)}>
+                      Ações
+                    </button>
                     <span className="muted id">{d.id.slice(0, 6)}…</span>
                   </div>
                 </article>
@@ -471,22 +666,27 @@ function AdminDemandasPage() {
             })}
           </div>
 
-          <div className="pager">
-            <button className="btn-sec" disabled={page === 1} onClick={loadFirst}>
-              <ChevronLeft size={18}/> Primeira
-            </button>
-            <span className="muted">Página {page}</span>
-            <button className="btn-sec" disabled={!hasMore} onClick={nextPage}>
-              Próxima <ChevronRight size={18}/>
-            </button>
-          </div>
+          {/* sentinela para scroll infinito */}
+          <div ref={sentinelRef} style={{ height: 1 }} />
+
+          {loadingMore && <div className="loading">Carregando mais…</div>}
+
+          {!loadingMore && hasMoreRef.current && (
+            <div className="loadmore">
+              <button className="btn-sec" onClick={loadMore}>Carregar mais</button>
+            </div>
+          )}
+
+          {!loadingMore && !hasMoreRef.current && items.length > 0 && (
+            <div className="end">Fim da lista</div>
+          )}
         </>
       )}
 
       {/* Drawer */}
       {drawer && (
         <div className="drawer-mask" onClick={() => setDrawer(null)}>
-          <aside className="drawer" onClick={e => e.stopPropagation()}>
+          <aside className="drawer" onClick={(e) => e.stopPropagation()}>
             <button className="drawer-close" onClick={() => setDrawer(null)}>×</button>
 
             <h3 className="drawer-title">{drawer.titulo}</h3>
@@ -501,30 +701,34 @@ function AdminDemandasPage() {
             </div>
 
             <div className="drawer-group">
-              <Link href={`/admin/demandas/${drawer.id}/edit`} className="pill pill-edit big"><Pencil size={18}/> Editar demanda</Link>
-              <button className="pill pill-warn big" onClick={() => changeStatus(drawer)}><ArrowLeftRight size={18}/> Próximo status</button>
-              <button className="pill big" onClick={() => toggleVis(drawer)}>
-                {drawer.visibilidade === "oculta" ? (<><Eye size={18}/> Tornar pública</>) : (<><EyeOff size={18}/> Ocultar</>)}
+              <Link href={`/admin/demandas/${drawer.id}/edit`} className="pill pill-edit big"><Pencil size={18} /> Editar demanda</Link>
+              <button className="pill pill-warn big" onClick={() => changeStatus(drawer)}>
+                <ArrowLeftRight size={18} /> Próximo status
               </button>
-              <button className="pill pill-danger big" onClick={() => remove(drawer.id)}><Trash2 size={18}/> Excluir</button>
+              <button className="pill big" onClick={() => toggleVis(drawer)}>
+                {drawer.visibilidade === "oculta" ? (<><Eye size={18} /> Tornar pública</>) : (<><EyeOff size={18} /> Ocultar</>)}
+              </button>
+              <button className="pill pill-danger big" onClick={() => remove(drawer.id)}>
+                <Trash2 size={18} /> Excluir
+              </button>
             </div>
 
             <div className="drawer-box">
-              <div className="drawer-box-title"><Wallet size={18}/> Preço da demanda</div>
+              <div className="drawer-box-title"><Wallet size={18} /> Preço da demanda</div>
               <div className="drawer-inline">
                 <input
                   defaultValue={drawer.preco ?? ""}
-                  onChange={e => setEditPreco(e.target.value)}
+                  onChange={(e) => setEditPreco(e.target.value)}
                   placeholder="Ex.: 49.90"
                   className="drawer-input"
                 />
-                <button className="pill pill-primary" onClick={salvarPreco}><Save size={16}/> Salvar preço</button>
+                <button className="pill pill-primary" onClick={salvarPreco}><Save size={16} /> Salvar preço</button>
                 <span className="muted">Atual: <b>{currency(drawer.preco)}</b></span>
               </div>
             </div>
 
             <div className="drawer-box">
-              <div className="drawer-box-title"><BadgeDollarSign size={18}/> Status de cobrança</div>
+              <div className="drawer-box-title"><BadgeDollarSign size={18} /> Status de cobrança</div>
               <div className="drawer-inline">
                 <button className="pill pill-success" onClick={() => setCobranca("pago")}>Pago</button>
                 <button className="pill pill-warn" onClick={() => setCobranca("pendente")}>Pendente</button>
@@ -545,9 +749,7 @@ function AdminDemandasPage() {
 
       {/* Toasts */}
       <div className="toasts">
-        {toasts.map(t => (
-          <div key={t.id} className="toast">{t.text}</div>
-        ))}
+        {toasts.map((t) => <div key={t.id} className="toast">{t.text}</div>)}
       </div>
 
       {/* CSS */}
@@ -558,21 +760,19 @@ function AdminDemandasPage() {
         .adm-left { display:flex; align-items:center; gap:12px; }
         h1 { margin:0; font-size:2.1rem; font-weight:900; color:#023047; letter-spacing:-0.5px; }
 
-        .btn-sec {
-          display:inline-flex; align-items:center; gap:8px;
-          background:#fff; border:1.5px solid #e2e8f0; color:#023047;
-          border-radius:12px; padding:10px 14px; font-weight:800; cursor:pointer;
-          transition: background .14s;
-        }
+        .btn-sec { display:inline-flex; align-items:center; gap:8px; background:#fff; border:1.5px solid #e2e8f0; color:#023047;
+          border-radius:12px; padding:10px 14px; font-weight:800; cursor:pointer; transition: background .14s; }
         .btn-sec:hover { background:#fafafa; }
+        .btn-cta { display:inline-flex; align-items:center; gap:8px; background:#FB8500; color:#fff; border:none; border-radius:16px;
+          padding:12px 18px; font-weight:900; box-shadow:0 2px 14px #FB850033; text-decoration:none; }
 
-        .btn-cta {
-          display:inline-flex; align-items:center; gap:8px;
-          background:#FB8500; color:#fff; border:none; border-radius:16px;
-          padding:12px 18px; font-weight:900; box-shadow:0 2px 14px #FB850033; text-decoration:none;
-        }
+        .totals { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+        .total-box { background:#fff; border:1.5px solid #edf2f7; border-radius:16px; padding:14px 18px; box-shadow:0 2px 14px #0000000a; }
+        .total-label { color:#6b7280; font-weight:700; font-size:.92rem; }
+        .total-value { font-size:1.6rem; font-weight:900; color:#023047; }
+        .muted-box { opacity:.9; }
 
-        .kpis { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:14px; margin-top:16px; }
+        .kpis { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:14px; margin-top:12px; }
         .kpi { background:#fff; border:1.5px solid #edf2f7; border-radius:16px; padding:14px 18px; box-shadow:0 2px 14px #0000000a; }
         .kpi-label { color:#6b7280; font-weight:600; font-size:.92rem; }
         .kpi-value { font-size:2rem; font-weight:900; }
@@ -580,33 +780,21 @@ function AdminDemandasPage() {
         .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:14px; }
         .input-with-icon { position:relative; }
         .input-with-icon .icon { position:absolute; left:10px; top:10px; color:#9ca3af; }
-        .input-with-icon input {
-          height:42px; padding:0 12px 0 32px; border-radius:12px; border:1.5px solid #e0e7ef;
-          font-weight:600; color:#023047; background:#fff; min-width:240px;
-        }
-        .filters select, .filters input[type="email"] {
-          height:42px; padding:0 12px; border-radius:12px; border:1.5px solid #e0e7ef; font-weight:700; background:#fff;
-        }
+        .input-with-icon input { height:42px; padding:0 12px 0 32px; border-radius:12px; border:1.5px solid #e0e7ef;
+          font-weight:600; color:#023047; background:#fff; min-width:320px; }
+        .filters select, .filters input[type="text"] { height:42px; padding:0 12px; border-radius:12px; border:1.5px solid #e0e7ef; font-weight:700; background:#fff; }
         .date-group { display:flex; align-items:center; gap:6px; color:#9ca3af; font-size:.9rem; }
         .date-group input { height:38px; padding:0 8px; border-radius:10px; border:1.5px solid #e0e7ef; font-weight:700; background:#fff; color:#219ebc; }
 
         .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
-        .chip {
-          display:inline-flex; align-items:center; gap:6px; background:#fff; border:1.5px solid #e8edf3; color:#023047;
-          border-radius:10px; padding:6px 10px; font-weight:800; font-size:.9rem;
-        }
+        .chip { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1.5px solid #e8edf3; color:#023047;
+          border-radius:10px; padding:6px 10px; font-weight:800; font-size:.9rem; }
         .chip button { background:none; border:none; color:#9ca3af; cursor:pointer; font-size:16px; }
 
-        .bulk {
-          margin-top:12px; display:flex; align-items:center; gap:8px;
-          background:#fff; border:1.5px solid #e9ecef; border-radius:16px; padding:10px 12px; box-shadow:0 2px 12px #0000000a;
-        }
+        .bulk { margin-top:12px; display:flex; align-items:center; gap:8px; background:#fff; border:1.5px solid #e9ecef; border-radius:16px; padding:10px 12px; box-shadow:0 2px 12px #0000000a; }
         .bulk-count { color:#023047; font-weight:800; }
 
-        .pill {
-          display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:10px; border:1px solid #e8edf3;
-          font-weight:800; background:#fff; cursor:pointer;
-        }
+        .pill { display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:10px; border:1px solid #e8edf3; font-weight:800; background:#fff; cursor:pointer; }
         .pill-edit { background:#e8f8fe; color:#2563eb; border:1px solid #e0ecff; }
         .pill-warn { background:#fff7ea; color:#FB8500; border:1px solid #ffeccc; }
         .pill-danger { background:#fff0f0; color:#d90429; border:1px solid #ffdede; }
@@ -616,7 +804,6 @@ function AdminDemandasPage() {
 
         .select-all { display:flex; align-items:center; gap:10px; margin-top:14px; }
         .select-all label { display:flex; align-items:center; gap:6px; color:#64748b; }
-        .page { margin-left:auto; color:#9ca3af; font-size:.9rem; }
 
         .grid-cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap:22px; margin-top:10px; }
         .card { background:#fff; border:1.5px solid #eef2f7; border-radius:18px; padding:18px 18px 14px; box-shadow:0 2px 14px #0000000a; transition: box-shadow .12s, transform .12s; }
@@ -638,21 +825,18 @@ function AdminDemandasPage() {
         .small { font-size:.82rem; }
         .id { margin-left:auto; font-size:.82rem; }
 
-        .card-actions { display:flex; align-items:center; gap:8px; margin-top:12px; }
+        .loadmore { display:flex; justify-content:center; padding:12px 0; }
+        .loading { text-align:center; color:#219EBC; font-weight:900; padding:24px 0; }
+        .end { text-align:center; color:#94a3b8; font-weight:800; padding:18px 0; }
+        .error { margin-top:10px; background:#fff5f5; color:#b91c1c; border:1px solid #fecaca; padding:10px 12px; border-radius:10px; font-weight:700; }
 
-        .pager { display:flex; align-items:center; justify-content:space-between; margin-top:22px; }
-
-        .loading { text-align:center; color:#219EBC; font-weight:900; padding:40px 0; }
         .empty { background:#fff; border:1.5px solid #edf2f7; border-radius:18px; padding:28px; text-align:center; box-shadow:0 2px 14px #0000000a; margin-top:12px; }
         .empty h3 { margin:0 0 6px 0; color:#023047; font-size:1.28rem; font-weight:900; }
         .empty p { color:#6b7280; margin:0 0 12px 0; }
-        .empty-actions { display:flex; align-items:center; justify-content:center; gap:10px; }
 
         .drawer-mask { position:fixed; inset:0; background:#0006; z-index:1200; display:flex; justify-content:flex-end; }
-        .drawer {
-          width:min(560px, 96vw); height:100%; background:#fff; padding:22px; border-left:1.5px solid #edf2f7;
-          box-shadow:-6px 0 28px #00000030; position:relative; overflow:auto;
-        }
+        .drawer { width:min(560px, 96vw); height:100%; background:#fff; padding:22px; border-left:1.5px solid #edf2f7;
+          box-shadow:-6px 0 28px #00000030; position:relative; overflow:auto; }
         .drawer-close { position:absolute; right:16px; top:8px; background:none; border:none; color:#9ca3af; font-size:28px; cursor:pointer; }
         .drawer-title { font-size:1.26rem; font-weight:900; color:#023047; margin:0 0 2px 0; }
         .drawer-sub { display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
@@ -664,14 +848,12 @@ function AdminDemandasPage() {
         .drawer-box { background:#fafafa; border:1.5px solid #e9ecf2; border-radius:14px; padding:14px; margin-bottom:12px; }
         .drawer-box-title { display:flex; align-items:center; gap:8px; font-weight:900; color:#023047; margin-bottom:8px; }
         .drawer-inline { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-        .drawer-input {
-          height:40px; padding:0 10px; border-radius:10px; border:1.5px solid #e0e7ef; font-weight:800; width:160px; background:#fff;
-        }
+        .drawer-input { height:40px; padding:0 10px; border-radius:10px; border:1.5px solid #e0e7ef; font-weight:800; width:160px; background:#fff; }
         .drawer-note { background:#f8fafc; border:1.5px solid #eef2f7; border-radius:12px; padding:10px; color:#475569; }
 
         .toasts { position:fixed; right:18px; bottom:18px; z-index:1400; display:grid; gap:8px; }
         .toast { background:#023047; color:#fff; padding:10px 12px; border-radius:10px; font-weight:800; box-shadow:0 8px 20px #00000033; }
-        
+
         @media (max-width: 900px) {
           .kpis { grid-template-columns: repeat(2, minmax(0,1fr)); }
         }
@@ -680,7 +862,7 @@ function AdminDemandasPage() {
   );
 }
 
-/* =================== pequenos componentes =================== */
+/* =================== componente Chip =================== */
 function Chip({ children, onX }: { children: React.ReactNode; onX: () => void }) {
   return (
     <span className="chip">

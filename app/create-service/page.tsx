@@ -1,7 +1,7 @@
 // app/create-service/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import AuthGateRedirect from "@/components/AuthGateRedirect";
 import ImageUploader from "@/components/ImageUploader";
@@ -30,6 +30,8 @@ import {
 
 /** Evita problemas de prerender/export em produção nesta rota client */
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 /* ================== Constantes ================== */
 const categorias = [
@@ -53,34 +55,7 @@ const categorias = [
 ];
 
 const estados = [
-  "BRASIL",
-  "AC",
-  "AL",
-  "AP",
-  "AM",
-  "BA",
-  "CE",
-  "DF",
-  "ES",
-  "GO",
-  "MA",
-  "MT",
-  "MS",
-  "MG",
-  "PA",
-  "PB",
-  "PR",
-  "PE",
-  "PI",
-  "RJ",
-  "RN",
-  "RS",
-  "RO",
-  "RR",
-  "SC",
-  "SP",
-  "SE",
-  "TO",
+  "BRASIL","AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
 ];
 
 const disponibilidades = [
@@ -310,317 +285,324 @@ export default function CreateServicePage() {
 
   /* ---------- UI ---------- */
   return (
-    <main
-      className="min-h-screen flex flex-col items-center py-10 px-2 sm:px-4"
-      style={{
-        background: "linear-gradient(135deg, #f7f9fb, #ffffff 45%, #e0e7ef)",
-      }}
-    >
-      <section
+    <Suspense fallback={
+      <main className="min-h-screen flex items-center justify-center p-8">
+        <div className="flex items-center gap-3 text-slate-600">
+          <Loader2 className="animate-spin w-5 h-5" />
+          <span>Carregando...</span>
+        </div>
+      </main>
+    }>
+      <main
+        className="min-h-screen flex flex-col items-center py-10 px-2 sm:px-4"
         style={{
-          maxWidth: 760,
-          width: "100%",
-          background: "#fff",
-          borderRadius: 22,
-          boxShadow: "0 4px 32px #0001",
-          padding: "48px 2vw 55px 2vw",
-          marginTop: 18,
+          background: "linear-gradient(135deg, #f7f9fb, #ffffff 45%, #e0e7ef)",
         }}
       >
-        <h1
+        <section
           style={{
-            fontSize: "2.2rem",
-            fontWeight: 900,
-            color: "#023047",
-            letterSpacing: "-1px",
-            margin: "0 0 25px 0",
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
+            maxWidth: 760,
+            width: "100%",
+            background: "#fff",
+            borderRadius: 22,
+            boxShadow: "0 4px 32px #0001",
+            padding: "48px 2vw 55px 2vw",
+            marginTop: 18,
           }}
         >
-          <Sparkles className="w-9 h-9 text-orange-500" />
-          Cadastrar Serviço
-        </h1>
+          <h1
+            style={{
+              fontSize: "2.2rem",
+              fontWeight: 900,
+              color: "#023047",
+              letterSpacing: "-1px",
+              margin: "0 0 25px 0",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            <Sparkles className="w-9 h-9 text-orange-500" />
+            Cadastrar Serviço
+          </h1>
 
-        {/* Dica topo */}
-        <div style={hintCardStyle}>
-          <Info className="w-5 h-5" />
-          <p style={{ margin: 0 }}>
-            Quanto mais detalhes, melhor a conexão com clientes ideais. Pelo
-            menos 1 imagem é obrigatória.
-          </p>
-        </div>
-
-        <AuthGateRedirect />
-
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: "flex", flexDirection: "column", gap: 22 }}
-        >
-          {/* Imagens */}
-          <div style={sectionCardStyle}>
-            <h3 style={sectionTitleStyle}>
-              <Upload className="w-5 h-5 text-orange-500" /> Imagens do Serviço
-              *
-            </h3>
-            <ImageUploader imagens={imagens} setImagens={setImagens} max={2} />
-            <p style={{ fontSize: 13, color: "#64748b", marginTop: 7 }}>
-              Adicione 1 ou 2 imagens reais ou de referência do serviço
-              prestado.
+          {/* Dica topo */}
+          <div style={hintCardStyle}>
+            <Info className="w-5 h-5" />
+            <p style={{ margin: 0 }}>
+              Quanto mais detalhes, melhor a conexão com clientes ideais. Pelo
+              menos 1 imagem é obrigatória.
             </p>
           </div>
 
-          {/* Principais */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <label style={labelStyle}>
-                <Tag size={15} /> Título do Serviço *
-              </label>
-              <input
-                name="titulo"
-                value={form.titulo}
-                onChange={handleChange}
-                style={inputStyle}
-                placeholder="Ex: Manutenção corretiva em britador"
-                maxLength={80}
-                required
-                autoComplete="off"
-              />
-              <div style={smallInfoStyle}>{form.titulo.length}/80</div>
-            </div>
+          <AuthGateRedirect />
 
-            <div>
-              <label style={labelStyle}>
-                <DollarSign size={15} /> Valor (R$)
-              </label>
-              <input
-                name="preco"
-                value={form.preco}
-                onChange={handleChange}
-                type="number"
-                min={0}
-                step={0.01}
-                style={inputStyle}
-                placeholder="Ex: 1200 (opcional)"
-                autoComplete="off"
-              />
-              <div style={smallInfoStyle}>
-                Pré-visualização: {precoPreview}
-              </div>
-            </div>
-
-            <div>
-              <label style={labelStyle}>
-                <Layers size={15} /> Categoria *
-              </label>
-              <select
-                name="categoria"
-                value={form.categoria}
-                onChange={handleChange}
-                style={inputStyle}
-                required
-              >
-                <option value="">Selecione</option>
-                {categorias.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label style={labelStyle}>
-                <MapPin size={15} /> Estado (UF) *
-              </label>
-              <select
-                name="estado"
-                value={form.estado}
-                onChange={handleChange}
-                style={inputStyle}
-                required
-              >
-                <option value="">Selecione</option>
-                {estados.map((uf) => (
-                  <option key={uf} value={uf}>
-                    {uf}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label style={labelStyle}>
-                <Globe size={15} /> Abrangência *
-              </label>
-              <input
-                name="abrangencia"
-                value={form.abrangencia}
-                onChange={handleChange}
-                style={inputStyle}
-                placeholder="Ex: Minas Gerais, Sudeste, Brasil inteiro..."
-                maxLength={60}
-                required
-                autoComplete="off"
-              />
-            </div>
-
-            <div>
-              <label style={labelStyle}>
-                <CalendarClock size={15} /> Disponibilidade *
-              </label>
-              <select
-                name="disponibilidade"
-                value={form.disponibilidade}
-                onChange={handleChange}
-                style={inputStyle}
-                required
-              >
-                <option value="">Selecione</option>
-                {disponibilidades.map((disp) => (
-                  <option key={disp} value={disp}>
-                    {disp}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Descrição */}
-          <div>
-            <label style={labelStyle}>
-              <Tag size={15} /> Descrição detalhada *
-            </label>
-            <textarea
-              name="descricao"
-              value={form.descricao}
-              onChange={handleChange}
-              style={{ ...inputStyle, height: 110 }}
-              placeholder="Descreva o serviço, experiência, materiais, área de atendimento, diferenciais, etc."
-              rows={4}
-              maxLength={400}
-              required
-            />
-            <div style={smallInfoStyle}>{form.descricao.length}/400</div>
-          </div>
-
-          {/* Dados do prestador (autofill + editável) */}
-          <div style={sectionCardStyle}>
-            <h3 style={sectionTitleStyle}>
-              <Info className="w-5 h-5 text-orange-500" /> Seus dados
-              (editáveis)
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label style={labelStyle}>Nome *</label>
-                <input
-                  name="prestadorNome"
-                  value={form.prestadorNome}
-                  onChange={handleChange}
-                  style={inputStyle}
-                  required
-                  placeholder="Seu nome"
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>E-mail *</label>
-                <input
-                  name="prestadorEmail"
-                  value={form.prestadorEmail}
-                  onChange={handleChange}
-                  style={inputStyle}
-                  type="email"
-                  required
-                  placeholder="seuemail@exemplo.com"
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>WhatsApp (opcional)</label>
-                <input
-                  name="prestadorWhatsapp"
-                  value={form.prestadorWhatsapp}
-                  onChange={handleChange}
-                  style={inputStyle}
-                  placeholder="(xx) xxxxx-xxxx"
-                  inputMode="tel"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Alertas */}
-          {error && (
-            <div
-              style={{
-                background: "#fff7f7",
-                color: "#d90429",
-                border: "1.5px solid #ffe5e5",
-                padding: "12px 0",
-                borderRadius: 11,
-                textAlign: "center",
-                fontWeight: 700,
-              }}
-            >
-              {error}
-            </div>
-          )}
-          {success && (
-            <div
-              style={{
-                background: "#f7fafc",
-                color: "#16a34a",
-                border: "1.5px solid #c3f3d5",
-                padding: "12px 0",
-                borderRadius: 11,
-                textAlign: "center",
-                fontWeight: 700,
-              }}
-            >
-              {success}
-            </div>
-          )}
-
-          {/* Botão principal */}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              background: "#fb8500",
-              color: "#fff",
-              border: "none",
-              borderRadius: 13,
-              padding: "16px 0",
-              fontWeight: 800,
-              fontSize: 22,
-              boxShadow: "0 2px 20px #fb850022",
-              cursor: loading ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 10,
-              marginTop: 2,
-              transition: "filter .2s, transform .02s",
-            }}
-            onMouseDown={(e) =>
-              (e.currentTarget.style.transform = "translateY(1px)")
-            }
-            onMouseUp={(e) =>
-              (e.currentTarget.style.transform = "translateY(0)")
-            }
-            onMouseEnter={(e) => (e.currentTarget.style.filter = "brightness(0.98)")}
-            onMouseLeave={(e) => (e.currentTarget.style.filter = "none")}
+          <form
+            onSubmit={handleSubmit}
+            style={{ display: "flex", flexDirection: "column", gap: 22 }}
           >
-            {loading ? <Loader2 className="animate-spin w-7 h-7" /> : <Save className="w-6 h-6" />}
-            {loading ? "Cadastrando..." : "Cadastrar Serviço"}
-          </button>
+            {/* Imagens */}
+            <div style={sectionCardStyle}>
+              <h3 style={sectionTitleStyle}>
+                <Upload className="w-5 h-5 text-orange-500" /> Imagens do Serviço *
+              </h3>
+              <ImageUploader imagens={imagens} setImagens={setImagens} max={2} />
+              <p style={{ fontSize: 13, color: "#64748b", marginTop: 7 }}>
+                Adicione 1 ou 2 imagens reais ou de referência do serviço
+                prestado.
+              </p>
+            </div>
 
-          <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>
-            {savingDraft ? "Salvando rascunho..." : "Rascunho salvo automaticamente"}
-          </div>
-        </form>
-      </section>
-    </main>
+            {/* Principais */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label style={labelStyle}>
+                  <Tag size={15} /> Título do Serviço *
+                </label>
+                <input
+                  name="titulo"
+                  value={form.titulo}
+                  onChange={handleChange}
+                  style={inputStyle}
+                  placeholder="Ex: Manutenção corretiva em britador"
+                  maxLength={80}
+                  required
+                  autoComplete="off"
+                />
+                <div style={smallInfoStyle}>{form.titulo.length}/80</div>
+              </div>
+
+              <div>
+                <label style={labelStyle}>
+                  <DollarSign size={15} /> Valor (R$)
+                </label>
+                <input
+                  name="preco"
+                  value={form.preco}
+                  onChange={handleChange}
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  style={inputStyle}
+                  placeholder="Ex: 1200 (opcional)"
+                  autoComplete="off"
+                />
+                <div style={smallInfoStyle}>
+                  Pré-visualização: {precoPreview}
+                </div>
+              </div>
+
+              <div>
+                <label style={labelStyle}>
+                  <Layers size={15} /> Categoria *
+                </label>
+                <select
+                  name="categoria"
+                  value={form.categoria}
+                  onChange={handleChange}
+                  style={inputStyle}
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {categorias.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={labelStyle}>
+                  <MapPin size={15} /> Estado (UF) *
+                </label>
+                <select
+                  name="estado"
+                  value={form.estado}
+                  onChange={handleChange}
+                  style={inputStyle}
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {estados.map((uf) => (
+                    <option key={uf} value={uf}>
+                      {uf}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={labelStyle}>
+                  <Globe size={15} /> Abrangência *
+                </label>
+                <input
+                  name="abrangencia"
+                  value={form.abrangencia}
+                  onChange={handleChange}
+                  style={inputStyle}
+                  placeholder="Ex: Minas Gerais, Sudeste, Brasil inteiro..."
+                  maxLength={60}
+                  required
+                  autoComplete="off"
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>
+                  <CalendarClock size={15} /> Disponibilidade *
+                </label>
+                <select
+                  name="disponibilidade"
+                  value={form.disponibilidade}
+                  onChange={handleChange}
+                  style={inputStyle}
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {disponibilidades.map((disp) => (
+                    <option key={disp} value={disp}>
+                      {disp}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Descrição */}
+            <div>
+              <label style={labelStyle}>
+                <Tag size={15} /> Descrição detalhada *
+              </label>
+              <textarea
+                name="descricao"
+                value={form.descricao}
+                onChange={handleChange}
+                style={{ ...inputStyle, height: 110 }}
+                placeholder="Descreva o serviço, experiência, materiais, área de atendimento, diferenciais, etc."
+                rows={4}
+                maxLength={400}
+                required
+              />
+              <div style={smallInfoStyle}>{form.descricao.length}/400</div>
+            </div>
+
+            {/* Dados do prestador (autofill + editável) */}
+            <div style={sectionCardStyle}>
+              <h3 style={sectionTitleStyle}>
+                <Info className="w-5 h-5 text-orange-500" /> Seus dados (editáveis)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label style={labelStyle}>Nome *</label>
+                  <input
+                    name="prestadorNome"
+                    value={form.prestadorNome}
+                    onChange={handleChange}
+                    style={inputStyle}
+                    required
+                    placeholder="Seu nome"
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>E-mail *</label>
+                  <input
+                    name="prestadorEmail"
+                    value={form.prestadorEmail}
+                    onChange={handleChange}
+                    style={inputStyle}
+                    type="email"
+                    required
+                    placeholder="seuemail@exemplo.com"
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>WhatsApp (opcional)</label>
+                  <input
+                    name="prestadorWhatsapp"
+                    value={form.prestadorWhatsapp}
+                    onChange={handleChange}
+                    style={inputStyle}
+                    placeholder="(xx) xxxxx-xxxx"
+                    inputMode="tel"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Alertas */}
+            {error && (
+              <div
+                style={{
+                  background: "#fff7f7",
+                  color: "#d90429",
+                  border: "1.5px solid #ffe5e5",
+                  padding: "12px 0",
+                  borderRadius: 11,
+                  textAlign: "center",
+                  fontWeight: 700,
+                }}
+              >
+                {error}
+              </div>
+            )}
+            {success && (
+              <div
+                style={{
+                  background: "#f7fafc",
+                  color: "#16a34a",
+                  border: "1.5px solid #c3f3d5",
+                  padding: "12px 0",
+                  borderRadius: 11,
+                  textAlign: "center",
+                  fontWeight: 700,
+                }}
+              >
+                {success}
+              </div>
+            )}
+
+            {/* Botão principal */}
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                background: "#fb8500",
+                color: "#fff",
+                border: "none",
+                borderRadius: 13,
+                padding: "16px 0",
+                fontWeight: 800,
+                fontSize: 22,
+                boxShadow: "0 2px 20px #fb850022",
+                cursor: loading ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                marginTop: 2,
+                transition: "filter .2s, transform .02s",
+              }}
+              onMouseDown={(e) =>
+                (e.currentTarget.style.transform = "translateY(1px)")
+              }
+              onMouseUp={(e) =>
+                (e.currentTarget.style.transform = "translateY(0)")
+              }
+              onMouseEnter={(e) => (e.currentTarget.style.filter = "brightness(0.98)")}
+              onMouseLeave={(e) => (e.currentTarget.style.filter = "none")}
+            >
+              {loading ? <Loader2 className="animate-spin w-7 h-7" /> : <Save className="w-6 h-6" />}
+              {loading ? "Cadastrando..." : "Cadastrar Serviço"}
+            </button>
+
+            <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>
+              {savingDraft ? "Salvando rascunho..." : "Rascunho salvo automaticamente"}
+            </div>
+          </form>
+        </section>
+      </main>
+    </Suspense>
   );
 }
 

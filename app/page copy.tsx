@@ -80,38 +80,52 @@ export default function HomePage() {
       <div className="mt-20">
         <FeaturesSection />
       </div>
-{/* Como funciona (3 passos) */}
+
+      {/* Como funciona (3 passos) */}
       <div className="mt-24">
         <HowItWorks />
       </div>
-      
+
+      {/* CTA amplo para cadastrar demanda */}
+      <div className="mt-20">
+        <CTAWide
+          title="Pronto para cadastrar sua demanda?"
+          subtitle="Descreva o que precisa e receba propostas de fornecedores qualificados. É grátis e leva menos de 2 minutos."
+          primaryText="Cadastrar Demanda"
+          primaryHref="/demandas" // ajuste para sua rota de cadastro
+        />
+      </div>
+
       {/* Vitrine de demandas (prova de movimento) */}
       <div className="mt-24">
         <DemandasShowcase />
       </div>
 
-{/* Seção de fornecedores e serviços (clareza) */}
-            <div className="mt-24">
-              <SuppliersServices />
-            </div>
+      {/* Blog (autoridade/SEO) */}
+      <div className="mt-24">
+        <BlogShowcase />
+      </div>
+
+      {/* Seção de fornecedores e serviços (clareza) */}
+      <div className="mt-24">
+        <SuppliersServices />
+      </div>
+
+      {/* Transição estética + Newsletter */}
+      <div className="mt-24">
+        <SectionTransition />
+      </div>
+      <NewsletterSection />
 
       {/* Vitrine de máquinas (manter no fim) */}
       <div className="mt-24">
         <MachinesShowcase />
       </div>
 
-      
-{/* Depoimentos */}
+      {/* Depoimentos */}
       <div className="mt-24 mb-24">
         <TestimonialsSection />
       </div>
-
-      
-       {/* Transição estética + Newsletter */}
-      <div className="mt-24">
-        <SectionTransition />
-      </div>
-      <NewsletterSection />
     </main>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import AuthGateRedirect from "@/components/AuthGateRedirect";
 import { useRouter } from "next/navigation";
 import { db, auth } from "@/firebaseConfig";
 import { collection, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
@@ -9,113 +10,110 @@ import {
   Loader2, Save, Tag, DollarSign, Layers, Calendar, MapPin, BookOpen, Package, List
 } from "lucide-react";
 
+
+
 // Categorias com subcategorias
 const categorias = [
   {
     nome: "Equipamentos de Perfuração e Demolição",
     subcategorias: [
-      "Perfuratrizes – Rotativas", "Perfuratrizes – Pneumáticas", "Perfuratrizes – Hidráulicas",
-      "Martelos Demolidores – Hidráulicos", "Martelos Demolidores – Pneumáticos",
-      "Brocas para rocha", "Coroas diamantadas", "Varetas de extensão",
-      "Explosivos – Dinamite", "Explosivos – ANFO", "Detonadores", "Cordel detonante"
+      "Perfuratrizes – Rotativas","Perfuratrizes – Pneumáticas","Perfuratrizes – Hidráulicas",
+      "Martelos Demolidores – Hidráulicos","Martelos Demolidores – Pneumáticos",
+      "Brocas para rocha","Coroas diamantadas","Varetas de extensão",
+      "Explosivos – Dinamite","Explosivos – ANFO","Detonadores","Cordel detonante"
     ]
   },
   {
     nome: "Equipamentos de Carregamento e Transporte",
     subcategorias: [
-      "Escavadeiras hidráulicas", "Pás carregadeiras", "Caminhões basculantes", "Caminhões pipa",
-      "Correias transportadoras", "Alimentadores vibratórios", "Esteiras rolantes"
+      "Escavadeiras hidráulicas","Pás carregadeiras","Caminhões basculantes","Caminhões pipa",
+      "Correias transportadoras","Alimentadores vibratórios","Esteiras rolantes"
     ]
   },
   {
     nome: "Britagem e Classificação",
     subcategorias: [
-      "Britadores – Mandíbulas", "Britadores – Cônicos", "Britadores – Impacto", "Britadores – Rolos",
-      "Rebritadores", "Peneiras vibratórias", "Trommels", "Hidrociclones", "Classificadores",
-      "Moinhos de bolas", "Moinhos de barras", "Moinhos verticais",
-      "Lavadores de areia", "Silos e chutes", "Carcaças e bases metálicas"
+      "Britadores – Mandíbulas","Britadores – Cônicos","Britadores – Impacto","Britadores – Rolos",
+      "Rebritadores","Peneiras vibratórias","Trommels","Hidrociclones","Classificadores",
+      "Moinhos de bolas","Moinhos de barras","Moinhos verticais",
+      "Lavadores de areia","Silos e chutes","Carcaças e bases metálicas"
     ]
   },
   {
     nome: "Beneficiamento e Processamento Mineral",
     subcategorias: [
-      "Separadores Magnéticos", "Flotação – Células", "Flotação – Espumantes e coletores",
-      "Filtros prensa", "Espessadores", "Secadores rotativos"
+      "Separadores Magnéticos","Flotação – Células","Flotação – Espumantes e coletores",
+      "Filtros prensa","Espessadores","Secadores rotativos"
     ]
   },
   {
     nome: "Peças e Componentes Industriais",
     subcategorias: [
-      "Rolamentos", "Engrenagens", "Polias", "Eixos", "Mancais", "Buchas",
-      "Correntes", "Correias transportadoras", "Esticadores de correia", "Parafusos e porcas",
+      "Rolamentos","Engrenagens","Polias","Eixos","Mancais","Buchas",
+      "Correntes","Correias transportadoras","Esticadores de correia","Parafusos e porcas",
       "Molas industriais"
     ]
   },
   {
     nome: "Desgaste e Revestimento",
     subcategorias: [
-      "Mandíbulas", "Martelos", "Revestimentos de britadores", "Chapas de desgaste",
-      "Barras de impacto", "Grelhas", "Telas metálicas", "Telas em borracha"
+      "Mandíbulas","Martelos","Revestimentos de britadores","Chapas de desgaste",
+      "Barras de impacto","Grelhas","Telas metálicas","Telas em borracha"
     ]
   },
   {
     nome: "Automação, Elétrica e Controle",
     subcategorias: [
-      "Motores elétricos", "Inversores de frequência", "Painéis elétricos", "Controladores ASRi",
-      "Soft starters", "Sensores e detectores", "Detectores de metais", "CLPs e módulos"
+      "Motores elétricos","Inversores de frequência","Painéis elétricos","Controladores ASRi",
+      "Soft starters","Sensores e detectores","Detectores de metais","CLPs e módulos"
     ]
   },
   {
     nome: "Lubrificação e Produtos Químicos",
     subcategorias: [
-      "Óleos lubrificantes", "Graxas industriais", "Selantes industriais",
-      "Desengripantes", "Produtos químicos para peneiramento"
+      "Óleos lubrificantes","Graxas industriais","Selantes industriais",
+      "Desengripantes","Produtos químicos para peneiramento"
     ]
   },
   {
     nome: "Equipamentos Auxiliares e Ferramentas",
     subcategorias: [
-      "Compressores de Ar – Estacionários", "Compressores de Ar – Móveis", "Geradores de Energia",
-      "Bombas de água", "Bombas de lama", "Ferramentas manuais", "Ferramentas elétricas",
-      "Mangueiras e Conexões Hidráulicas", "Iluminação Industrial", "Abraçadeiras e Fixadores",
-      "Soldas e Eletrodos", "Equipamentos de Limpeza Industrial"
+      "Compressores de Ar – Estacionários","Compressores de Ar – Móveis","Geradores de Energia",
+      "Bombas de água","Bombas de lama","Ferramentas manuais","Ferramentas elétricas",
+      "Mangueiras e Conexões Hidráulicas","Iluminação Industrial","Abraçadeiras e Fixadores",
+      "Soldas e Eletrodos","Equipamentos de Limpeza Industrial"
     ]
   },
   {
     nome: "EPIs (Equipamentos de Proteção Individual)",
     subcategorias: [
-      "Capacetes", "Protetores auriculares", "Máscaras contra poeira", "Respiradores",
-      "Luvas", "Botas de segurança", "Óculos de proteção", "Colete refletivo"
+      "Capacetes","Protetores auriculares","Máscaras contra poeira","Respiradores",
+      "Luvas","Botas de segurança","Óculos de proteção","Colete refletivo"
     ]
   },
   {
     nome: "Instrumentos de Medição e Controle",
     subcategorias: [
-      "Monitoramento de Estabilidade", "Inclinômetros", "Extensômetros", "Análise de Material",
-      "Teor de umidade", "Granulometria", "Sensores de nível e vazão", "Sistemas de controle remoto"
+      "Monitoramento de Estabilidade","Inclinômetros","Extensômetros","Análise de Material",
+      "Teor de umidade","Granulometria","Sensores de nível e vazão","Sistemas de controle remoto"
     ]
   },
   {
     nome: "Manutenção e Serviços Industriais",
     subcategorias: [
-      "Filtros de ar e combustível", "Óleos hidráulicos e graxas", "Rolamentos e correias",
-      "Martelos e mandíbulas para britadores", "Pastilhas de desgaste",
-      "Serviços de manutenção industrial", "Usinagem e caldeiraria"
+      "Filtros de ar e combustível","Óleos hidráulicos e graxas","Rolamentos e correias",
+      "Martelos e mandíbulas para britadores","Pastilhas de desgaste",
+      "Serviços de manutenção industrial","Usinagem e caldeiraria"
     ]
   },
   {
     nome: "Veículos e Pneus",
     subcategorias: [
-      "Pneus industriais", "Rodas e aros", "Recapagens e reformas de pneus",
+      "Pneus industriais","Rodas e aros","Recapagens e reformas de pneus",
       "Serviços de montagem e balanceamento"
     ]
   },
-  {
-    nome: "Outros",
-    subcategorias: [
-      "Outros equipamentos", "Produtos diversos", "Serviços diversos"
-    ]
-  }
+  { nome: "Outros", subcategorias: ["Outros equipamentos","Produtos diversos","Serviços diversos"] }
 ];
 
 const condicoes = ["Nova", "Seminova", "Usada"];
@@ -125,30 +123,76 @@ const estados = [
 ];
 
 export default function CreateProdutoPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-[#023047]">Carregando…</div>}>
+      <CreateProdutoForm />
+    </Suspense>
+  );
+}
+
+function CreateProdutoForm() {
   const router = useRouter();
+
+  // imagens
   const [imagens, setImagens] = useState<string[]>([]);
+
+  // form
   const [form, setForm] = useState({
     nome: "",
     tipo: "produto",
     categoria: "",
     subcategoria: "",
     preco: "",
-    cidade: "",
     estado: "",
+    cidade: "",
     ano: "",
     condicao: "",
     descricao: ""
   });
+
+  // cidades por UF (IBGE)
+  const [cidades, setCidades] = useState<string[]>([]);
+  const [carregandoCidades, setCarregandoCidades] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
-    setForm({ ...form, [e.target.name]: e.target.value });
-    if (e.target.name === "categoria") {
-      setForm((f) => ({ ...f, categoria: e.target.value, subcategoria: "" }));
-    }
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) {
+    const { name, value } = e.target;
+    setForm((f) => ({
+      ...f,
+      [name]: value,
+      ...(name === "categoria" ? { subcategoria: "" } : null),
+      ...(name === "estado" ? { cidade: "" } : null),
+    }));
   }
+
+  // carrega cidades ao escolher UF (IBGE)
+  useEffect(() => {
+    async function fetchCidades(uf: string) {
+      if (!uf) {
+        setCidades([]);
+        return;
+      }
+      setCarregandoCidades(true);
+      try {
+        const res = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/distritos`);
+        const data = (await res.json()) as Array<{ nome: string }>;
+        const nomes = Array.from(new Set(data.map((d) => d.nome))).sort((a, b) =>
+          a.localeCompare(b, "pt-BR")
+        );
+        setCidades(nomes);
+      } catch {
+        setCidades([]);
+      } finally {
+        setCarregandoCidades(false);
+      }
+    }
+    fetchCidades(form.estado);
+  }, [form.estado]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -186,7 +230,7 @@ export default function CreateProdutoPage() {
     }
 
     try {
-        const now = new Date();
+      const now = new Date();
       const expiresAt = new Date(now);
       expiresAt.setDate(now.getDate() + 45); // 45 dias
 
@@ -201,6 +245,7 @@ export default function CreateProdutoPage() {
         updatedAt: serverTimestamp(),
         visivel: true,
       });
+
       setSuccess("Produto cadastrado com sucesso!");
       setForm({
         nome: "",
@@ -208,8 +253,9 @@ export default function CreateProdutoPage() {
         categoria: "",
         subcategoria: "",
         preco: "",
+         estado: "",
         cidade: "",
-        estado: "",
+       
         ano: "",
         condicao: "",
         descricao: ""
@@ -255,6 +301,9 @@ export default function CreateProdutoPage() {
           <Package className="w-9 h-9 text-orange-500" />
           Cadastrar Produto
         </h1>
+
+        {/* Gate de autenticação */}
+        <AuthGateRedirect />
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           {/* Imagens */}
@@ -338,7 +387,7 @@ export default function CreateProdutoPage() {
                 required
                 disabled={!form.categoria}
               >
-                <option value="">Selecione</option>
+                <option value="">{form.categoria ? "Selecione" : "Selecione a categoria primeiro"}</option>
                 {subcategoriasDisponiveis.map((sub) => (
                   <option key={sub} value={sub}>
                     {sub}
@@ -396,20 +445,6 @@ export default function CreateProdutoPage() {
                 ))}
               </select>
             </div>
-            {/* Cidade */}
-            <div>
-              <label style={labelStyle}>
-                <MapPin size={15} /> Cidade *
-              </label>
-              <input
-                name="cidade"
-                value={form.cidade}
-                onChange={handleChange}
-                style={inputStyle}
-                placeholder="Ex: Contagem"
-                required
-              />
-            </div>
             {/* Estado */}
             <div>
               <label style={labelStyle}>
@@ -429,6 +464,35 @@ export default function CreateProdutoPage() {
               </select>
             </div>
           </div>
+            {/* Cidade (dependente da UF) */}
+            <div>
+              <label style={labelStyle}>
+                <MapPin size={15} /> Cidade *
+              </label>
+              <select
+                name="cidade"
+                value={form.cidade}
+                onChange={handleChange}
+                style={inputStyle}
+                required
+                disabled={!form.estado || carregandoCidades}
+              >
+                <option value="">
+                  {carregandoCidades
+                    ? "Carregando..."
+                    : form.estado
+                    ? "Selecione a cidade"
+                    : "Selecione primeiro o estado"}
+                </option>
+                {cidades.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+
           {/* Descrição */}
           <div>
             <label style={labelStyle}>
@@ -461,6 +525,7 @@ export default function CreateProdutoPage() {
               {error}
             </div>
           )}
+
           {success && (
             <div
               style={{
@@ -525,4 +590,3 @@ const inputStyle: React.CSSProperties = {
   marginTop: 4,
   minHeight: 46,
 };
-

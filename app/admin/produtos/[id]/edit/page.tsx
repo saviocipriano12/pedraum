@@ -2,9 +2,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { db } from "@/firebaseConfig";
-import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import Link from "next/link";
 import { Loader, Trash2, Save, ChevronLeft } from "lucide-react";
+import ImageUploader from "@/components/ImageUploader";
 
 export default function EditProdutoPage() {
   const params = useParams();
@@ -15,8 +16,22 @@ export default function EditProdutoPage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState<any>({});
   const [msg, setMsg] = useState("");
+  const [imagens, setImagens] = useState<string[]>([]);
+
+  const [form, setForm] = useState<any>({
+    nome: "",
+    descricao: "",
+    preco: "",
+    categoria: "",
+    subcategoria: "",
+    ano: "",
+    condicao: "",
+    tipo: "produto",
+    cidade: "",
+    estado: "",
+    status: "ativo",
+  });
 
   // Buscar produto e usuário criador
   useEffect(() => {
@@ -36,10 +51,16 @@ export default function EditProdutoPage() {
           descricao: prodData.descricao || "",
           preco: prodData.preco || "",
           categoria: prodData.categoria || "",
-          status: prodData.status || "",
+          subcategoria: prodData.subcategoria || "",
+          ano: prodData.ano || "",
+          condicao: prodData.condicao || "",
+          tipo: prodData.tipo || "produto",
           cidade: prodData.cidade || "",
           estado: prodData.estado || "",
+          status: prodData.status || "ativo",
         });
+        setImagens(Array.isArray(prodData.imagens) ? prodData.imagens : []);
+
         if (prodData.userId) {
           const userSnap = await getDoc(doc(db, "usuarios", prodData.userId));
           if (userSnap.exists()) setUser(userSnap.data());
@@ -62,10 +83,24 @@ export default function EditProdutoPage() {
     e.preventDefault();
     setSaving(true);
     setMsg("");
+
+    if (!form.nome || !form.categoria || !form.cidade || !form.estado) {
+      setMsg("Preencha os campos obrigatórios.");
+      setSaving(false);
+      return;
+    }
+    if (imagens.length === 0) {
+      setMsg("Envie pelo menos uma imagem.");
+      setSaving(false);
+      return;
+    }
+
     try {
       await updateDoc(doc(db, "produtos", produtoId), {
         ...form,
-        atualizadoEm: new Date(),
+        preco: form.preco ? parseFloat(form.preco) : null,
+        imagens,
+        updatedAt: serverTimestamp(),
       });
       setMsg("Alterações salvas com sucesso!");
       setTimeout(() => setMsg(""), 4000);
@@ -89,37 +124,66 @@ export default function EditProdutoPage() {
     }
   }
 
-  if (loading) return (
-    <div style={{ padding: 48, textAlign: "center" }}>
-      <Loader size={30} className="animate-spin" /> Carregando...
-    </div>
-  );
-  if (!produto) return (
-    <div style={{ padding: 48, color: "red", textAlign: "center" }}>Produto não encontrado.</div>
-  );
+  if (loading)
+    return (
+      <div style={{ padding: 48, textAlign: "center" }}>
+        <Loader size={30} className="animate-spin" /> Carregando...
+      </div>
+    );
+  if (!produto)
+    return (
+      <div style={{ padding: 48, color: "red", textAlign: "center" }}>
+        Produto não encontrado.
+      </div>
+    );
 
   return (
-    <section style={{
-      maxWidth: 700, margin: "0 auto", padding: "42px 2vw 60px 2vw",
-      background: "#fff", borderRadius: 20, boxShadow: "0 4px 28px #0001"
-    }}>
-      <Link href="/admin/produtos" style={{
-        color: "#2563eb", fontWeight: 700, marginBottom: 28, display: "inline-flex", alignItems: "center", gap: 7, textDecoration: "none"
-      }}>
+    <section
+      style={{
+        maxWidth: 800,
+        margin: "0 auto",
+        padding: "42px 2vw 60px 2vw",
+        background: "#fff",
+        borderRadius: 20,
+        boxShadow: "0 4px 28px #0001",
+      }}
+    >
+      <Link
+        href="/admin/produtos"
+        style={{
+          color: "#2563eb",
+          fontWeight: 700,
+          marginBottom: 28,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 7,
+          textDecoration: "none",
+        }}
+      >
         <ChevronLeft size={18} /> Voltar para Produtos
       </Link>
 
-      <h1 style={{
-        fontSize: "2rem", fontWeight: 900, color: "#023047", letterSpacing: "-1px", margin: "0 0 25px 0"
-      }}>
+      <h1
+        style={{
+          fontSize: "2rem",
+          fontWeight: 900,
+          color: "#023047",
+          margin: "0 0 25px 0",
+        }}
+      >
         Editar Produto
       </h1>
 
       {/* Proprietário */}
-      <div style={{
-        background: "#f3f6fa", borderRadius: 12, padding: 18, marginBottom: 26,
-        border: "1.6px solid #e8eaf0", display: "flex", flexDirection: "column", gap: 2
-      }}>
+      <div
+        style={{
+          background: "#f3f6fa",
+          borderRadius: 12,
+          padding: 18,
+          marginBottom: 26,
+          border: "1.6px solid #e8eaf0",
+        }}
+      >
         <div style={{ fontWeight: 700, color: "#219EBC", marginBottom: 6 }}>
           Proprietário do Produto:
         </div>
@@ -131,43 +195,82 @@ export default function EditProdutoPage() {
       {/* Datas */}
       <div style={{ color: "#64748b", fontSize: ".98rem", marginBottom: 18 }}>
         <div>
-          <b>Criado em:</b> {produto.createdAt?.seconds
+          <b>Criado em:</b>{" "}
+          {produto.createdAt?.seconds
             ? new Date(produto.createdAt.seconds * 1000).toLocaleString()
             : "—"}
         </div>
         <div>
-          <b>Atualizado em:</b> {produto.atualizadoEm?.seconds
-            ? new Date(produto.atualizadoEm.seconds * 1000).toLocaleString()
+          <b>Atualizado em:</b>{" "}
+          {produto.updatedAt?.seconds
+            ? new Date(produto.updatedAt.seconds * 1000).toLocaleString()
             : "—"}
         </div>
       </div>
 
-      {/* Mensagem de status */}
+      {/* Status msg */}
       {msg && (
-        <div style={{
-          background: "#f7fafc", color: msg.includes("sucesso") ? "#16a34a" : "#b91c1c",
-          border: `1.5px solid ${msg.includes("sucesso") ? "#c3f3d5" : "#fbbf24"}`,
-          padding: "12px 0", borderRadius: 11, textAlign: "center", marginBottom: 15, fontWeight: 700
-        }}>{msg}</div>
+        <div
+          style={{
+            background: "#f7fafc",
+            color: msg.includes("sucesso") ? "#16a34a" : "#b91c1c",
+            border: `1.5px solid ${msg.includes("sucesso") ? "#c3f3d5" : "#fbbf24"}`,
+            padding: "12px 0",
+            borderRadius: 11,
+            textAlign: "center",
+            marginBottom: 15,
+            fontWeight: 700,
+          }}
+        >
+          {msg}
+        </div>
       )}
 
-      {/* Formulário de edição */}
-      <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <label style={labelStyle}>Nome</label>
+      {/* Form */}
+      <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <label style={labelStyle}>Nome *</label>
         <input name="nome" value={form.nome} onChange={handleChange} style={inputStyle} required />
 
-        <label style={labelStyle}>Descrição</label>
-        <textarea name="descricao" value={form.descricao} onChange={handleChange} style={{ ...inputStyle, height: 80 }} />
+        <label style={labelStyle}>Descrição *</label>
+        <textarea
+          name="descricao"
+          value={form.descricao}
+          onChange={handleChange}
+          style={{ ...inputStyle, height: 90 }}
+          required
+        />
 
         <label style={labelStyle}>Preço (R$)</label>
-        <input name="preco" type="number" value={form.preco} onChange={handleChange} style={inputStyle} min="0" step="0.01" />
+        <input
+          name="preco"
+          type="number"
+          value={form.preco}
+          onChange={handleChange}
+          style={inputStyle}
+          min="0"
+          step="0.01"
+        />
 
-        <label style={labelStyle}>Categoria</label>
-        <input name="categoria" value={form.categoria} onChange={handleChange} style={inputStyle} />
+        <label style={labelStyle}>Categoria *</label>
+        <input name="categoria" value={form.categoria} onChange={handleChange} style={inputStyle} required />
+
+        <label style={labelStyle}>Subcategoria</label>
+        <input name="subcategoria" value={form.subcategoria} onChange={handleChange} style={inputStyle} />
+
+        <label style={labelStyle}>Ano</label>
+        <input name="ano" type="number" value={form.ano} onChange={handleChange} style={inputStyle} />
+
+        <label style={labelStyle}>Condição</label>
+        <input name="condicao" value={form.condicao} onChange={handleChange} style={inputStyle} />
+
+        <label style={labelStyle}>Tipo</label>
+        <select name="tipo" value={form.tipo} onChange={handleChange} style={inputStyle}>
+          <option value="produto">Produto</option>
+          <option value="máquina">Máquina</option>
+        </select>
 
         <label style={labelStyle}>Status</label>
         <select name="status" value={form.status} onChange={handleChange} style={inputStyle}>
-          <option value="">Selecionar</option>
           <option value="ativo">Ativo</option>
           <option value="inativo">Inativo</option>
           <option value="vendido">Vendido</option>
@@ -175,32 +278,20 @@ export default function EditProdutoPage() {
 
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Cidade</label>
-            <input name="cidade" value={form.cidade} onChange={handleChange} style={inputStyle} />
+            <label style={labelStyle}>Cidade *</label>
+            <input name="cidade" value={form.cidade} onChange={handleChange} style={inputStyle} required />
           </div>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Estado</label>
-            <input name="estado" value={form.estado} onChange={handleChange} style={inputStyle} />
+            <label style={labelStyle}>Estado *</label>
+            <input name="estado" value={form.estado} onChange={handleChange} style={inputStyle} required />
           </div>
         </div>
 
-        {/* Imagens - Exibe as imagens atuais */}
-        {produto.imagens?.length > 0 && (
-          <div style={{ margin: "16px 0" }}>
-            <label style={labelStyle}>Imagens atuais:</label>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {produto.imagens.map((img: string, idx: number) => (
-                <img
-                  key={idx}
-                  src={img}
-                  alt={`Imagem ${idx + 1}`}
-                  style={{ width: 84, height: 84, objectFit: "cover", borderRadius: 10, border: "1px solid #eee" }}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Imagens */}
+        <label style={labelStyle}>Imagens *</label>
+        <ImageUploader imagens={imagens} setImagens={setImagens} max={5} />
 
+        {/* Botões */}
         <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
           <button
             type="submit"
@@ -213,13 +304,13 @@ export default function EditProdutoPage() {
               padding: "13px 32px",
               fontWeight: 800,
               fontSize: 18,
-              boxShadow: "0 2px 10px #FB850055",
               cursor: saving ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               gap: 10,
-            }}>
-            <Save size={20} /> Salvar Alterações
+            }}
+          >
+            <Save size={20} /> {saving ? "Salvando..." : "Salvar Alterações"}
           </button>
           <button
             type="button"
@@ -237,7 +328,8 @@ export default function EditProdutoPage() {
               display: "flex",
               alignItems: "center",
               gap: 10,
-            }}>
+            }}
+          >
             <Trash2 size={20} /> Excluir Produto
           </button>
         </div>
@@ -246,10 +338,8 @@ export default function EditProdutoPage() {
   );
 }
 
-// Estilos
-const labelStyle: React.CSSProperties = {
-  fontWeight: 700, color: "#023047", marginBottom: 2
-};
+// estilos
+const labelStyle: React.CSSProperties = { fontWeight: 700, color: "#023047", marginBottom: 4 };
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "11px 13px",
@@ -261,5 +351,4 @@ const inputStyle: React.CSSProperties = {
   fontWeight: 600,
   marginBottom: 8,
   outline: "none",
-  marginTop: 3
 };

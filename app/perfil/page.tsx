@@ -1,25 +1,33 @@
+// app/perfil/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { db, auth } from "@/firebaseConfig";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  addDoc,
+  collection,
+  serverTimestamp,
+} from "firebase/firestore";
 import ImageUploader from "@/components/ImageUploader";
 import {
   ChevronLeft,
   Loader,
-  User,
-  Calendar,
-  MapPin,
   Tag,
-  Video,
   LinkIcon,
-  PlugZap,
+  MapPin,
+  Lock,
+  HelpCircle,
 } from "lucide-react";
 
 /** =========================
  *  Constantes / Listas
  *  ========================= */
+// Use somente números com DDI+DDD, ex: Brasil (55) + DDD (31) + número
+const SUPPORT_WHATSAPP = "5531990903613"; // <- troque pelo seu
 
 const estados = [
   "BRASIL",
@@ -27,26 +35,6 @@ const estados = [
   "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"
 ];
 
-// Cidades principais por UF (para UX boa, sem inflar o arquivo).
-// Se quiser TODAS as cidades depois, me manda que eu só substituo aqui.
-const cidadesPorUF: Record<string, string[]> = {
-  MG: ["Belo Horizonte","Contagem","Betim","Juiz de Fora","Uberlândia","Montes Claros","Ipatinga","Sete Lagoas","Itaúna","Divinópolis"],
-  SP: ["São Paulo","Campinas","Guarulhos","Santo André","São Bernardo do Campo","São José dos Campos","Sorocaba","Ribeirão Preto","Osasco","Santos"],
-  RJ: ["Rio de Janeiro","Niterói","Duque de Caxias","Nova Iguaçu","São Gonçalo","Volta Redonda","Macaé","Campos dos Goytacazes","Petrópolis","Resende"],
-  PR: ["Curitiba","Londrina","Maringá","Cascavel","Ponta Grossa","Foz do Iguaçu","Guarapuava"],
-  SC: ["Florianópolis","Joinville","Blumenau","Itajaí","Chapecó","Criciúma","Lages"],
-  RS: ["Porto Alegre","Caxias do Sul","Canoas","Pelotas","Santa Maria","Novo Hamburgo"],
-  BA: ["Salvador","Feira de Santana","Vitória da Conquista","Itabuna","Ilhéus","Barreiras"],
-  PE: ["Recife","Jaboatão","Olinda","Caruaru","Petrolina","Garanhuns"],
-  GO: ["Goiânia","Aparecida de Goiânia","Anápolis","Rio Verde","Luziânia"],
-  ES: ["Vitória","Vila Velha","Serra","Cachoeiro de Itapemirim","Linhares"],
-  DF: ["Brasília","Taguatinga","Ceilândia","Gama","Planaltina"],
-  PA: ["Belém","Ananindeua","Marabá","Santarém","Parauapebas"],
-  CE: ["Fortaleza","Caucaia","Sobral","Maracanaú","Juazeiro do Norte"],
-  // ... se faltar alguma UF, o campo vira input livre automaticamente
-};
-
-// Categorias (baseadas na sua lista de produtos/serviços — pode reaproveitar onde quiser)
 const categoriasBase = [
   "Equipamentos de Perfuração e Demolição",
   "Equipamentos de Carregamento e Transporte",
@@ -85,11 +73,13 @@ type PerfilForm = {
   cpf_cnpj?: string;
   bio?: string;
   avatar?: string;
-  tipo?: string; // "Usuário", "Admin" etc (exibido)
+  tipo?: string;
   // Atuação
   prestaServicos: boolean;
   vendeProdutos: boolean;
-  categoriasAtuacao: string[]; // até 5
+  categoriasAtuacao: string[];  // até 5
+  categoriasLocked?: boolean;   // trava edição após salvar com 5
+  categoriasLockedAt?: any;
   // Cobertura
   atendeBrasil: boolean;
   ufsAtendidas: string[];
@@ -97,7 +87,7 @@ type PerfilForm = {
   agenda: Record<string, AgendaDia>;
   // Portfólio
   portfolioImagens: string[];
-  portfolioVideos: string[]; // URLs (YouTube/Vimeo etc.)
+  portfolioVideos: string[];
   // Preferências de lead
   leadPreferencias: {
     categorias: string[];
@@ -105,7 +95,7 @@ type PerfilForm = {
     ticketMin?: number | null;
     ticketMax?: number | null;
   };
-  // Mercado Pago (flags)
+  // Mercado Pago
   mpConnected?: boolean;
   mpStatus?: string;
 };
@@ -116,11 +106,20 @@ export default function PerfilPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
-  // campos auxiliares para adições
+  // inputs auxiliares
   const [categoriaInput, setCategoriaInput] = useState("");
   const [leadCategoriaInput, setLeadCategoriaInput] = useState("");
   const [leadUfInput, setLeadUfInput] = useState("");
   const [novoVideo, setNovoVideo] = useState("");
+
+  // controle de lock definitivo de categorias
+  const [categoriasLocked, setCategoriasLocked] = useState<boolean>(false);
+  const [categoriasOriginais, setCategoriasOriginais] = useState<string[]>([]);
+
+  // Cidades da UF (IBGE)
+  const [cidades, setCidades] = useState<string[]>([]);
+  const [cidadesLoading, setCidadesLoading] = useState(false);
+  const [cidadesErro, setCidadesErro] = useState<string | null>(null);
 
   // form principal
   const [form, setForm] = useState<PerfilForm>({
@@ -136,6 +135,7 @@ export default function PerfilPage() {
     prestaServicos: false,
     vendeProdutos: false,
     categoriasAtuacao: [],
+    categoriasLocked: false,
     atendeBrasil: false,
     ufsAtendidas: [],
     agenda: Object.fromEntries(
@@ -153,17 +153,10 @@ export default function PerfilPage() {
     mpStatus: "desconectado",
   });
 
-  // avatar separado pra usar em ImageUploader
   const avatarLista = useMemo(() => (form.avatar ? [form.avatar] : []), [form.avatar]);
 
-  // cidades disponíveis pela UF escolhida
-  const cidadesDaUF = useMemo(() => {
-    if (!form.estado || form.estado === "BRASIL") return [];
-    return cidadesPorUF[form.estado] || [];
-  }, [form.estado]);
-
   /** =========================
-   *  Auth + carregamento
+   *  Auth + Carregamento inicial
    *  ========================= */
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (user) => {
@@ -174,8 +167,13 @@ export default function PerfilPage() {
       setUserId(user.uid);
       const ref = doc(db, "usuarios", user.uid);
       const snap = await getDoc(ref);
+
       if (snap.exists()) {
         const data = snap.data() || {};
+        const cats = Array.isArray(data.categoriasAtuacao) ? data.categoriasAtuacao : [];
+        setCategoriasOriginais(cats);
+        setCategoriasLocked(!!data.categoriasLocked);
+
         setForm((prev) => ({
           ...prev,
           nome: data.nome || "",
@@ -189,7 +187,8 @@ export default function PerfilPage() {
           tipo: data.tipo || prev.tipo,
           prestaServicos: !!data.prestaServicos,
           vendeProdutos: !!data.vendeProdutos,
-          categoriasAtuacao: data.categoriasAtuacao || [],
+          categoriasAtuacao: cats,
+          categoriasLocked: !!data.categoriasLocked,
           atendeBrasil: !!data.atendeBrasil,
           ufsAtendidas: data.ufsAtendidas || [],
           agenda: data.agenda || prev.agenda,
@@ -205,11 +204,7 @@ export default function PerfilPage() {
           mpStatus: data.mpStatus || "desconectado",
         }));
       } else {
-        // mantém defaults
-        setForm((prev) => ({
-          ...prev,
-          email: user.email || prev.email
-        }));
+        setForm((prev) => ({ ...prev, email: user.email || prev.email }));
       }
       setLoading(false);
     });
@@ -217,13 +212,67 @@ export default function PerfilPage() {
   }, []);
 
   /** =========================
-   *  Handlers rápidos
+   *  UF → Cidades (IBGE + cache localStorage)
+   *  ========================= */
+  useEffect(() => {
+    async function carregarCidades(uf: string) {
+      if (!uf || uf === "BRASIL") {
+        setCidades([]);
+        setCidadesErro(null);
+        return;
+      }
+
+      try {
+        setCidadesLoading(true);
+        setCidadesErro(null);
+
+        const cacheKey = `cidades:${uf}`;
+        const cached = typeof window !== "undefined" ? window.localStorage.getItem(cacheKey) : null;
+        if (cached) {
+          setCidades(JSON.parse(cached) as string[]);
+          setCidadesLoading(false);
+          return;
+        }
+
+        const res = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`);
+        if (!res.ok) throw new Error("Falha ao buscar cidades");
+
+        const data = await res.json();
+        const nomes = (data || [])
+          .map((m: any) => m?.nome)
+          .filter(Boolean)
+          .sort((a: string, b: string) => a.localeCompare(b, "pt-BR"));
+
+        setCidades(nomes);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(cacheKey, JSON.stringify(nomes));
+        }
+      } catch (e: any) {
+        console.error(e);
+        setCidadesErro("Não foi possível carregar cidades agora. Você pode digitar manualmente.");
+        setCidades([]);
+      } finally {
+        setCidadesLoading(false);
+      }
+    }
+
+    if (form.estado && form.estado !== "BRASIL") {
+      carregarCidades(form.estado);
+    } else {
+      setCidades([]);
+      setCidadesErro(null);
+    }
+  }, [form.estado]);
+
+  /** =========================
+   *  Helpers / Handlers
    *  ========================= */
   function setField<K extends keyof PerfilForm>(key: K, value: PerfilForm[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
   function addCategoria() {
+    if (categoriasLocked) return; // travado: não mexe
     if (!categoriaInput || form.categoriasAtuacao.includes(categoriaInput)) return;
     if (form.categoriasAtuacao.length >= 5) {
       setMsg("Você pode escolher até 5 categorias de atuação.");
@@ -234,8 +283,43 @@ export default function PerfilPage() {
   }
 
   function removeCategoria(cat: string) {
+    if (categoriasLocked) return; // travado: não mexe
     setForm(f => ({ ...f, categoriasAtuacao: f.categoriasAtuacao.filter(c => c !== cat) }));
   }
+
+  async function pedirAlteracaoViaWhatsApp() {
+  if (!userId) return;
+
+  // (opcional) registra no Firestore para você ter histórico
+  try {
+    await addDoc(collection(db, "supportRequests"), {
+      userId,
+      tipo: "categoriasAtuacao",
+      mensagem: "Solicito alteração nas minhas categorias de atuação.",
+      createdAt: serverTimestamp(),
+      status: "open",
+      canal: "whatsapp",
+    });
+  } catch (e) {
+    console.warn("Falha ao registrar ticket (segue somente via WhatsApp):", e);
+  }
+
+  // monta uma mensagem útil pro time
+  const texto = `
+Olá, equipe de suporte! Quero alterar minhas categorias de atuação.
+
+• UID: ${userId}
+• Nome: ${form.nome || "-"}
+• E-mail: ${form.email || "-"}
+• Categorias atuais: ${form.categoriasAtuacao?.join(", ") || "-"}
+
+Mensagem: Solicito liberação para alterar minhas categorias.
+  `.trim();
+
+  // abre o WhatsApp Web/app com a mensagem preenchida
+  const url = `https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(texto)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
 
   function toggleUfAtendida(uf: string) {
     if (uf === "BRASIL") {
@@ -247,7 +331,6 @@ export default function PerfilPage() {
       return;
     }
     if (form.atendeBrasil) {
-      // se está BRASIL inteiro, desliga e começa a marcar UFs escolhidas
       setForm(f => ({ ...f, atendeBrasil: false, ufsAtendidas: [uf] }));
       return;
     }
@@ -316,6 +399,23 @@ export default function PerfilPage() {
     setForm(f => ({ ...f, portfolioVideos: f.portfolioVideos.filter(v => v !== url) }));
   }
 
+  async function pedirAlteracaoAoSuporte() {
+    if (!userId) return;
+    try {
+      await addDoc(collection(db, "supportRequests"), {
+        userId,
+        tipo: "categoriasAtuacao",
+        mensagem: "Solicito alteração nas minhas categorias de atuação.",
+        createdAt: serverTimestamp(),
+        status: "open",
+      });
+      alert("Pedido enviado ao suporte. Em breve entraremos em contato.");
+    } catch (e) {
+      console.error(e);
+      alert("Falha ao abrir ticket. Tente novamente mais tarde.");
+    }
+  }
+
   async function salvar(e?: React.FormEvent) {
     e?.preventDefault();
     if (!userId) return;
@@ -324,6 +424,12 @@ export default function PerfilPage() {
     setMsg("");
 
     try {
+      // Se já está travado, ignora qualquer tentativa de alteração local
+      const categoriasParaSalvar = categoriasLocked ? categoriasOriginais : form.categoriasAtuacao;
+
+      // Travar DEFINITIVO somente quando tiver exatamente 5 no momento do salvar
+      const shouldLockNow = !categoriasLocked && categoriasParaSalvar.length === 5;
+
       await updateDoc(doc(db, "usuarios", userId), {
         nome: form.nome,
         telefone: form.telefone || "",
@@ -335,7 +441,8 @@ export default function PerfilPage() {
         // atuação
         prestaServicos: form.prestaServicos,
         vendeProdutos: form.vendeProdutos,
-        categoriasAtuacao: form.categoriasAtuacao,
+        categoriasAtuacao: categoriasParaSalvar,
+        ...(shouldLockNow ? { categoriasLocked: true, categoriasLockedAt: serverTimestamp() } : {}),
         // cobertura
         atendeBrasil: form.atendeBrasil,
         ufsAtendidas: form.atendeBrasil ? ["BRASIL"] : form.ufsAtendidas,
@@ -356,6 +463,11 @@ export default function PerfilPage() {
         mpStatus: form.mpStatus || "desconectado"
       });
 
+      if (shouldLockNow) {
+        setCategoriasLocked(true);
+        setCategoriasOriginais(categoriasParaSalvar);
+      }
+
       setMsg("Perfil atualizado com sucesso!");
     } catch (err) {
       console.error(err);
@@ -366,12 +478,7 @@ export default function PerfilPage() {
     }
   }
 
-  function handleAvatarUpload(imgs: string[]) {
-    setField("avatar", imgs[0] || "");
-  }
-
   const connectMercadoPago = () => {
-    // redireciona para o seu endpoint de conexão (ajuste se necessário)
     window.location.href = "/api/mercado-pago/connect";
   };
 
@@ -391,7 +498,11 @@ export default function PerfilPage() {
 
   return (
     <section style={{ maxWidth: 980, margin: "0 auto", padding: "40px 2vw 70px 2vw" }}>
-      <Link href="/painel" className="hover:opacity-80" style={{ color: "#2563eb", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 20, textDecoration: "none" }}>
+      <Link
+        href="/painel"
+        className="hover:opacity-80"
+        style={{ color: "#2563eb", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 20, textDecoration: "none" }}
+      >
         <ChevronLeft size={18} /> Voltar ao Painel
       </Link>
 
@@ -399,14 +510,30 @@ export default function PerfilPage() {
         Meu Perfil
       </h1>
 
+      {/* Banner de lock de categorias */}
+      {categoriasLocked && (
+        <div className="lock-banner">
+          <Lock size={16} />
+          Suas categorias de atuação estão travadas. Para alterar, fale com o suporte.
+          <button
+  type="button"
+  className="btn-sec"
+  onClick={pedirAlteracaoViaWhatsApp}
+>
+  <HelpCircle size={14} /> Pedir alteração ao suporte
+</button>
+
+        </div>
+      )}
+
       <form onSubmit={salvar} className="grid gap-16">
-        {/* Card 1: Identidade / Avatar */}
+        {/* Card 1: Identidade */}
         <div className="card">
           <div className="card-title">Identidade e Contato</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
             <div>
               <div className="label">Foto do Perfil</div>
-              <ImageUploader imagens={avatarLista} setImagens={handleAvatarUpload} max={1} />
+              <ImageUploader imagens={avatarLista} setImagens={(arr) => setField("avatar", arr[0] || "")} max={1} />
               <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>Use uma imagem quadrada para melhor resultado.</div>
             </div>
 
@@ -428,28 +555,53 @@ export default function PerfilPage() {
                     value={form.estado || ""}
                     onChange={(e) => {
                       const uf = e.target.value;
-                      setForm(f => ({
-                        ...f,
-                        estado: uf,
-                        cidade: "" // reset cidade ao trocar UF
-                      }));
+                      setForm(f => ({ ...f, estado: uf, cidade: "" })); // reset cidade
                     }}
                   >
                     <option value="">Selecione</option>
-                    {estados.map((uf) => (
-                      <option key={uf} value={uf}>{uf}</option>
-                    ))}
+                    {estados.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="label">Cidade</label>
-                  {form.estado && form.estado !== "BRASIL" && cidadesDaUF.length > 0 ? (
-                    <select className="input" value={form.cidade || ""} onChange={(e) => setField("cidade", e.target.value)}>
-                      <option value="">Selecione</option>
-                      {cidadesDaUF.map((c) => <option key={c}>{c}</option>)}
-                    </select>
-                  ) : (
-                    <input className="input" value={form.cidade || ""} onChange={(e) => setField("cidade", e.target.value)} placeholder={form.estado === "BRASIL" ? "—" : "Digite sua cidade"} disabled={form.estado === "BRASIL"} />
+
+                  {/* Sem UF ou BRASIL: desabilita */}
+                  {(!form.estado || form.estado === "BRASIL") && (
+                    <input className="input" value={form.cidade || ""} placeholder="—" disabled />
+                  )}
+
+                  {/* Com UF válida */}
+                  {form.estado && form.estado !== "BRASIL" && (
+                    <>
+                      {cidadesLoading && (
+                        <input className="input" value="Carregando cidades..." disabled />
+                      )}
+
+                      {!cidadesLoading && !cidadesErro && cidades.length > 0 && (
+                        <select
+                          className="input"
+                          value={form.cidade || ""}
+                          onChange={(e) => setField("cidade", e.target.value)}
+                        >
+                          <option value="">Selecione</option>
+                          {cidades.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      )}
+
+                      {!cidadesLoading && cidadesErro && (
+                        <>
+                          <input
+                            className="input"
+                            value={form.cidade || ""}
+                            onChange={(e) => setField("cidade", e.target.value)}
+                            placeholder="Digite sua cidade"
+                          />
+                          <div style={{ color: "#b45309", fontSize: 12, marginTop: 6 }}>
+                            {cidadesErro}
+                          </div>
+                        </>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -463,18 +615,20 @@ export default function PerfilPage() {
           </div>
         </div>
 
-        {/* Card 2: Atuação */}
+        {/* Card 2: Atuação / Categorias (lock definitivo) */}
         <div className="card">
           <div className="card-title">Atuação</div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
             <div className="grid gap-2">
               <label className="checkbox">
-                <input type="checkbox" checked={form.prestaServicos} onChange={(e) => setField("prestaServicos", e.target.checked)} />
+                <input type="checkbox" checked={form.prestaServicos}
+                       onChange={(e) => setField("prestaServicos", e.target.checked)} />
                 <span>Presto serviços</span>
               </label>
               <label className="checkbox">
-                <input type="checkbox" checked={form.vendeProdutos} onChange={(e) => setField("vendeProdutos", e.target.checked)} />
+                <input type="checkbox" checked={form.vendeProdutos}
+                       onChange={(e) => setField("vendeProdutos", e.target.checked)} />
                 <span>Vendo produtos</span>
               </label>
             </div>
@@ -482,22 +636,51 @@ export default function PerfilPage() {
             <div>
               <div className="label">Categorias que você atua (até 5)</div>
               <div className="flex gap-2 items-center">
-                <select className="input" value={categoriaInput} onChange={(e) => setCategoriaInput(e.target.value)}>
+                <select
+                  className="input"
+                  value={categoriaInput}
+                  onChange={(e) => setCategoriaInput(e.target.value)}
+                  disabled={categoriasLocked}
+                >
                   <option value="">Selecionar categoria...</option>
-                  {categoriasBase.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
+                  {categoriasBase.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <button type="button" className="btn-sec" onClick={addCategoria}>+ Adicionar</button>
+                <button type="button" className="btn-sec" onClick={addCategoria} disabled={categoriasLocked}>
+                  + Adicionar
+                </button>
               </div>
+
               {form.categoriasAtuacao.length > 0 && (
                 <div className="chips">
                   {form.categoriasAtuacao.map((c) => (
-                    <span key={c} className="chip">
+                    <span key={c} className="chip" title={categoriasLocked ? "Categorias travadas" : ""}>
                       <Tag size={14} /> {c}
-                      <button type="button" onClick={() => removeCategoria(c)}>×</button>
+                      {!categoriasLocked && (
+                        <button type="button" onClick={() => removeCategoria(c)}>×</button>
+                      )}
                     </span>
                   ))}
+                </div>
+              )}
+
+              {categoriasLocked ? (
+                <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", color: "#9a3412" }}>
+                  <span style={{ fontWeight: 800 }}>
+                    <Lock size={12} style={{ display: "inline", marginRight: 6 }} />
+                    Categorias travadas
+                  </span>
+                  <button
+  type="button"
+  className="btn-sec"
+  onClick={pedirAlteracaoViaWhatsApp}
+>
+  <HelpCircle size={14} /> Pedir alteração ao suporte
+</button>
+
+                </div>
+              ) : (
+                <div style={{ marginTop: 8, fontSize: 12, color: "#334155" }}>
+                  Ao salvar com 5 categorias, seu perfil ficará travado para alterações.
                 </div>
               )}
             </div>
@@ -552,10 +735,7 @@ export default function PerfilPage() {
                       checked={dia.ativo}
                       onChange={(e) => setForm(f => ({
                         ...f,
-                        agenda: {
-                          ...f.agenda,
-                          [d.key]: { ...dia, ativo: e.target.checked }
-                        }
+                        agenda: { ...f.agenda, [d.key]: { ...dia, ativo: e.target.checked } }
                       }))}
                     />
                     <span>{d.label}</span>
@@ -695,7 +875,7 @@ export default function PerfilPage() {
           </div>
         </div>
 
-        {/* Ações */}
+        {/* Mensagens + Salvar */}
         {msg && (
           <div
             style={{
@@ -803,15 +983,6 @@ export default function PerfilPage() {
           border-radius: 10px;
           padding: 10px 14px;
         }
-        .btn-primary {
-          background: #219ebc;
-          color: #fff;
-          font-weight: 900;
-          border: none;
-          border-radius: 12px;
-          padding: 13px 20px;
-          box-shadow: 0 2px 12px #219ebc22;
-        }
         .btn-gradient {
           background: linear-gradient(90deg,#fb8500,#fb8500);
           color: #fff;
@@ -821,15 +992,6 @@ export default function PerfilPage() {
           padding: 14px 26px;
           font-size: 1.08rem;
           box-shadow: 0 4px 18px #fb850033;
-        }
-        .badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          font-weight: 900;
-          padding: 6px 12px;
-          border-radius: 10px;
-          border: 1px solid #e8eaf0;
         }
         .video-row {
           display: grid;
@@ -852,7 +1014,18 @@ export default function PerfilPage() {
         .video-row button {
           background: none; border: none; color: #999; font-weight: 900; cursor: pointer;
         }
-
+        .lock-banner {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: #fff7ed;
+          border: 1px solid #ffedd5;
+          color: #9a3412;
+          padding: 10px 12px;
+          border-radius: 12px;
+          margin-bottom: 16px;
+          font-weight: 800;
+        }
         @media (max-width: 650px) {
           .card { padding: 18px 14px; border-radius: 14px; }
         }

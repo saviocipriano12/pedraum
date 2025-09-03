@@ -98,6 +98,7 @@ export default function OportunidadesPage() {
     const qAssignments = query(
       collection(db, "demandAssignments"),
       where("supplierId", "==", uid),
+        where("status", "in", ["sent", "viewed", "unlocked"]), // NÃO inclui "canceled"
       fbLimit(300)
     );
 

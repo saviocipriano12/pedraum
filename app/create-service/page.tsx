@@ -201,11 +201,6 @@ export default function CreateServicePage() {
       return;
     }
 
-    if (imagens.length === 0) {
-      setError("Envie pelo menos uma imagem do serviço.");
-      setLoading(false);
-      return;
-    }
 
     try {
       // preço: número ou "Sob consulta"

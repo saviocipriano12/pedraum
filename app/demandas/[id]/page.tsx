@@ -113,6 +113,10 @@ type DemandaMini = {
 
 /* ======================= Const ======================= */
 const DEFAULT_PRICE_CENTS = 1990;
+// WhatsApp do Pedraum (use .env se tiver). Fallback genérico:
+const WPP_PEDRAUM = process.env.NEXT_PUBLIC_PEDRAUM_WPP || "5531990903613";
+const WPP_SPONSOR_MSG = encodeURIComponent("Quero me tornar patrocinador. Como funciona, e quais as vantagens?");
+const WPP_SPONSOR_URL = `https://wa.me/${WPP_PEDRAUM}?text=${WPP_SPONSOR_MSG}`;
 
 /* ======================= Utils ======================= */
 function currencyCents(cents?: number) {
@@ -184,7 +188,7 @@ export default function DemandaDetalhePage() {
     return () => clearInterval(t);
   }, []);
 
-  // ===== Auth + Perfil (coleção correta: usuarios)
+  // ===== Auth + Perfil
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (u) => {
       setUid(u ? u.uid : null);
@@ -256,13 +260,29 @@ export default function DemandaDetalhePage() {
     }
   }, [searchParams]);
 
-  // ===== Meta (PREÇO SEMPRE DO ADMIN, com fallback p/ legado)
+  useEffect(() => {
+    const s1 = searchParams.get("status");
+    const s2 = searchParams.get("collection_status");
+    if ((s1 === "approved" || s2 === "approved") && uid && id) {
+      (async () => {
+        try {
+          await fetch("/api/mp/unlock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ demandId: String(id), userId: uid }),
+          });
+        } catch {}
+      })();
+    }
+  }, [searchParams, uid, id]);
+
+  // ===== Meta
   const adminPriceCents = Number(
     demanda?.priceCents ??
     demanda?.pricingDefault?.amount ??
     DEFAULT_PRICE_CENTS
   );
-  const priceCents = adminPriceCents;
+  const priceCents = adminPriceCents; // usado no checkout, mas não exibido
   const priceFmt = currencyCents(priceCents);
 
   const title = demanda?.titulo || "Demanda";
@@ -276,7 +296,7 @@ export default function DemandaDetalhePage() {
   const orcamento = demanda?.orcamento || "—";
   const viewCount = demanda?.viewCount || 0;
 
-  // ===== Contato (preferir campos novos; manter fallback p/ legado)
+  // ===== Contato
   const contatoNome =
     (demanda?.autorNome && demanda.autorNome.trim()) ||
     (demanda?.nomeContato && demanda.nomeContato.trim()) ||
@@ -294,7 +314,7 @@ export default function DemandaDetalhePage() {
 
   const wppDigits = contatoWpp ? String(contatoWpp).replace(/\D/g, "") : "";
 
-  // ===== Assignment virtual (somente para exibir status antes de existir)
+  // ===== Assignment virtual
   const effectiveAssignment: Assignment | null = useMemo(() => {
     if (!uid || !demanda) return assignment;
     if (assignment) return assignment;
@@ -334,7 +354,7 @@ export default function DemandaDetalhePage() {
 
   const unlocked = isOwner || patrocinioAtivo || liberadoPorArray || isUnlockedByAssignment || liberadoPorSubdoc;
 
-  // ===== Imagens (com fallbacks)
+  // ===== Imagens
   const imagens: string[] = useMemo(() => {
     const base = Array.isArray(demanda?.imagens) ? demanda!.imagens! : [];
     const arr = base.filter(Boolean).map(String);
@@ -489,7 +509,6 @@ export default function DemandaDetalhePage() {
     } catch {}
   }
 
-
   /* ======================= Guards ======================= */
   if (!uid) {
     return (
@@ -594,6 +613,18 @@ export default function DemandaDetalhePage() {
               </div>
             </div>
           )}
+
+          {/* ===== Descrição (agora abaixo da imagem) ===== */}
+          {description && (
+  <div className="op-desc-card">
+    <div className="op-desc-header">
+      <span className="op-desc-badge">Descrição</span>
+    </div>
+    <div className="op-desc-body">
+      {description}
+    </div>
+  </div>
+)}
         </div>
 
         {/* ===== Infos ===== */}
@@ -608,8 +639,7 @@ export default function DemandaDetalhePage() {
 
           {/* ===== CTA box ===== */}
           <div className="op-cta">
-            <div className="op-price">{patrocinioAtivo ? "Acesso de patrocinador" : priceFmt}</div>
-
+            {/* preço removido da UI */}
             {!unlocked ? (
               <>
                 {/* Hero CTA */}
@@ -630,23 +660,24 @@ export default function DemandaDetalhePage() {
                       cursor: paying || patrocinioAtivo ? "not-allowed" : "pointer",
                     }}
                   >
-                    {patrocinioAtivo ? "Você já tem acesso (Patrocinador)" : (paying ? "Abrindo pagamento…" : `Atender agora por ${priceFmt}`)}
+                    {patrocinioAtivo ? "Você já tem acesso (Patrocinador)" : (paying ? "Abrindo pagamento…" : "Atender agora")}
                   </button>
 
                   {!patrocinioAtivo && <div className="op-cta-note">Após o pagamento aprovado, o contato é liberado automaticamente nesta página.</div>}
                 </div>
 
                 {/* Upsell patrocinador */}
-                {!patrocinioAtivo && (
-                  <div className="op-upsell">
-                    <div className="op-upsell-left">
-                      <strong>Seja Patrocinador</strong> e veja contatos sem pagar por demanda.
-                    </div>
-                    <Link href="/patrocinador" className="op-upsell-btn">
-                      Conhecer planos <ChevronRight size={16} />
-                    </Link>
-                  </div>
-                )}
+{!patrocinioAtivo && (
+  <div className="op-upsell">
+    <div className="op-upsell-left">
+      <strong>Seja Patrocinador</strong> e veja contatos sem pagar por demanda.
+    </div>
+    <a href={WPP_SPONSOR_URL} target="_blank" rel="noopener noreferrer" className="op-upsell-btn">
+      Conhecer planos <ChevronRight size={16} />
+    </a>
+  </div>
+)}
+
               </>
             ) : (
               <div className="op-contact">
@@ -687,14 +718,6 @@ export default function DemandaDetalhePage() {
               </div>
             )}
           </div>
-
-          {/* Descrição */}
-          {description && (
-            <div className="op-resumo">
-              <div className="op-resumo-title">Descrição</div>
-              <div className="op-resumo-text">{description}</div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -708,7 +731,7 @@ export default function DemandaDetalhePage() {
                 <div className="op-card-mini-meta">
                   {d.categoria || "—"} • {d.cidade || "—"}{d.estado ? `, ${d.estado}` : ""}
                 </div>
-                <div className="op-card-mini-price">{currencyCents(d.priceCents)}</div>
+                {/* preço removido da mini-card */}
               </Link>
             ))}
           </div>
@@ -717,6 +740,7 @@ export default function DemandaDetalhePage() {
 
       {/* CSS */}
       <style jsx>{baseCss}</style>
+      <AuthGateRedirect />
     </section>
   );
 }
@@ -743,7 +767,7 @@ const baseCss = `
 .op-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:32px;margin-top:10px}
 
 /* mídia */
-.op-media{display:flex;flex-direction:column;align-items:center}
+.op-media{display:flex;flex-direction:column;align-items:center;gap:16px}
 .op-img{width:100%;max-width:560px;aspect-ratio:4/3;border-radius:22px;object-fit:cover;box-shadow:0 4px 32px #0001;background:#fff}
 
 /* placeholder */
@@ -767,7 +791,7 @@ const baseCss = `
 .op-noimg-meta span{display:inline-flex;align-items:center;gap:6px}
 
 /* thumbs */
-.op-thumbs{display:flex;gap:12px;margin-top:14px;flex-wrap:wrap;justify-content:center}
+.op-thumbs{display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;justify-content:center}
 .op-thumbs-scroll{overflow-x:auto;padding-bottom:6px}
 .op-thumbs-scroll::-webkit-scrollbar{height:6px}
 .op-thumbs-scroll::-webkit-scrollbar-thumb{background:#d9e7ef;border-radius:999px}
@@ -782,7 +806,7 @@ const baseCss = `
 
 /* CTA */
 .op-cta{background:#fff;border-radius:16px;border:1.5px solid #eef2f6;padding:18px;box-shadow:0 2px 16px #0000000d;display:flex;flex-direction:column;gap:12px}
-.op-price{font-size:2.1rem;font-weight:900;color:#fb8500;letter-spacing:.5px}
+/* .op-price removido da UI */
 
 /* CTA forte */
 .op-cta-highlight{background:#fff4eb;border:2px solid #fbc98f;border-radius:18px;padding:18px;box-shadow:0 4px 18px #fb850033;text-align:center}
@@ -796,7 +820,7 @@ const baseCss = `
 .op-cta-note{font-size:.86rem;color:#9a6c00}
 
 /* upsell */
-.op-upsell{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#f1f5f9;border:1.5px solid #e2e8f0;border-radius:14px;padding:10px 12px}
+.op-upsell{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#f1f59;border:1.5px solid #e2e8f0;border-radius:14px;padding:10px 12px}
 .op-upsell-left{color:#0f172a;font-weight:800}
 .op-upsell-btn{display:inline-flex;align-items:center;gap:6px;background:#219ebc;color:#fff;border-radius:10px;padding:8px 12px;text-decoration:none}
 .op-upsell-btn:hover{background:#176684}
@@ -816,6 +840,7 @@ const baseCss = `
 .op-resumo{background:#fff;border:1.5px solid #eef2f6;border-radius:16px;padding:16px 18px;box-shadow:0 1px 10px #0000000a}
 .op-resumo-title{font-size:1.06rem;color:#023047;font-weight:800;margin-bottom:6px}
 .op-resumo-text{font-size:1.04rem;color:#1f2937}
+.op-resumo-bigger .op-resumo-text{font-size:1.12rem;line-height:1.7}
 
 /* carrossel */
 .op-recomenda{margin-top:34px}
@@ -826,8 +851,8 @@ const baseCss = `
 .op-card-mini{flex:0 0 240px;scroll-snap-align:start;background:#fff;border:1.5px solid #e5e7eb;border-radius:14px;padding:14px;box-shadow:0 2px 10px #0000000a;transition:transform .15s;text-decoration:none}
 .op-card-mini:hover{transform:translateY(-2px)}
 .op-card-mini-title{font-weight:800;color:#111827;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.op-card-mini-meta{font-size:.9rem;color:#555;margin-bottom:6px}
-.op-card-mini-price{font-weight:900;color:#fb8500}
+.op-card-mini-meta{font-size:.9rem;color:#555;margin-bottom:2px}
+/* .op-card-mini-price removido */
 
 /* skeleton */
 .op-skel{height:420px;border-radius:22px;background:linear-gradient(90deg,#eef5fb 25%,#f5faff 37%,#eef5fb 63%);background-size:400% 100%;animation:opShimmer 1.3s infinite;box-shadow:0 2px 16px #0001}
@@ -842,5 +867,32 @@ const baseCss = `
   .op-meta-list{grid-template-columns:1fr}
   .op-headbar{flex-direction:column;align-items:flex-start;gap:10px}
 }
+  /* ===== Descrição aprimorada ===== */
+.op-desc-card{
+  width:100%;
+  max-width:560px;
+  background:#ffffff;
+  border:1.5px solid #e6eef6;
+  border-radius:18px;
+  box-shadow:0 4px 18px rgba(2,48,71,0.06);
+  padding:14px 16px;
+  margin-top:12px;
+}
+.op-desc-header{
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:8px
+}
+.op-desc-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  background:#f1f7ff;border:1px solid #dbeafe;color:#0b4a6e;
+  font-weight:900;font-size:.95rem;border-radius:999px;padding:6px 10px
+}
+.op-desc-body{
+  font-size:1.12rem;line-height:1.75;color:#1f2937;white-space:pre-wrap
+}
+
+/* Upsell botão (só textura/ajuste) */
+.op-upsell-btn{display:inline-flex;align-items:center;gap:6px;background:#219ebc;color:#fff;
+  border-radius:10px;padding:8px 12px;text-decoration:none;font-weight:800}
+.op-upsell-btn:hover{background:#176684}
+
 `;
- <AuthGateRedirect />

@@ -262,7 +262,7 @@ export default function OportunidadeDetalhePage() {
     demanda?.priceCents ??
     demanda?.pricingDefault?.amount ??
     DEFAULT_PRICE_CENTS;
-  const priceFmt = currencyCents(priceCents);
+  const priceFmt = currencyCents(priceCents); // ainda usado só para a preferência de pagamento
 
   const title = demanda?.titulo || "Demanda";
   const description = demanda?.descricao || "";
@@ -325,23 +325,34 @@ export default function OportunidadeDetalhePage() {
     }
   }
 
+  // Inicia o checkout (preço só aqui, em centavos -> reais)
   async function atender() {
     if (!uid) return;
     setPaying(true);
     setMsg(null);
     try {
       await ensureAssignmentDoc();
-      const res = await fetch("/api/mp/checkout", {
+
+      const unit_price = Number(priceCents) / 100;
+
+      const res = await fetch("/api/mp/create-preference", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ demandId: String(id), supplierId: uid }),
+        body: JSON.stringify({
+          userId: uid,
+          leadId: `${id}_${uid}`,
+          demandaId: String(id),
+          title: title || "Contato",
+          unit_price,
+        }),
       });
+
       const data = await res.json();
-      if (data?.init_point) {
+      if (res.ok && data?.init_point) {
         window.location.href = data.init_point;
         return;
       }
-      setMsg(data?.error || "Falha ao iniciar pagamento.");
+      setMsg(data?.message || data?.error || "Falha ao iniciar pagamento.");
     } catch (e: any) {
       setMsg(e?.message || "Erro ao iniciar pagamento.");
     } finally {
@@ -397,7 +408,7 @@ export default function OportunidadeDetalhePage() {
     );
   }
 
-  /* ======================= UI (legível e arejado) ======================= */
+  /* ======================= UI ======================= */
   return (
     <section className="op-wrap">
       {/* Topo */}
@@ -469,7 +480,7 @@ export default function OportunidadeDetalhePage() {
 
         {/* Infos */}
         <div className="op-info">
-          {/* Metadados principais (mais legíveis) */}
+          {/* Metadados */}
           <div className="op-meta-list">
             <span><Tag size={18} /> {category}{subcat ? ` • ${subcat}` : ""}</span>
             <span><MapPin size={18} /> {city}, {uf}</span>
@@ -479,8 +490,7 @@ export default function OportunidadeDetalhePage() {
 
           {/* CTA */}
           <div className="op-cta">
-            <div className="op-price">{priceFmt}</div>
-
+            {/* Preço removido da UI */}
             {!unlocked ? (
               <>
                 <div className="op-cta-highlight">
@@ -500,7 +510,7 @@ export default function OportunidadeDetalhePage() {
                       cursor: paying ? "not-allowed" : "pointer",
                     }}
                   >
-                    {paying ? "Abrindo pagamento…" : `Atender agora por ${priceFmt}`}
+                    {paying ? "Abrindo pagamento…" : "Atender agora"}
                   </button>
 
                   <div className="op-cta-note">Após o pagamento aprovado, o contato é liberado automaticamente nesta página.</div>
@@ -626,7 +636,7 @@ const baseCss = `
 
 /* CTA */
 .op-cta{background:#fff;border-radius:16px;border:1.5px solid #eef2f6;padding:18px;box-shadow:0 2px 16px #0000000d;display:flex;flex-direction:column;gap:12px}
-.op-price{font-size:2.1rem;font-weight:900;color:#fb8500;letter-spacing:.5px}
+/* .op-price removido da UI */
 
 /* CTA forte */
 .op-cta-highlight{background:#fff4eb;border:2px solid #fbc98f;border-radius:18px;padding:18px;box-shadow:0 4px 18px #fb850033;text-align:center}
@@ -635,7 +645,8 @@ const baseCss = `
 .op-benefits li{margin-bottom:6px}
 
 .op-btn-laranja{width:100%;border:none;border-radius:10px;padding:14px 0;font-weight:800;font-size:1.12rem;box-shadow:0 2px 10px #fb850022;transition:background .14s, transform .12s}
-.op-btn-laranja:not([aria-disabled="true"]):hover{background:#e17000 !important;transform:translateY(-1px)}
+.op-btn-laranja:not([aria-disabled="true"]):hover{background:#e17000 !important;transform:translateY{-1px}
+}
 .op-btn-big{padding:16px 0;font-size:1.15rem}
 .op-cta-note{font-size:.86rem;color:#9a6c00}
 

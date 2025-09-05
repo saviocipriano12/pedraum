@@ -1,688 +1,580 @@
-// app/dashboard/oportunidades/[id]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { auth, db } from "@/firebaseConfig";
 import {
+  collection,
   doc,
-  onSnapshot,
   getDoc,
-  setDoc,
-  updateDoc,
-  serverTimestamp,
+  onSnapshot,
+  query,
+  where,
+  limit as fbLimit,
 } from "firebase/firestore";
 import {
-  Share2,
+  Loader2,
+  Target,
   MapPin,
+  BadgeDollarSign,
   CheckCircle2,
-  Copy,
-  PhoneCall,
-  Tag,
-  Calendar,
-  BadgeCheck,
-  Image as ImageIcon,
+  Filter,
   Eye,
-  Hourglass,
-  ShieldCheck,
+  LockOpen,
 } from "lucide-react";
 
-/* ======================= Types ======================= */
-type Pricing = { amount?: number; currency?: string; exclusive?: boolean; cap?: number };
-type AssignmentStatus = "sent" | "viewed" | "unlocked" | "won" | "lost" | "refunded";
+/* ----------------------------- Tipos ----------------------------- */
+
+type Pricing = {
+  amount?: number; // centavos
+  currency?: string;
+  exclusive?: boolean;
+  cap?: number;
+};
 type Assignment = {
   id: string;
   demandId: string;
   supplierId: string;
-  status: AssignmentStatus;
+  status: "sent" | "viewed" | "unlocked";
   pricing?: Pricing;
-  paymentRef?: string;
-  unlockedAt?: any;
   createdAt?: any;
-  updatedAt?: any;
+  demand?: any;
 };
 
-type DemandFire = {
-  titulo?: string;
-  descricao?: string;
+/* ------------------------ Utils ------------------------ */
 
-  // novas
-  categoria?: string;
-  subcategoria?: string;
-  outraCategoriaTexto?: string;
+function normalizeDemand(raw: any) {
+  const title = raw?.title ?? raw?.titulo ?? "Demanda";
+  const description = raw?.description ?? raw?.descricao ?? "";
+  const category = raw?.category ?? raw?.categoria ?? "";
+  const uf = raw?.uf ?? raw?.estado ?? "";
+  const city = raw?.city ?? raw?.cidade ?? "";
+  const contact =
+    raw?.contact ?? (raw?.whatsapp ? { whatsapp: raw.whatsapp } : undefined);
 
-  // legado
-  tipo?: string;
-
-  estado?: string; // UF
-  cidade?: string;
-  prazo?: string;
-  orcamento?: string;
-
-  imagens?: string[];
-  imagem?: string;
-
-  // contatos novos (preferência)
-  autorNome?: string;
-  autorEmail?: string;
-  autorWhatsapp?: string;
-
-  // contatos legados (fallback)
-  whatsapp?: string;
-  email?: string;
-  nomeContato?: string;
-
-  // auxiliares
-  userId?: string;
-  liberadoPara?: string[];
-  priceCents?: number;
-  pricingDefault?: { amount?: number; currency?: string };
-  createdAt?: any;
-  expiraEm?: any;
-  status?: "aberta" | "andamento" | "fechada" | "expirada";
-  visivel?: boolean;
-
-  viewCount?: number;
-  lastViewedAt?: any;
-};
-
-const DEFAULT_PRICE_CENTS = 1990;
-
-/* ======================= Utils ======================= */
-function currencyCents(cents?: number) {
-  const n = Number(cents ?? 0);
-  if (!n) return "R$ 0,00";
-  return `R$ ${(n / 100).toFixed(2).replace(".", ",")}`;
-}
-function initials(t?: string) {
-  if (!t) return "PD";
-  const parts = t.trim().split(/\s+/).slice(0, 2);
-  return parts.map(p => p[0]?.toUpperCase()).join("") || "PD";
-}
-function toDate(ts?: any): Date | null {
-  if (!ts) return null;
-  if (typeof ts?.toDate === "function") return ts.toDate();
-  if (typeof ts?.seconds === "number") return new Date(ts.seconds * 1000);
-  const d = new Date(ts);
-  return isNaN(d.getTime()) ? null : d;
-}
-function parsePrazoStr(p?: string): Date | null {
-  if (!p) return null;
-  const d = new Date(p);
-  return isNaN(d.getTime()) ? null : d;
-}
-function msToDHMS(ms: number) {
-  const sec = Math.max(0, Math.floor(ms / 1000));
-  const d = Math.floor(sec / 86400);
-  const h = Math.floor((sec % 86400) / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  return { d, h, m, s };
-}
-function resolveStatus(d: DemandFire): { label: string; color: string } {
-  if (d.status) {
-    switch (d.status) {
-      case "andamento": return { label: "Em andamento", color: "var(--st-blue)" };
-      case "fechada":   return { label: "Fechada",       color: "var(--st-gray)" };
-      case "expirada":  return { label: "Expirada",      color: "var(--st-red)" };
-      default:          return { label: "Aberta",        color: "var(--st-green)" };
-    }
-  }
-  const exp = toDate(d.expiraEm) || parsePrazoStr(d.prazo);
-  if (exp && exp.getTime() < Date.now()) {
-    return { label: "Expirada", color: "var(--st-red)" };
-  }
-  return { label: "Aberta", color: "var(--st-green)" };
+  return { title, description, category, uf, city, contact };
 }
 
-/* ======================= Page ======================= */
-export default function OportunidadeDetalhePage() {
-  const { id } = useParams<{ id: string }>(); // id da demanda
+function centsToReaisText(cents?: number) {
+  const v = typeof cents === "number" ? cents : 1990;
+  return (v / 100).toFixed(2).replace(".", ",");
+}
+
+function sortByCreatedAtDesc(a: Assignment, b: Assignment) {
+  const ta = a.createdAt?.seconds ?? a.createdAt?._seconds ?? 0;
+  const tb = b.createdAt?.seconds ?? b.createdAt?._seconds ?? 0;
+  return tb - ta;
+}
+
+/* ----------------------------- Página ----------------------------- */
+
+export default function OportunidadesPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-
   const [uid, setUid] = useState<string | null>(null);
-  const [demanda, setDemanda] = useState<(DemandFire & { id: string }) | null>(null);
-  const [assignment, setAssignment] = useState<Assignment | null>(null);
+
   const [loading, setLoading] = useState(true);
-  const [paying, setPaying] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  // relógio (para expiração)
-  const [now, setNow] = useState<number>(Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
+  const [allAssignments, setAllAssignments] = useState<Assignment[]>([]);
 
-  // auth
+  // filtros locais
+  const [busca, setBusca] = useState("");
+  const [fCategoria, setFCategoria] = useState("");
+  const [fUF, setFUF] = useState("");
+  const [fCidade, setFCidade] = useState("");
+  const [abrindo, setAbrindo] = useState<string | null>(null);
+
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => setUid(u ? u.uid : null));
     return () => unsub();
   }, []);
 
-  // realtime: demanda + assignment
+  // stream: assignments do supplier; depois particiona por status no cliente
   useEffect(() => {
     if (!uid) return;
 
-    const demRef = doc(db, "demandas", String(id));
-    const unsubDem = onSnapshot(demRef, (snap) => {
-      if (!snap.exists()) setDemanda(null);
-      else setDemanda({ id: snap.id, ...(snap.data() as DemandFire) });
-    });
+    const qAssignments = query(
+      collection(db, "demandAssignments"),
+      where("supplierId", "==", uid),
+      where("status", "in", ["sent", "viewed", "unlocked"]), // NÃO inclui "canceled"
+      fbLimit(300)
+    );
 
-    const aRef = doc(db, "demandAssignments", `${id}_${uid}`);
-    const unsubA = onSnapshot(aRef, async (snap) => {
-      if (snap.exists()) {
-        const a = { id: snap.id, ...(snap.data() as any) } as Assignment;
-        setAssignment(a);
-        if (a.status === "sent") {
-          try { await updateDoc(aRef, { status: "viewed", updatedAt: serverTimestamp() }); } catch {}
+    const unsub = onSnapshot(
+      qAssignments,
+      async (snap) => {
+        try {
+          const arr: Assignment[] = [];
+          for (const d of snap.docs) {
+            const a = { id: d.id, ...(d.data() as any) } as Assignment;
+            // join da demanda
+            try {
+              const ds = await getDoc(doc(db, "demandas", a.demandId));
+              arr.push({ ...a, demand: ds.exists() ? ds.data() : null });
+            } catch {
+              arr.push(a);
+            }
+          }
+          setAllAssignments(arr);
+          setErrMsg(null);
+        } catch (e: any) {
+          console.error(e);
+          setErrMsg("Falha ao carregar oportunidades.");
+        } finally {
+          setLoading(false);
         }
-      } else {
-        setAssignment(null);
-      }
-      setLoading(false);
-    });
-
-    return () => {
-      unsubDem();
-      unsubA();
-    };
-  }, [id, uid]);
-
-  // feedback pós-checkout
-  useEffect(() => {
-    const s1 = searchParams.get("status");
-    const s2 = searchParams.get("collection_status");
-    if (s1 === "approved" || s2 === "approved" || s1 === "success") {
-      setMsg("Pagamento aprovado! Liberando contato…");
-      const t = setTimeout(() => setMsg(null), 3000);
-      return () => clearTimeout(t);
-    }
-  }, [searchParams]);
-
-  // assignment virtual p/ CTA quando ainda não existe doc
-  const adminPriceCents = Number(
-    demanda?.priceCents ??
-    demanda?.pricingDefault?.amount ??
-    DEFAULT_PRICE_CENTS
-  );
-  const effectiveAssignment: Assignment | null = useMemo(() => {
-    if (!uid || !demanda) return assignment;
-    if (assignment) return assignment;
-    return {
-      id: `${id}_${uid}`,
-      demandId: String(id),
-      supplierId: uid,
-      status: "sent",
-      pricing: {
-        amount: adminPriceCents,
-        currency: "BRL",
-        exclusive: false,
-        cap: 3,
       },
-      createdAt: null,
-      updatedAt: null,
-    };
-  }, [assignment, demanda, id, uid, adminPriceCents]);
-
-  // regras de acesso
-  const isOwner = !!(demanda?.userId && uid && demanda.userId === uid);
-  const liberadoPorArray =
-    !!(demanda?.liberadoPara && uid && Array.isArray(demanda.liberadoPara) && demanda.liberadoPara.includes(uid));
-  const isUnlockedByAssignment = effectiveAssignment?.status === "unlocked";
-
-  const [liberadoPorSubdoc, setLiberadoPorSubdoc] = useState<boolean>(false);
-  useEffect(() => {
-    if (!uid || !demanda?.id) { setLiberadoPorSubdoc(false); return; }
-    (async () => {
-      try {
-        const s = await getDoc(doc(db, "demandas", demanda.id, "acessos", uid));
-        setLiberadoPorSubdoc(s.exists());
-      } catch { setLiberadoPorSubdoc(false); }
-    })();
-  }, [uid, demanda?.id]);
-
-  const unlocked = isOwner || liberadoPorArray || isUnlockedByAssignment || liberadoPorSubdoc;
-
-  // imagens com fallback
-  const imagens: string[] = useMemo(() => {
-    const base = Array.isArray(demanda?.imagens) ? demanda!.imagens! : [];
-    const arr = base.filter(Boolean).map(String);
-    if (!arr.length && demanda?.imagem) arr.push(String(demanda.imagem));
-    return arr;
-  }, [demanda?.imagens, demanda?.imagem]);
-  const imgPrincipal = imagens[0] || "/images/no-image.png";
-
-  // meta
-  const priceCents =
-    effectiveAssignment?.pricing?.amount ??
-    demanda?.priceCents ??
-    demanda?.pricingDefault?.amount ??
-    DEFAULT_PRICE_CENTS;
-  const priceFmt = currencyCents(priceCents); // ainda usado só para a preferência de pagamento
-
-  const title = demanda?.titulo || "Demanda";
-  const description = demanda?.descricao || "";
-
-  const category = demanda?.categoria || "Sem categoria";
-  const subcat = demanda?.subcategoria || demanda?.outraCategoriaTexto || "";
-  const uf = demanda?.estado || "—";
-  const city = demanda?.cidade || "—";
-  const prazoStr = demanda?.prazo || "";
-  const orcamento = demanda?.orcamento || "—";
-  const viewCount = demanda?.viewCount || 0;
-
-  // Contato (preferir campos novos; fallback no legado)
-  const contatoNome =
-    (demanda?.autorNome && demanda.autorNome.trim()) ||
-    (demanda?.nomeContato && demanda.nomeContato.trim()) ||
-    "";
-
-  const contatoEmail =
-    (demanda?.autorEmail && demanda.autorEmail.trim()) ||
-    (demanda?.email && demanda.email.trim()) ||
-    "";
-
-  const contatoWpp =
-    (demanda?.autorWhatsapp && demanda.autorWhatsapp.trim()) ||
-    (demanda?.whatsapp && demanda.whatsapp.trim()) ||
-    "";
-
-  const wppDigits = contatoWpp ? String(contatoWpp).replace(/\D/g, "") : "";
-
-  // status + contagem regressiva
-  const statusInfo = resolveStatus(demanda || {});
-  const expDate: Date | null = toDate(demanda?.expiraEm) || parsePrazoStr(prazoStr);
-  const timeLeft = useMemo(() => {
-    if (!expDate) return null;
-    return msToDHMS(expDate.getTime() - now);
-  }, [expDate, now]);
-  const expShown = !!timeLeft && (timeLeft.d + timeLeft.h + timeLeft.m + timeLeft.s) > 0;
-
-  async function ensureAssignmentDoc() {
-    if (!uid) return;
-    const aRef = doc(db, "demandAssignments", `${id}_${uid}`);
-    const aSnap = await getDoc(aRef);
-    const pricing = { amount: priceCents, currency: "BRL", exclusive: false, cap: 3 };
-    if (!aSnap.exists()) {
-      await setDoc(aRef, {
-        demandId: String(id),
-        supplierId: uid,
-        status: "viewed",
-        pricing,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    } else {
-      // sincroniza preço se mudou
-      const cur = (aSnap.data() as any)?.pricing?.amount;
-      if (Number(cur) !== Number(priceCents)) {
-        await updateDoc(aRef, { pricing, updatedAt: serverTimestamp() });
+      (err) => {
+        console.error("assignments stream error:", err);
+        setErrMsg(
+          "Não foi possível carregar as oportunidades. Verifique as regras/índices do Firestore."
+        );
+        setLoading(false);
       }
-    }
-  }
+    );
 
-  // Inicia o checkout (preço só aqui, em centavos -> reais)
-  async function atender() {
+    return () => unsub();
+  }, [uid]);
+
+  // Particiona por status e ordena
+  const novas = useMemo(
+    () =>
+      allAssignments
+        .filter((a) => a.status === "sent" || a.status === "viewed")
+        .sort(sortByCreatedAtDesc),
+    [allAssignments]
+  );
+  const atendimento = useMemo(
+    () =>
+      allAssignments
+        .filter((a) => a.status === "unlocked")
+        .sort(sortByCreatedAtDesc),
+    [allAssignments]
+  );
+
+  /* --------------------------- Filtros --------------------------- */
+  const novasFiltradas = useMemo(
+    () => filtra(novas, busca, fCategoria, fUF, fCidade),
+    [novas, busca, fCategoria, fUF, fCidade]
+  );
+  const atendimentoFiltradas = useMemo(
+    () => filtra(atendimento, busca, fCategoria, fUF, fCidade),
+    [atendimento, busca, fCategoria, fUF, fCidade]
+  );
+
+  /* --------------------------- Ações --------------------------- */
+  // Usa sua rota atual (/api/mp/create-preference) que espera unit_price (em reais).
+  async function atender(a: Assignment) {
     if (!uid) return;
-    setPaying(true);
-    setMsg(null);
+    setAbrindo(a.demandId);
     try {
-      await ensureAssignmentDoc();
+      const title = normalizeDemand(a.demand || {}).title || "Contato";
 
-      const unit_price = Number(priceCents) / 100;
+      // amount vem em centavos -> converte para reais (number)
+      if (typeof a?.pricing?.amount !== "number") {
+        alert("Preço do lead não encontrado.");
+        return;
+      }
+      const unit_price = a.pricing.amount / 100;
 
       const res = await fetch("/api/mp/create-preference", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: uid,
-          leadId: `${id}_${uid}`,
-          demandaId: String(id),
-          title: title || "Contato",
-          unit_price,
+          userId: uid, // comprador
+          leadId: a.id,
+          demandaId: a.demandId,
+          title,
+          unit_price, // sua rota atual precisa disso
         }),
       });
 
       const data = await res.json();
       if (res.ok && data?.init_point) {
-        window.location.href = data.init_point;
+        window.location.href = data.init_point; // redirect Checkout Pro
         return;
       }
-      setMsg(data?.message || data?.error || "Falha ao iniciar pagamento.");
+      alert(data?.message || data?.error || "Falha ao criar preferência de pagamento.");
     } catch (e: any) {
-      setMsg(e?.message || "Erro ao iniciar pagamento.");
+      alert(e.message || "Erro ao iniciar pagamento.");
     } finally {
-      setPaying(false);
+      setAbrindo(null);
     }
   }
 
-  function copy(text?: string) {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
-    setMsg("Copiado!");
-    setTimeout(() => setMsg(null), 1500);
-  }
+  /* ---------------------------- UI ---------------------------- */
 
-  function share() {
-    try {
-      const url = typeof window !== "undefined" ? window.location.href : "";
-      const data = { title, text: "Veja esta demanda no Pedraum", url };
-      // @ts-ignore
-      if (navigator.share) navigator.share(data);
-      else if (url) { navigator.clipboard.writeText(url); setMsg("Link copiado!"); setTimeout(() => setMsg(null), 1500); }
-    } catch {}
-  }
-
-  /* ======================= Guards ======================= */
-  if (!uid) {
-    return (
-      <section className="op-wrap">
-        <div className="op-card p">Faça login para ver esta oportunidade.</div>
-        <style jsx>{baseCss}</style>
-      </section>
-    );
-  }
-
-  if (loading) {
-    return (
-      <section className="op-wrap">
-        <div className="op-skel" />
-        <style jsx>{baseCss}</style>
-      </section>
-    );
-  }
-
-  if (!demanda) {
-    return (
-      <section className="op-wrap">
-        <div className="op-header">
-          <Link href="/dashboard/oportunidades" className="op-link-voltar">&lt; Voltar</Link>
-        </div>
-        <div className="op-card p">Oportunidade não encontrada.</div>
-        <style jsx>{baseCss}</style>
-      </section>
-    );
-  }
-
-  /* ======================= UI ======================= */
   return (
-    <section className="op-wrap">
-      {/* Topo */}
-      <div className="op-header">
-        <button onClick={() => router.back()} className="op-link-voltar">&lt; Voltar</button>
-        <div className="op-actions">
-          <button className="op-share" onClick={share}><Share2 size={16} /> Compartilhar</button>
-          {msg && <span className="op-msg">{msg}</span>}
-        </div>
-      </div>
+    <main style={{ minHeight: "100vh", background: "#f6f9fa", padding: "28px 10px" }}>
+      <section
+        style={{
+          maxWidth: 1180,
+          margin: "0 auto",
+          background: "#fff",
+          borderRadius: 18,
+          boxShadow: "0 10px 34px #00000010",
+          padding: "22px 22px 28px 22px",
+        }}
+      >
+        <header style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <Target size={24} color="#2563eb" />
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#023047" }}>Oportunidades</h1>
+        </header>
 
-      {/* Header */}
-      <div className="op-headbar">
-        <h1 className="op-title">{title}</h1>
-        <div className="op-headbar-right">
-          <span className="op-badge" style={{ borderColor: statusInfo.color, color: statusInfo.color }}>
-            <ShieldCheck size={14} /> {statusInfo.label}
-          </span>
-          <span className="op-views"><Eye size={16} /> {viewCount} visualizações</span>
-          {expShown && (
-            <span className="op-countdown">
-              <Hourglass size={16} />
-              <b>{timeLeft?.d}d</b> {timeLeft?.h}h {timeLeft?.m}m {timeLeft?.s}s
-            </span>
-          )}
+        {/* Filtros */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1.2fr 1fr 120px 1fr",
+            gap: 10,
+            alignItems: "center",
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Filter size={18} />
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por título/descrição..."
+              style={inputStyle}
+            />
+          </div>
+          <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inputStyle}>
+            <option value="">Categoria</option>
+            {unique(novas.concat(atendimento).map((a) => normalizeDemand(a.demand).category))
+              .filter(Boolean)
+              .map((c) => (
+                <option key={c} value={c as string}>
+                  {c as string}
+                </option>
+              ))}
+          </select>
+          <select value={fUF} onChange={(e) => setFUF(e.target.value)} style={inputStyle}>
+            <option value="">UF</option>
+            {unique(novas.concat(atendimento).map((a) => normalizeDemand(a.demand).uf))
+              .filter(Boolean)
+              .map((u) => (
+                <option key={u} value={u as string}>
+                  {u as string}
+                </option>
+              ))}
+          </select>
+          <select value={fCidade} onChange={(e) => setFCidade(e.target.value)} style={inputStyle}>
+            <option value="">Cidade</option>
+            {unique(novas.concat(atendimento).map((a) => normalizeDemand(a.demand).city))
+              .filter(Boolean)
+              .map((c) => (
+                <option key={c} value={c as string}>
+                  {c as string}
+                </option>
+              ))}
+          </select>
         </div>
-      </div>
 
-      {/* Grid principal */}
-      <div className="op-grid">
-        {/* Mídia */}
-        <div className="op-media">
-          {imagens.length > 0 ? (
-            <>
-              <img
-                src={imgPrincipal}
-                alt={title}
-                className="op-img"
-                onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
+        {errMsg && (
+          <div
+            style={{
+              background: "#fff7f7",
+              border: "1px solid #fecaca",
+              color: "#991b1b",
+              borderRadius: 12,
+              padding: "10px 12px",
+              fontSize: 13,
+              marginBottom: 12,
+            }}
+          >
+            {errMsg}
+          </div>
+        )}
+
+        {/* Novas */}
+        <SectionTitle icon={<Eye size={18} />} title="Novas oportunidades" hint="Envios recentes para você" />
+        {loading ? (
+          <LoadingRow />
+        ) : novasFiltradas.length === 0 ? (
+          <EmptyState text="Nenhuma oportunidade nova no momento." />
+        ) : (
+          <CardsGrid>
+            {novasFiltradas.map((it) => (
+              <OportunidadeCard
+                key={it.id}
+                a={it}
+                onAtender={() => atender(it)} // envia o item inteiro (tem id, demandId e pricing)
+                atendendo={abrindo === it.demandId}
               />
-              {imagens.length > 1 && (
-                <div className="op-thumbs op-thumbs-scroll">
-                  {imagens.map((img, idx) => (
-                    <img
-                      key={idx}
-                      src={img || "/images/no-image.png"}
-                      alt={`Imagem ${idx + 1}`}
-                      className="op-thumb"
-                      onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
-                    />
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="op-noimg">
-              <div className="op-noimg-badge">
-                <ImageIcon size={18} /> Sem fotos
-              </div>
-              <div className="op-noimg-avatar">{initials(title)}</div>
-              <div className="op-noimg-title" title={title}>{title}</div>
-              <div className="op-noimg-meta">
-                <span><Tag size={16} /> {category}{subcat ? ` • ${subcat}` : ""}</span>
-                <span><MapPin size={16} /> {city}, {uf}</span>
-              </div>
-            </div>
-          )}
-        </div>
+            ))}
+          </CardsGrid>
+        )}
 
-        {/* Infos */}
-        <div className="op-info">
-          {/* Metadados */}
-          <div className="op-meta-list">
-            <span><Tag size={18} /> {category}{subcat ? ` • ${subcat}` : ""}</span>
-            <span><MapPin size={18} /> {city}, {uf}</span>
-            <span><Calendar size={18} /> Prazo: {prazoStr || "—"}</span>
-            <span><BadgeCheck size={18} /> Orçamento: {orcamento}</span>
-          </div>
-
-          {/* CTA */}
-          <div className="op-cta">
-            {/* Preço removido da UI */}
-            {!unlocked ? (
-              <>
-                <div className="op-cta-highlight">
-                  <h3 className="op-cta-title">Desbloqueie o contato e fale direto com o cliente</h3>
-                  <ul className="op-benefits">
-                    <li>⚡ Acesso imediato ao WhatsApp e E-mail</li>
-                    <li>💼 Oportunidade ativa procurando solução</li>
-                  </ul>
-
-                  <button
-                    onClick={atender}
-                    disabled={paying}
-                    className="op-btn-laranja op-btn-big"
-                    aria-disabled={paying}
-                    style={{
-                      background: paying ? "#d1d5db" : "#FB8500",
-                      cursor: paying ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {paying ? "Abrindo pagamento…" : "Atender agora"}
-                  </button>
-
-                  <div className="op-cta-note">Após o pagamento aprovado, o contato é liberado automaticamente nesta página.</div>
-                </div>
-              </>
-            ) : (
-              <div className="op-contact">
-                <div className="op-contact-title"><CheckCircle2 size={18} /> Contato liberado</div>
-
-                <div className="op-contact-grid">
-                  <div>
-                    <div className="op-contact-label">Nome</div>
-                    <div className="op-contact-value">{contatoNome || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="op-contact-label">E-mail</div>
-                    <div className="op-contact-value">
-                      {contatoEmail ? (
-                        <a href={`mailto:${contatoEmail}`} className="op-link">{contatoEmail}</a>
-                      ) : "—"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="op-contact-label">WhatsApp / Telefone</div>
-                    <div className="op-contact-wpp">
-                      <span className="op-contact-value">{contatoWpp || "—"}</span>
-                      {contatoWpp && (
-                        <button onClick={() => copy(String(contatoWpp))} className="op-copy" title="Copiar">
-                          <Copy size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {wppDigits && (
-                  <a
-                    target="_blank"
-                    href={`https://wa.me/${wppDigits}?text=${encodeURIComponent(
-                      `Olá! Vi sua demanda "${title}" no Pedraum e posso te atender.`
-                    )}`}
-                    className="op-btn-azul"
-                  >
-                    <PhoneCall size={16} /> Abrir WhatsApp
-                  </a>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Descrição */}
-          {description && (
-            <div className="op-resumo">
-              <div className="op-resumo-title">Descrição</div>
-              <div className="op-resumo-text">{description}</div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* CSS */}
-      <style jsx>{baseCss}</style>
-    </section>
+        {/* Em atendimento */}
+        <SectionTitle icon={<LockOpen size={18} />} title="Em atendimento" hint="Contatos já liberados" />
+        {loading ? (
+          <LoadingRow />
+        ) : atendimentoFiltradas.length === 0 ? (
+          <EmptyState text="Você ainda não desbloqueou nenhuma oportunidade." />
+        ) : (
+          <CardsGrid>
+            {atendimentoFiltradas.map((it) => (
+              <OportunidadeCard key={it.id} a={it} unlocked />
+            ))}
+          </CardsGrid>
+        )}
+      </section>
+    </main>
   );
 }
 
-/* ======================= CSS ======================= */
-const baseCss = `
-:root{ --st-green:#10b981; --st-blue:#176684; --st-red:#e11d48; --st-gray:#6b7280; }
+/* -------------------------- Helpers/UI -------------------------- */
 
-.op-wrap{max-width:1200px;margin:0 auto;padding:24px 0 60px 0;background:#f8fbfd}
-.op-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
-.op-actions{display:flex;align-items:center;gap:8px}
-.op-link-voltar{color:#219ebc;font-size:1rem;text-decoration:underline;background:none;border:none;cursor:pointer}
-.op-share{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #e5eef6;border-radius:999px;padding:6px 10px;color:#176684;font-weight:800}
-.op-share:hover{background:#f4faff}
-.op-msg{font-size:.9rem;font-weight:800;color:#0c4a6e;background:#e3f2ff;border:1.5px solid #cfe8ff;border-radius:999px;padding:6px 12px}
-
-.op-headbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:6px 2px 12px 2px}
-.op-title{font-size:1.8rem;font-weight:900;color:#023047;letter-spacing:-.4px;margin:0}
-.op-headbar-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.op-badge{display:inline-flex;align-items:center;gap:6px;border:2px solid;border-radius:999px;padding:6px 10px;font-weight:900;background:#fff}
-.op-views{display:inline-flex;align-items:center;gap:6px;color:#334155;font-weight:700}
-.op-countdown{display:inline-flex;align-items:center;gap:6px;color:#7c2d12;background:#fff7ed;border:1.5px solid #ffedd5;border-radius:999px;padding:6px 10px;font-weight:800}
-
-.op-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:32px;margin-top:10px}
-
-/* mídia */
-.op-media{display:flex;flex-direction:column;align-items:center}
-.op-img{width:100%;max-width:560px;aspect-ratio:4/3;border-radius:22px;object-fit:cover;box-shadow:0 4px 32px #0001;background:#fff}
-
-/* placeholder */
-.op-noimg{
-  width:100%;max-width:560px;aspect-ratio:4/3;border-radius:22px;
-  border:1.5px dashed #dbe7ef;background:linear-gradient(135deg,#f3f9ff 0%,#f7fbff 60%,#ffffff 100%);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  position:relative;box-shadow:0 4px 32px #0001;padding:14px;text-align:center;
+function unique<T>(arr: T[]) {
+  return Array.from(new Set(arr));
 }
-.op-noimg-badge{
-  position:absolute;top:12px;left:12px;background:#fff;border:1px solid #e6eef6;border-radius:999px;
-  padding:6px 10px;display:inline-flex;gap:6px;align-items:center;font-weight:800;color:#176684;font-size:.88rem
+
+function filtra(list: Assignment[], busca: string, cat: string, uf: string, cidade: string) {
+  return list.filter((it) => {
+    const n = normalizeDemand(it.demand || {});
+    const sBusca = (busca || "").toLowerCase().trim();
+    const hitBusca =
+      !sBusca ||
+      n.title.toLowerCase().includes(sBusca) ||
+      n.description.toLowerCase().includes(sBusca);
+    const hitCat = !cat || n.category === cat;
+    const hitUF = !uf || n.uf === uf;
+    const hitCidade = !cidade || n.city === cidade;
+    return hitBusca && hitCat && hitUF && hitCidade;
+  });
 }
-.op-noimg-avatar{
-  width:84px;height:84px;border-radius:18px;display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(135deg,#219ebc22,#fb850022), #e8f4fb;border:1px solid #d9e8f2;
-  font-weight:900;font-size:1.4rem;color:#0b3b4a;letter-spacing:.5px;margin-bottom:10px
+
+function PriceBadge({ a }: { a: Assignment }) {
+  const reais = centsToReaisText(a?.pricing?.amount);
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        background: "#fff7ed",
+        color: "#9a3412",
+        border: "1px solid #fed7aa",
+        padding: "6px 10px",
+        borderRadius: 999,
+        fontWeight: 800,
+        fontSize: 13,
+      }}
+    >
+      <BadgeDollarSign size={16} />
+      R$ {reais}
+    </div>
+  );
 }
-.op-noimg-title{max-width:88%;font-size:1.12rem;font-weight:900;color:#023047;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.op-noimg-meta{margin-top:6px;display:flex;gap:14px;flex-wrap:wrap;justify-content:center;font-size:.96rem;color:#334155}
-.op-noimg-meta span{display:inline-flex;align-items:center;gap:6px}
 
-/* thumbs */
-.op-thumbs{display:flex;gap:12px;margin-top:14px;flex-wrap:wrap;justify-content:center}
-.op-thumbs-scroll{overflow-x:auto;padding-bottom:6px}
-.op-thumbs-scroll::-webkit-scrollbar{height:6px}
-.op-thumbs-scroll::-webkit-scrollbar-thumb{background:#d9e7ef;border-radius:999px}
-.op-thumb{width:76px;height:76px;border-radius:12px;object-fit:cover;border:2px solid #fff;box-shadow:0 1px 8px #0002;background:#fff}
+function OportunidadeCard({
+  a,
+  unlocked,
+  onAtender,
+  atendendo,
+}: {
+  a: Assignment;
+  unlocked?: boolean;
+  onAtender?: () => void;
+  atendendo?: boolean;
+}) {
+  const norm = normalizeDemand(a.demand || {});
+  const preview = (norm.description || "").slice(0, 160);
 
-/* infos */
-.op-info{display:flex;flex-direction:column;gap:18px;min-width:320px}
-.op-meta-list{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px;font-size:1.02rem;color:#222}
-.op-meta-list span{display:flex;align-items:center;gap:8px;color:#334155;font-weight:700}
+  return (
+    <div
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 18,
+        padding: 16,
+        background: "#fff",
+        boxShadow: "0 6px 18px #0000000b",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{norm.title}</div>
+        {!unlocked ? (
+          <PriceBadge a={a} />
+        ) : (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "#ecfdf5",
+              color: "#065f46",
+              border: "1px solid #a7f3d0",
+              padding: "6px 10px",
+              borderRadius: 999,
+              fontWeight: 800,
+              fontSize: 13,
+            }}
+          >
+            <CheckCircle2 size={16} /> Em atendimento
+          </span>
+        )}
+      </div>
 
-/* CTA */
-.op-cta{background:#fff;border-radius:16px;border:1.5px solid #eef2f6;padding:18px;box-shadow:0 2px 16px #0000000d;display:flex;flex-direction:column;gap:12px}
-/* .op-price removido da UI */
+      <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#475569", fontSize: 13 }}>
+        <MapPin size={16} />
+        <span>
+          {norm.city || "—"}/{norm.uf || "—"}
+        </span>
+        <span style={{ opacity: 0.45 }}>•</span>
+        <span>{norm.category || "Sem categoria"}</span>
+      </div>
 
-/* CTA forte */
-.op-cta-highlight{background:#fff4eb;border:2px solid #fbc98f;border-radius:18px;padding:18px;box-shadow:0 4px 18px #fb850033;text-align:center}
-.op-cta-title{font-size:1.08rem;font-weight:900;color:#b45309;margin-bottom:10px}
-.op-benefits{text-align:left;margin:0 auto 12px;max-width:460px;color:#78350f;font-weight:600;line-height:1.5}
-.op-benefits li{margin-bottom:6px}
+      <p style={{ fontSize: 14, color: "#334155", lineHeight: 1.4 }}>
+        {preview}
+        {(norm.description || "").length > 160 ? "..." : ""}
+      </p>
 
-.op-btn-laranja{width:100%;border:none;border-radius:10px;padding:14px 0;font-weight:800;font-size:1.12rem;box-shadow:0 2px 10px #fb850022;transition:background .14s, transform .12s}
-.op-btn-laranja:not([aria-disabled="true"]):hover{background:#e17000 !important;transform:translateY{-1px}
+      {/* Ações */}
+      <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+        <Link href={`/dashboard/oportunidades/${a.demandId}`} style={btnGhost}>
+          Ver detalhes
+        </Link>
+
+        {!unlocked ? (
+          <button
+            onClick={onAtender}
+            disabled={!!atendendo}
+            style={{
+              ...btnPrimary,
+              opacity: atendendo ? 0.8 : 1,
+              cursor: atendendo ? "not-allowed" : "pointer",
+            }}
+          >
+            {atendendo ? <Loader2 size={16} className="animate-spin" /> : "Atender (desbloquear)"}
+          </button>
+        ) : norm?.contact?.whatsapp ? (
+          <a
+            target="_blank"
+            href={`https://wa.me/${String(norm.contact.whatsapp).replace(/\D/g, "")}?text=${encodeURIComponent(
+              `Olá! Vi sua demanda "${norm.title}" no Pedraum e posso te atender.`
+            )}`}
+            style={btnWhats}
+          >
+            Abrir WhatsApp
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
 }
-.op-btn-big{padding:16px 0;font-size:1.15rem}
-.op-cta-note{font-size:.86rem;color:#9a6c00}
 
-/* contato liberado */
-.op-contact{border:1.5px solid #d1fae5;background:#ecfdf5;border-radius:14px;padding:14px}
-.op-contact-title{display:flex;align-items:center;gap:8px;color:#065f46;font-weight:800;margin-bottom:6px}
-.op-contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.op-contact-label{font-size:.78rem;color:#6b7280;font-weight:800}
-.op-contact-value{font-weight:800;color:#0f172a}
-.op-link{color:#176684;text-decoration:underline;font-weight:800}
-.op-contact-wpp{display:flex;align-items:center;gap:8px}
-.op-copy{display:inline-flex;align-items:center;gap:4px;font-size:.78rem;color:#334155;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:4px 8px}
-.op-btn-azul{margin-top:10px;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:10px;padding:13px 0;font-weight:800;font-size:1.05rem;background:#219ebc;color:#fff;text-decoration:none;box-shadow:0 2px 10px #219ebc22;transition:background .14s, transform .12s}
-.op-btn-azul:hover{background:#176684;transform:translateY(-1px)}
-
-/* descrição */
-.op-resumo{background:#fff;border:1.5px solid #eef2f6;border-radius:16px;padding:16px 18px;box-shadow:0 1px 10px #0000000a}
-.op-resumo-title{font-size:1.06rem;color:#023047;font-weight:800;margin-bottom:6px}
-.op-resumo-text{font-size:1.04rem;color:#1f2937}
-
-/* skeleton */
-.op-skel{height:420px;border-radius:22px;background:linear-gradient(90deg,#eef5fb 25%,#f5faff 37%,#eef5fb 63%);background-size:400% 100%;animation:opShimmer 1.3s infinite;box-shadow:0 2px 16px #0001}
-@keyframes opShimmer{0%{background-position:100% 0}100%{background-position:0 0}}
-
-.op-card.p{background:#fff;border-radius:16px;border:1.5px solid #eef2f6;padding:18px;box-shadow:0 2px 16px #0000000d}
-
-/* thumbs scroll */
-.op-thumbs-scroll{overflow-x:auto;padding-bottom:6px}
-.op-thumbs-scroll::-webkit-scrollbar{height:6px}
-.op-thumbs-scroll::-webkit-scrollbar-thumb{background:#d9e7ef;border-radius:999px}
-
-@media (max-width: 1024px){
-  .op-grid{grid-template-columns:1fr;gap:22px}
-  .op-wrap{padding:16px 2vw 48px 2vw}
-  .op-img{max-width:100%;aspect-ratio:4/3}
-  .op-meta-list{grid-template-columns:1fr}
-  .op-headbar{flex-direction:column;align-items:flex-start;gap:10px}
+function SectionTitle({ icon, title, hint }: { icon: React.ReactNode; title: string; hint?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "12px 2px 10px 2px" }}>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "#0f172a" }}>
+        {icon}
+        <h2 style={{ fontSize: 16, fontWeight: 900 }}>{title}</h2>
+      </div>
+      {hint && <span style={{ fontSize: 12, color: "#64748b" }}>{hint}</span>}
+    </div>
+  );
 }
-`;
+
+function CardsGrid({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+        gap: 14,
+        marginBottom: 20,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function LoadingRow() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        color: "#64748b",
+        border: "1px dashed #e5e7eb",
+        padding: "12px 14px",
+        borderRadius: 12,
+        marginBottom: 18,
+      }}
+    >
+      <Loader2 size={18} className="animate-spin" />
+      Carregando oportunidades...
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        background: "#f8fafc",
+        border: "1px dashed #e2e8f0",
+        borderRadius: 12,
+        padding: "18px 14px",
+        color: "#475569",
+        marginBottom: 18,
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+/* ------------------------------- Estilos ------------------------------- */
+
+const btnPrimary: React.CSSProperties = {
+  background: "#2563eb",
+  color: "#fff",
+  border: "1px solid #2563eb",
+  padding: "9px 12px",
+  borderRadius: 12,
+  fontSize: 13,
+  fontWeight: 800,
+  boxShadow: "0 2px 10px #2563eb22",
+};
+
+const btnGhost: React.CSSProperties = {
+  background: "#fff",
+  color: "#0f172a",
+  border: "1px solid #e5e7eb",
+  padding: "9px 12px",
+  borderRadius: 12,
+  fontSize: 13,
+  fontWeight: 800,
+};
+
+const btnWhats: React.CSSProperties = {
+  background: "#16a34a",
+  color: "#fff",
+  border: "1px solid #16a34a",
+  padding: "9px 12px",
+  borderRadius: 12,
+  fontSize: 13,
+  fontWeight: 800,
+  boxShadow: "0 2px 10px #16a34a22",
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  border: "1px solid #e5e7eb",
+  background: "#fff",
+  color: "#0f172a",
+  borderRadius: 12,
+  padding: "9px 12px",
+  fontSize: 14,
+  outline: "none",
+  boxShadow: "0 2px 10px #00000007",
+};

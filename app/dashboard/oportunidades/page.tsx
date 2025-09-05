@@ -90,15 +90,14 @@ export default function OportunidadesPage() {
     return () => unsub();
   }, []);
 
-  // Single stream sem índice composto: só filtra por supplierId.
-  // Depois, partimos por status no cliente e ordenamos no cliente.
+  // stream: assignments do supplier; depois particiona por status no cliente
   useEffect(() => {
     if (!uid) return;
 
     const qAssignments = query(
       collection(db, "demandAssignments"),
       where("supplierId", "==", uid),
-        where("status", "in", ["sent", "viewed", "unlocked"]), // NÃO inclui "canceled"
+      where("status", "in", ["sent", "viewed", "unlocked"]), // NÃO inclui "canceled"
       fbLimit(300)
     );
 
@@ -109,7 +108,7 @@ export default function OportunidadesPage() {
           const arr: Assignment[] = [];
           for (const d of snap.docs) {
             const a = { id: d.id, ...(d.data() as any) } as Assignment;
-            // join demanda
+            // join da demanda
             try {
               const ds = await getDoc(doc(db, "demandas", a.demandId));
               arr.push({ ...a, demand: ds.exists() ? ds.data() : null });
@@ -147,7 +146,10 @@ export default function OportunidadesPage() {
     [allAssignments]
   );
   const atendimento = useMemo(
-    () => allAssignments.filter((a) => a.status === "unlocked").sort(sortByCreatedAtDesc),
+    () =>
+      allAssignments
+        .filter((a) => a.status === "unlocked")
+        .sort(sortByCreatedAtDesc),
     [allAssignments]
   );
 
@@ -162,23 +164,40 @@ export default function OportunidadesPage() {
   );
 
   /* --------------------------- Ações --------------------------- */
-  async function atender(demandId: string) {
+  // Usa sua rota atual (/api/mp/create-preference) que espera unit_price (em reais).
+  async function atender(a: Assignment) {
     if (!uid) return;
-    setAbrindo(demandId);
+    setAbrindo(a.demandId);
     try {
-      const res = await fetch("/api/mp/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ demandId, supplierId: uid }),
-      });
-      const data = await res.json();
-      if (data?.init_point) {
-        window.location.href = data.init_point;
+      const title = normalizeDemand(a.demand || {}).title || "Contato";
+
+      // amount vem em centavos -> converte para reais (number)
+      if (typeof a?.pricing?.amount !== "number") {
+        alert("Preço do lead não encontrado.");
         return;
       }
-      alert(data?.error || "Falha ao iniciar pagamento.");
+      const unit_price = a.pricing.amount / 100;
+
+      const res = await fetch("/api/mp/create-preference", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: uid, // comprador
+          leadId: a.id,
+          demandaId: a.demandId,
+          title,
+          unit_price, // sua rota atual precisa disso
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data?.init_point) {
+        window.location.href = data.init_point; // redirect Checkout Pro
+        return;
+      }
+      alert(data?.message || data?.error || "Falha ao criar preferência de pagamento.");
     } catch (e: any) {
-      alert(e.message);
+      alert(e.message || "Erro ao iniciar pagamento.");
     } finally {
       setAbrindo(null);
     }
@@ -224,7 +243,6 @@ export default function OportunidadesPage() {
           </div>
           <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inputStyle}>
             <option value="">Categoria</option>
-            {/* opções virão dos próprios dados filtrados, então não travamos aqui */}
             {unique(novas.concat(atendimento).map((a) => normalizeDemand(a.demand).category))
               .filter(Boolean)
               .map((c) => (
@@ -283,7 +301,7 @@ export default function OportunidadesPage() {
               <OportunidadeCard
                 key={it.id}
                 a={it}
-                onAtender={() => atender(it.demandId)}
+                onAtender={() => atender(it)} // envia o item inteiro (tem id, demandId e pricing)
                 atendendo={abrindo === it.demandId}
               />
             ))}
@@ -331,9 +349,6 @@ function filtra(list: Assignment[], busca: string, cat: string, uf: string, cida
 
 function PriceBadge({ a }: { a: Assignment }) {
   const reais = centsToReaisText(a?.pricing?.amount);
-  const exclusive = !!a?.pricing?.exclusive;
-  const cap = a?.pricing?.cap ?? 3;
-
   return (
     <div
       style={{
@@ -351,9 +366,6 @@ function PriceBadge({ a }: { a: Assignment }) {
     >
       <BadgeDollarSign size={16} />
       R$ {reais}
-      <span style={{ color: "#7c2d12", opacity: 0.8, fontWeight: 700 }}>
-        {exclusive ? "• Exclusivo" : `• Até ${cap} vendas`}
-      </span>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+// app/demandas/[id]/page.tsx
 "use client";
 import AuthGateRedirect from "@/components/AuthGateRedirect";
 import { useEffect, useMemo, useState } from "react";
@@ -66,7 +67,7 @@ type DemandFire = {
   orcamento?: string;
 
   imagens?: string[]; // preferencial
-  imagem?: string;    // fallback
+  imagem?: string; // fallback
 
   // contatos (novos)
   autorNome?: string;
@@ -99,6 +100,10 @@ type Perfil = {
   planoExpiraEm?: string;
   isPatrocinador?: boolean;
   email?: string;
+
+  // campos usados para categorias
+  categoriasAtuacaoPairs?: Array<{ categoria?: string; subcategoria?: string }>;
+  categoriasAtuacao?: string[];
 };
 
 type DemandaMini = {
@@ -127,7 +132,7 @@ function currencyCents(cents?: number) {
 function initials(t?: string) {
   if (!t) return "PD";
   const parts = t.trim().split(/\s+/).slice(0, 2);
-  return parts.map(p => p[0]?.toUpperCase()).join("") || "PD";
+  return parts.map((p) => p[0]?.toUpperCase()).join("") || "PD";
 }
 function toDate(ts?: any): Date | null {
   if (!ts) return null;
@@ -152,10 +157,14 @@ function msToDHMS(ms: number) {
 function resolveStatus(d: DemandFire): { key: DemandFire["status"] | "aberta"; label: string; color: string } {
   if (d.status) {
     switch (d.status) {
-      case "andamento": return { key: "andamento", label: "Em andamento", color: "var(--st-blue)" };
-      case "fechada":   return { key: "fechada",   label: "Fechada",       color: "var(--st-gray)" };
-      case "expirada":  return { key: "expirada",  label: "Expirada",      color: "var(--st-red)" };
-      default:          return { key: "aberta",    label: "Aberta",        color: "var(--st-green)" };
+      case "andamento":
+        return { key: "andamento", label: "Em andamento", color: "var(--st-blue)" };
+      case "fechada":
+        return { key: "fechada", label: "Fechada", color: "var(--st-gray)" };
+      case "expirada":
+        return { key: "expirada", label: "Expirada", color: "var(--st-red)" };
+      default:
+        return { key: "aberta", label: "Aberta", color: "var(--st-green)" };
     }
   }
   const exp = toDate(d.expiraEm) || parsePrazoStr(d.prazo);
@@ -164,6 +173,25 @@ function resolveStatus(d: DemandFire): { key: DemandFire["status"] | "aberta"; l
   }
   return { key: "aberta", label: "Aberta", color: "var(--st-green)" };
 }
+
+// detecta se perfil é patrocinador (independente de categoria)
+function isPerfilPatrocinador(perfil?: Perfil | null): boolean {
+  if (!perfil) return false;
+  const flag =
+    perfil.isPatrocinador ||
+    perfil.role === "patrocinador" ||
+    perfil.tipo === "patrocinador" ||
+    perfil.plano === "patrocinador";
+  if (!flag) return false;
+  // se existir validade, checa
+  if (perfil.planoExpiraEm) {
+    return new Date(perfil.planoExpiraEm) > new Date();
+  }
+  return true;
+}
+
+// type guard p/ arrays de string não vazias
+const notEmptyString = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
 
 /* ======================= Página ======================= */
 export default function DemandaDetalhePage() {
@@ -206,6 +234,33 @@ export default function DemandaDetalhePage() {
     return () => unsub();
   }, []);
 
+  // ===== categorias do usuário (para liberar contato como patrocinador)
+  const userCats: string[] = useMemo(() => {
+    if (!perfil) return [];
+    // pares (novo)
+    const pairs = Array.isArray(perfil.categoriasAtuacaoPairs)
+      ? (perfil.categoriasAtuacaoPairs as Array<{ categoria?: string }>)
+      : [];
+    if (pairs.length) {
+      const cats = pairs.map((p) => p?.categoria ?? "").filter(notEmptyString);
+      return Array.from(new Set<string>(cats)).slice(0, 10);
+    }
+    // legado
+    const legacy = Array.isArray(perfil.categoriasAtuacao) ? (perfil.categoriasAtuacao as unknown[]) : [];
+    const legacyCats = legacy.filter(notEmptyString);
+    return Array.from(new Set<string>(legacyCats)).slice(0, 10);
+  }, [perfil]);
+
+  // match de categoria da demanda com categorias do usuário
+  function demandaCategoryMatch(d?: DemandFire | null, myCats?: string[]) {
+    if (!d || !myCats || !myCats.length) return false;
+    const cat = (d.categoria || "").trim();
+    if (cat && myCats.includes(cat)) return true;
+    // se um dia houver `d.categorias: string[]`
+    const arr = Array.isArray((d as any).categorias) ? ((d as any).categorias as unknown[]) : [];
+    return arr.filter(notEmptyString).some((c) => myCats.includes(c));
+  }
+
   // ===== Realtime: Demanda + Assignment
   useEffect(() => {
     if (!uid) return;
@@ -222,7 +277,9 @@ export default function DemandaDetalhePage() {
         const a = { id: snap.id, ...(snap.data() as any) } as Assignment;
         setAssignment(a);
         if (a.status === "sent") {
-          try { await updateDoc(aRef, { status: "viewed", updatedAt: serverTimestamp() }); } catch {}
+          try {
+            await updateDoc(aRef, { status: "viewed", updatedAt: serverTimestamp() });
+          } catch {}
         }
       } else {
         setAssignment(null);
@@ -277,11 +334,7 @@ export default function DemandaDetalhePage() {
   }, [searchParams, uid, id]);
 
   // ===== Meta
-  const adminPriceCents = Number(
-    demanda?.priceCents ??
-    demanda?.pricingDefault?.amount ??
-    DEFAULT_PRICE_CENTS
-  );
+  const adminPriceCents = Number(demanda?.priceCents ?? demanda?.pricingDefault?.amount ?? DEFAULT_PRICE_CENTS);
   const priceCents = adminPriceCents; // usado no checkout, mas não exibido
   const priceFmt = currencyCents(priceCents);
 
@@ -332,10 +385,11 @@ export default function DemandaDetalhePage() {
   // ===== Regras de acesso
   const isOwner = !!(demanda?.userId && uid && demanda.userId === uid);
 
-  const patrocinioAtivo = !!(
-    (perfil?.plano === "patrocinador" || perfil?.tipo === "patrocinador" || perfil?.role === "patrocinador" || perfil?.isPatrocinador) &&
-    (!perfil?.planoExpiraEm || new Date(perfil.planoExpiraEm) > new Date())
-  );
+  // patrocinador com plano ativo (independente da categoria)
+  const patrocinioAtivo = isPerfilPatrocinador(perfil);
+
+  // patrocinador com plano + categoria compatível
+  const contatoLiberadoPorPatrocinio = patrocinioAtivo && demandaCategoryMatch(demanda, userCats);
 
   const liberadoPorArray =
     !!(demanda?.liberadoPara && uid && Array.isArray(demanda.liberadoPara) && demanda.liberadoPara.includes(uid));
@@ -343,21 +397,32 @@ export default function DemandaDetalhePage() {
 
   const [liberadoPorSubdoc, setLiberadoPorSubdoc] = useState<boolean>(false);
   useEffect(() => {
-    if (!uid || !demanda?.id) { setLiberadoPorSubdoc(false); return; }
+    if (!uid || !demanda?.id) {
+      setLiberadoPorSubdoc(false);
+      return;
+    }
     (async () => {
       try {
         const s = await getDoc(doc(db, "demandas", demanda.id, "acessos", uid));
         setLiberadoPorSubdoc(s.exists());
-      } catch { setLiberadoPorSubdoc(false); }
+      } catch {
+        setLiberadoPorSubdoc(false);
+      }
     })();
   }, [uid, demanda?.id]);
 
-  const unlocked = isOwner || patrocinioAtivo || liberadoPorArray || isUnlockedByAssignment || liberadoPorSubdoc;
+  // regra final: contato só fica liberado automaticamente p/ patrocinador se categoria bate
+  const unlocked =
+    isOwner ||
+    liberadoPorArray ||
+    isUnlockedByAssignment ||
+    liberadoPorSubdoc ||
+    contatoLiberadoPorPatrocinio;
 
   // ===== Imagens
   const imagens: string[] = useMemo(() => {
-    const base = Array.isArray(demanda?.imagens) ? demanda!.imagens! : [];
-    const arr = base.filter(Boolean).map(String);
+    const base = Array.isArray(demanda?.imagens) ? (demanda!.imagens as unknown[]) : [];
+    const arr = base.filter(notEmptyString);
     if (!arr.length && demanda?.imagem) arr.push(String(demanda.imagem));
     return arr;
   }, [demanda?.imagens, demanda?.imagem]);
@@ -377,24 +442,22 @@ export default function DemandaDetalhePage() {
     if (!expDate) return null;
     return msToDHMS(expDate.getTime() - now);
   }, [expDate, now]);
-  const expShown = !!timeLeft && (timeLeft.d + timeLeft.h + timeLeft.m + timeLeft.s) > 0;
+  const expShown = !!timeLeft && timeLeft.d + timeLeft.h + timeLeft.m + timeLeft.s > 0;
 
   // ===== Relacionadas
   useEffect(() => {
     (async () => {
       try {
-        if (!demanda?.categoria) { setRelacionadas([]); return; }
+        if (!demanda?.categoria) {
+          setRelacionadas([]);
+          return;
+        }
 
         const col = collection(db, "demandas");
 
         let snaps;
         try {
-          const q1 = fsQuery(
-            col,
-            where("categoria", "==", demanda.categoria),
-            orderBy("createdAt", "desc"),
-            limit(10)
-          );
+          const q1 = fsQuery(col, where("categoria", "==", demanda.categoria), orderBy("createdAt", "desc"), limit(10));
           snaps = await getDocs(q1);
         } catch {
           const q2 = fsQuery(col, where("categoria", "==", demanda.categoria), limit(20));
@@ -402,7 +465,7 @@ export default function DemandaDetalhePage() {
         }
 
         const rows: DemandaMini[] = [];
-        snaps.forEach(s => {
+        snaps.forEach((s) => {
           if (s.id === demanda.id) return;
           const d = s.data() as DemandFire;
 
@@ -453,25 +516,22 @@ export default function DemandaDetalhePage() {
       }
     }
   }
-function resolveUnitPriceFromCents(cents?: number): number {
-  const n = Number(cents);
-  if (Number.isFinite(n) && n > 0) return Number((n / 100).toFixed(2));
-  return 19.9; // fallback
-}
 
-async function atender() {
-  if (!uid) return;
+  function resolveUnitPriceFromCents(cents?: number): number {
+    const n = Number(cents);
+    if (Number.isFinite(n) && n > 0) return Number((n / 100).toFixed(2));
+    return 19.9; // fallback
+  }
 
-  // monta mensagem automática
-  const msg = encodeURIComponent(
-    `Olá! Quero atender esta demanda: "${title}" (ID: ${id})`
-  );
+  async function atender() {
+    if (!uid) return;
 
-  // redireciona para o WhatsApp do Pedraum
-  window.open(`https://wa.me/5531990903613?text=${msg}`, "_blank");
-}
+    // monta mensagem automática
+    const msg = encodeURIComponent(`Olá! Quero atender esta demanda: "${title}" (ID: ${id})`);
 
-
+    // redireciona para o WhatsApp do Pedraum
+    window.open(`https://wa.me/5531990903613?text=${msg}`, "_blank");
+  }
 
   function copy(text?: string) {
     if (!text) return;
@@ -486,7 +546,11 @@ async function atender() {
       const data = { title, text: "Veja esta demanda no Pedraum", url };
       // @ts-ignore
       if (navigator.share) navigator.share(data);
-      else if (url) { navigator.clipboard.writeText(url); setMsg("Link copiado!"); setTimeout(() => setMsg(null), 1500); }
+      else if (url) {
+        navigator.clipboard.writeText(url);
+        setMsg("Link copiado!");
+        setTimeout(() => setMsg(null), 1500);
+      }
     } catch {}
   }
 
@@ -513,7 +577,9 @@ async function atender() {
     return (
       <section className="op-wrap">
         <div className="op-header">
-          <Link href="/demandas" className="op-link-voltar">&lt; Voltar</Link>
+          <Link href="/demandas" className="op-link-voltar">
+            &lt; Voltar
+          </Link>
         </div>
         <div className="op-card p">Oportunidade não encontrada.</div>
         <style jsx>{baseCss}</style>
@@ -526,9 +592,13 @@ async function atender() {
     <section className="op-wrap">
       {/* Topo */}
       <div className="op-header">
-        <button onClick={() => router.back()} className="op-link-voltar">&lt; Voltar</button>
+        <button onClick={() => router.back()} className="op-link-voltar">
+          &lt; Voltar
+        </button>
         <div className="op-actions">
-          <button className="op-share" onClick={share}><Share2 size={16} /> Compartilhar</button>
+          <button className="op-share" onClick={share}>
+            <Share2 size={16} /> Compartilhar
+          </button>
           {msg && <span className="op-msg">{msg}</span>}
         </div>
       </div>
@@ -540,7 +610,9 @@ async function atender() {
           <span className="op-badge" style={{ borderColor: statusInfo.color, color: statusInfo.color }}>
             <ShieldCheck size={14} /> {statusInfo.label}
           </span>
-          <span className="op-views"><Eye size={16} /> {viewCount} visualizações</span>
+          <span className="op-views">
+            <Eye size={16} /> {viewCount} visualizações
+          </span>
           {expShown && (
             <span className="op-countdown">
               <Hourglass size={16} />
@@ -587,35 +659,49 @@ async function atender() {
                 <ImageIcon size={18} /> Sem fotos
               </div>
               <div className="op-noimg-avatar">{initials(title)}</div>
-              <div className="op-noimg-title" title={title}>{title}</div>
+              <div className="op-noimg-title" title={title}>
+                {title}
+              </div>
               <div className="op-noimg-meta">
-                <span><Tag size={16} /> {category}{subcat ? ` • ${subcat}` : ""}</span>
-                <span><MapPin size={16} /> {city}, {uf}</span>
+                <span>
+                  <Tag size={16} /> {category}
+                  {subcat ? ` • ${subcat}` : ""}
+                </span>
+                <span>
+                  <MapPin size={16} /> {city}, {uf}
+                </span>
               </div>
             </div>
           )}
 
           {/* ===== Descrição (agora abaixo da imagem) ===== */}
           {description && (
-  <div className="op-desc-card">
-    <div className="op-desc-header">
-      <span className="op-desc-badge">Descrição</span>
-    </div>
-    <div className="op-desc-body">
-      {description}
-    </div>
-  </div>
-)}
+            <div className="op-desc-card">
+              <div className="op-desc-header">
+                <span className="op-desc-badge">Descrição</span>
+              </div>
+              <div className="op-desc-body">{description}</div>
+            </div>
+          )}
         </div>
 
         {/* ===== Infos ===== */}
         <div className="op-info">
           {/* Meta list */}
           <div className="op-meta-list">
-            <span><Tag size={18} /> {category}{subcat ? ` • ${subcat}` : ""}</span>
-            <span><MapPin size={18} /> {city}, {uf}</span>
-            <span><Calendar size={18} /> Prazo: {prazoStr || "—"}</span>
-            <span><BadgeCheck size={18} /> Orçamento: {orcamento}</span>
+            <span>
+              <Tag size={18} /> {category}
+              {subcat ? ` • ${subcat}` : ""}
+            </span>
+            <span>
+              <MapPin size={18} /> {city}, {uf}
+            </span>
+            <span>
+              <Calendar size={18} /> Prazo: {prazoStr || "—"}
+            </span>
+            <span>
+              <BadgeCheck size={18} /> Orçamento: {orcamento}
+            </span>
           </div>
 
           {/* ===== CTA box ===== */}
@@ -625,7 +711,9 @@ async function atender() {
               <>
                 {/* Hero CTA */}
                 <div className="op-cta-highlight">
-                  <h3 className="op-cta-title"><Zap size={18} /> Desbloqueie o contato e fale direto com o cliente</h3>
+                  <h3 className="op-cta-title">
+                    <Zap size={18} /> Desbloqueie o contato e fale direto com o cliente
+                  </h3>
                   <ul className="op-benefits">
                     <li>⚡ Acesso imediato ao WhatsApp e E-mail</li>
                     <li>💼 Oportunidade ativa procurando solução</li>
@@ -633,36 +721,39 @@ async function atender() {
 
                   <button
                     onClick={atender}
-                    disabled={paying || patrocinioAtivo}
+                    disabled={paying || false /* patrocinador sem match de categoria NÃO libera contato */}
                     className="op-btn-laranja op-btn-big"
-                    aria-disabled={paying || patrocinioAtivo}
+                    aria-disabled={paying || false}
                     style={{
-                      background: paying || patrocinioAtivo ? "#d1d5db" : "#FB8500",
-                      cursor: paying || patrocinioAtivo ? "not-allowed" : "pointer",
+                      background: paying ? "#d1d5db" : "#FB8500",
+                      cursor: paying ? "not-allowed" : "pointer",
                     }}
                   >
-                    {patrocinioAtivo ? "Você já tem acesso (Patrocinador)" : (paying ? "Abrindo pagamento…" : "Atender agora")}
+                    {paying ? "Abrindo pagamento…" : "Atender agora"}
                   </button>
 
-                  {!patrocinioAtivo && <div className="op-cta-note">Após o pagamento aprovado, o contato é liberado automaticamente nesta página.</div>}
+                  <div className="op-cta-note">
+                    Após o pagamento aprovado, o contato é liberado automaticamente nesta página.
+                  </div>
                 </div>
 
                 {/* Upsell patrocinador */}
-{!patrocinioAtivo && (
-  <div className="op-upsell">
-    <div className="op-upsell-left">
-      <strong>Seja Patrocinador</strong> e veja contatos sem pagar por demanda.
-    </div>
-    <a href={WPP_SPONSOR_URL} target="_blank" rel="noopener noreferrer" className="op-upsell-btn">
-      Conhecer planos <ChevronRight size={16} />
-    </a>
-  </div>
-)}
-
+                {!patrocinioAtivo && (
+                  <div className="op-upsell">
+                    <div className="op-upsell-left">
+                      <strong>Seja Patrocinador</strong> e veja contatos sem pagar por demanda nas suas categorias.
+                    </div>
+                    <a href={WPP_SPONSOR_URL} target="_blank" rel="noopener noreferrer" className="op-upsell-btn">
+                      Conhecer planos <ChevronRight size={16} />
+                    </a>
+                  </div>
+                )}
               </>
             ) : (
               <div className="op-contact">
-                <div className="op-contact-title"><CheckCircle2 size={18} /> Contato liberado</div>
+                <div className="op-contact-title">
+                  <CheckCircle2 size={18} /> Contato liberado
+                </div>
                 <div className="op-contact-grid">
                   <div>
                     <div className="op-contact-label">Nome</div>
@@ -708,9 +799,12 @@ async function atender() {
           <div className="op-carousel">
             {relacionadas.map((d) => (
               <Link key={d.id} href={`/demandas/${d.id}`} className="op-card-mini">
-                <div className="op-card-mini-title" title={d.titulo || "Demanda"}>{d.titulo || "Demanda"}</div>
+                <div className="op-card-mini-title" title={d.titulo || "Demanda"}>
+                  {d.titulo || "Demanda"}
+                </div>
                 <div className="op-card-mini-meta">
-                  {d.categoria || "—"} • {d.cidade || "—"}{d.estado ? `, ${d.estado}` : ""}
+                  {d.categoria || "—"} • {d.cidade || "—"}
+                  {d.estado ? `, ${d.estado}` : ""}
                 </div>
                 {/* preço removido da mini-card */}
               </Link>
@@ -803,7 +897,7 @@ const baseCss = `
 /* upsell */
 .op-upsell{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#f1f59;border:1.5px solid #e2e8f0;border-radius:14px;padding:10px 12px}
 .op-upsell-left{color:#0f172a;font-weight:800}
-.op-upsell-btn{display:inline-flex;align-items:center;gap:6px;background:#219ebc;color:#fff;border-radius:10px;padding:8px 12px;text-decoration:none}
+.op-upsell-btn{display:inline-flex;align-items:center;gap:6px;background:#219ebc;color:#fff;border-radius:10px;padding:8px 12px;text-decoration:none;font-weight:800}
 .op-upsell-btn:hover{background:#176684}
 
 /* contato liberado */
@@ -837,7 +931,7 @@ const baseCss = `
 
 /* skeleton */
 .op-skel{height:420px;border-radius:22px;background:linear-gradient(90deg,#eef5fb 25%,#f5faff 37%,#eef5fb 63%);background-size:400% 100%;animation:opShimmer 1.3s infinite;box-shadow:0 2px 16px #0001}
-@keyframes opShimmer{0%{background-position:100% 0}100%{background-position:0 0}}
+@keyframes opShimmer{0%{background-position:100% 0}100%{background-position:0 0} }
 
 .op-card.p{background:#fff;border-radius:16px;border:1.5px solid #eef2f6;padding:18px;box-shadow:0 2px 16px #0000000d}
 
@@ -848,7 +942,8 @@ const baseCss = `
   .op-meta-list{grid-template-columns:1fr}
   .op-headbar{flex-direction:column;align-items:flex-start;gap:10px}
 }
-  /* ===== Descrição aprimorada ===== */
+
+/* ===== Descrição aprimorada ===== */
 .op-desc-card{
   width:100%;
   max-width:560px;
@@ -859,21 +954,16 @@ const baseCss = `
   padding:14px 16px;
   margin-top:12px;
 }
-.op-desc-header{
-  display:flex;align-items:center;justify-content:space-between;margin-bottom:8px
-}
+.op-desc-header{ display:flex;align-items:center;justify-content:space-between;margin-bottom:8px }
 .op-desc-badge{
   display:inline-flex;align-items:center;gap:6px;
   background:#f1f7ff;border:1px solid #dbeafe;color:#0b4a6e;
   font-weight:900;font-size:.95rem;border-radius:999px;padding:6px 10px
 }
-.op-desc-body{
-  font-size:1.12rem;line-height:1.75;color:#1f2937;white-space:pre-wrap
-}
+.op-desc-body{ font-size:1.12rem;line-height:1.75;color:#1f2937;white-space:pre-wrap }
 
 /* Upsell botão (só textura/ajuste) */
 .op-upsell-btn{display:inline-flex;align-items:center;gap:6px;background:#219ebc;color:#fff;
   border-radius:10px;padding:8px 12px;text-decoration:none;font-weight:800}
 .op-upsell-btn:hover{background:#176684}
-
 `;

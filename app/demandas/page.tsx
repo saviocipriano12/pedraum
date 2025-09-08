@@ -1,8 +1,9 @@
+// app/demandas/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { db } from "@/firebaseConfig";
+import { db, auth } from "@/firebaseConfig";
 import {
   collection,
   getDocs,
@@ -31,7 +32,6 @@ import {
   User2,
   Crown,
 } from "lucide-react";
-import { auth } from "@/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 
 /* ================== Utils ================== */
@@ -55,8 +55,7 @@ function isFechada(d: any) {
   return s === "fechada" || !!d?.fechada;
 }
 function getContatoFromDemanda(d: any) {
-  const nome =
-    d?.nomeContato || d?.contatoNome || d?.solicitante || d?.nome || null;
+  const nome = d?.nomeContato || d?.contatoNome || d?.solicitante || d?.nome || null;
   const whatsapp = d?.whatsapp || d?.telefone || d?.fone || null;
   const email = d?.email || d?.contatoEmail || null;
   return { nome, whatsapp, email };
@@ -65,7 +64,6 @@ function strEq(a?: any, b?: string) {
   if (!a || !b) return false;
   return String(a).trim().toLowerCase() === b.toLowerCase();
 }
-
 function detectPatrocinador(p: any): boolean {
   if (!p || typeof p !== "object") return false;
 
@@ -109,14 +107,57 @@ const CATEGORIAS_DEMANDAS = [
 type SortKey = "recentes" | "views_desc" | "interessados_desc";
 
 export default function VitrineDemandas() {
-  // auth / perfil
-const [uid, setUid] = useState<string | null>(null);
-const [perfil, setPerfil] = useState<any>(null);
-const isPatrocinador = detectPatrocinador(perfil);
-console.log("[é patrocinador?]", isPatrocinador);
+  /* ===== Auth / Perfil ===== */
+  const [uid, setUid] = useState<string | null>(null);
+  const [perfil, setPerfil] = useState<any>(null);
+  const isPatrocinador = detectPatrocinador(perfil);
+
+  // Categorias do usuário (derivadas dos pares ou do legado)
+  // Categorias do usuário (derivadas dos pares ou do legado)
+const userCats: string[] = useMemo(() => {
+  if (!perfil) return [];
+
+  type Par = { categoria?: string };
+  const pairs: Par[] = Array.isArray(perfil.categoriasAtuacaoPairs)
+    ? (perfil.categoriasAtuacaoPairs as Par[])
+    : [];
+
+  const legacy: unknown[] = Array.isArray(perfil.categoriasAtuacao)
+    ? (perfil.categoriasAtuacao as unknown[])
+    : [];
+
+  // helper: mantém só strings não vazias
+  const notEmptyString = (v: unknown): v is string =>
+    typeof v === "string" && v.trim().length > 0;
+
+  if (pairs.length) {
+    const cats = pairs.map(p => p?.categoria ?? "").filter(notEmptyString);
+    return Array.from(new Set<string>(cats)).slice(0, 10);
+  }
+
+  const legacyCats = legacy.filter(notEmptyString);
+  return Array.from(new Set<string>(legacyCats)).slice(0, 10);
+}, [perfil]);
 
 
-  // lista e paginação
+  // Match de categoria da demanda com categorias do user
+  function demandaCategoryMatch(d: any, myCats: string[]) {
+    if (!myCats?.length) return false;
+    const cat = (d?.categoria || "").trim();
+    const cats = Array.isArray(d?.categorias) ? d.categorias : [];
+    const byString = !!cat && myCats.includes(cat);
+    const byArray = !!cats?.length && cats.some((c: string) => myCats.includes(String(c)));
+    return byString || byArray;
+  }
+
+  // Pode ver contatos?
+  function canSeeContacts(d: any) {
+    if (isFechada(d)) return false; // nunca mostra contato de demanda fechada
+    if (!isPatrocinador) return false;
+    return demandaCategoryMatch(d, userCats);
+  }
+
+  /* ===== Lista e paginação ===== */
   const [demandas, setDemandas] = useState<any[]>([]);
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [carregandoMais, setCarregandoMais] = useState(false);
@@ -124,7 +165,7 @@ console.log("[é patrocinador?]", isPatrocinador);
   const lastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
   const finishedRef = useRef<boolean>(false);
 
-  // filtros
+  /* ===== Filtros ===== */
   const [categoria, setCategoria] = useState("");
   const [estado, setEstado] = useState("");
   const [cidade, setCidade] = useState("");
@@ -135,10 +176,10 @@ console.log("[é patrocinador?]", isPatrocinador);
     [...CATEGORIAS_DEMANDAS]
   );
 
-  // ordenação
+  /* ===== Ordenação ===== */
   const [sortKey, setSortKey] = useState<SortKey>("recentes");
 
-  // busca (debounce)
+  /* ===== Busca (debounce) ===== */
   const [buscaRaw, setBuscaRaw] = useState("");
   const [busca, setBusca] = useState("");
   useEffect(() => {
@@ -146,47 +187,44 @@ console.log("[é patrocinador?]", isPatrocinador);
     return () => clearTimeout(t);
   }, [buscaRaw]);
 
-  // selects dependentes
+  /* ===== Selects dependentes ===== */
   const [estadosDisponiveis, setEstadosDisponiveis] = useState<string[]>([]);
   const [cidadesDisponiveis, setCidadesDisponiveis] = useState<string[]>([]);
 
   /* ================== Auth & Perfil ================== */
-useEffect(() => {
-  const unsub = onAuthStateChanged(auth, async (user) => {
-    try {
-      setUid(user ? user.uid : null);
-      if (!user?.uid) {
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      try {
+        setUid(user ? user.uid : null);
+        if (!user?.uid) {
+          setPerfil(null);
+          return;
+        }
+
+        // tenta primeiro "usuarios/{uid}", depois "users/{uid}"
+        const refUsuarios = doc(db, "usuarios", user.uid);
+        const refUsers = doc(db, "users", user.uid);
+
+        let snap = await getDoc(refUsuarios);
+        if (!snap.exists()) {
+          snap = await getDoc(refUsers);
+        }
+
+        if (snap.exists()) {
+          const p = { id: snap.id, ...snap.data() };
+          setPerfil(p);
+        } else {
+          setPerfil(null);
+        }
+      } catch (e) {
+        console.error("Erro ao carregar perfil:", e);
         setPerfil(null);
-        return;
       }
+    });
+    return () => unsub();
+  }, []);
 
-      // tenta primeiro "usuarios/{uid}", depois "users/{uid}"
-      const refUsuarios = doc(db, "usuarios", user.uid);
-      const refUsers = doc(db, "users", user.uid);
-
-      let snap = await getDoc(refUsuarios);
-      if (!snap.exists()) {
-        snap = await getDoc(refUsers);
-      }
-
-      if (snap.exists()) {
-        const p = { id: snap.id, ...snap.data() };
-        console.log("[perfil carregado]", p);
-        setPerfil(p);
-      } else {
-        console.warn("Perfil não encontrado em 'usuarios' nem 'users'");
-        setPerfil(null);
-      }
-    } catch (e) {
-      console.error("Erro ao carregar perfil:", e);
-      setPerfil(null);
-    }
-  });
-  return () => unsub();
-}, []);
-
-
-  // carregar primeira página
+  /* ================== Carregamento inicial ================== */
   useEffect(() => {
     (async () => {
       setCarregandoLista(true);
@@ -222,17 +260,18 @@ useEffect(() => {
         const cat = (d.categoria || "").trim();
         if (cat) categoriasBanco.add(cat);
       });
-      const categoriasMescladas = Array.from(
-        new Set([...CATEGORIAS_DEMANDAS, ...categoriasBanco])
-      ).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+      const categoriasMescladas = Array
+  .from(new Set<string>([...CATEGORIAS_DEMANDAS, ...Array.from(categoriasBanco)]))
+  .sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
       setCategoriasDisponiveis(categoriasMescladas);
 
       setDemandas(list);
       setCarregandoLista(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // carregar mais
+  /* ================== Carregar mais ================== */
   async function carregarMais() {
     if (finishedRef.current || !lastDocRef.current) return;
     setCarregandoMais(true);
@@ -276,7 +315,7 @@ useEffect(() => {
     setCarregandoMais(false);
   }
 
-  // cidades dependentes
+  /* ================== Cidades dependentes ================== */
   useEffect(() => {
     if (!estado) {
       setCidadesDisponiveis([]);
@@ -295,7 +334,7 @@ useEffect(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estado, demandas]);
 
-  // filtros + ordenação
+  /* ================== Filtros + ordenação (client) ================== */
   const demandasProcessadas = useMemo(() => {
     let arr = demandas.filter((d) => {
       if (categoria && d.categoria !== categoria) return false;
@@ -343,6 +382,7 @@ useEffect(() => {
   // pode carregar mais?
   const podeCarregarMais = useMemo(() => !finishedRef.current, [demandas]);
 
+  /* ================== UI ================== */
   return (
     <section style={{ maxWidth: 1420, margin: "0 auto", padding: "40px 2vw 80px 2vw" }}>
       <h1
@@ -372,7 +412,7 @@ useEffect(() => {
               fontSize: 13,
               fontWeight: 800,
             }}
-            title="Você é patrocinador — contatos liberados"
+            title="Você é patrocinador — contatos liberados quando a demanda é da sua categoria"
           >
             <Crown size={14} /> Patrocinador ativo
           </span>
@@ -581,6 +621,7 @@ useEffect(() => {
             {demandasProcessadas.map((item) => {
               const fechada = isFechada(item);
               const contato = getContatoFromDemanda(item);
+              const contatoLiberado = canSeeContacts(item);
 
               return (
                 <div
@@ -621,28 +662,34 @@ useEffect(() => {
                     </span>
                   )}
 
-                  {/* Badge PATROCINADOR vê contatos */}
+                  {/* Badge status do contato para patrocinador */}
                   {isPatrocinador && (
                     <span
                       style={{
                         position: "absolute",
                         top: 14,
                         right: 14,
-                        background: "#DCFCE7",
-                        color: "#15803d",
+                        background: contatoLiberado ? "#DCFCE7" : "#FEF2F2",
+                        color: contatoLiberado ? "#15803d" : "#991B1B",
                         fontWeight: 900,
                         fontSize: 12.5,
                         padding: "3px 10px",
                         borderRadius: 999,
                         zIndex: 2,
-                        border: "1px solid #bbf7d0",
+                        border: "1px solid",
+                        borderColor: contatoLiberado ? "#bbf7d0" : "#FECACA",
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 6,
                       }}
-                      title="Contatos liberados para patrocinadores"
+                      title={
+                        contatoLiberado
+                          ? "Contato liberado para você (mesma categoria)"
+                          : "Contato bloqueado (categoria fora da sua atuação)"
+                      }
                     >
-                      <ShieldCheck size={14} /> Contatos liberados
+                      <ShieldCheck size={14} />
+                      {contatoLiberado ? "Contato disponível" : "Contato bloqueado"}
                     </span>
                   )}
 
@@ -725,8 +772,8 @@ useEffect(() => {
                       {item.qtdInteressados ?? 0}
                     </div>
 
-                    {/* Bloco de contato — apenas patrocinador vê */}
-                    {isPatrocinador && !fechada && (contato?.whatsapp || contato?.email || contato?.nome) && (
+                    {/* Bloco de contato — apenas quando liberado */}
+                    {contatoLiberado && (contato?.whatsapp || contato?.email || contato?.nome) && (
                       <div
                         style={{
                           border: "1px dashed #bbf7d0",
@@ -737,7 +784,7 @@ useEffect(() => {
                           display: "grid",
                           gap: 8,
                         }}
-                        title="Visível apenas para patrocinadores"
+                        title="Visível porque esta demanda é da sua categoria"
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#166534", fontWeight: 800 }}>
                           <ShieldCheck size={16} />
@@ -795,65 +842,93 @@ useEffect(() => {
                         Fechada
                       </button>
                     ) : isPatrocinador ? (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
-                        <Link
-                          href={`/demandas/${item.id}`}
-                          className="group-hover:scale-[1.02] transition"
-                          style={{
-                            background: "#e5f3f7",
-                            color: "#0b7285",
-                            padding: "13px 0",
-                            borderRadius: 12,
-                            fontWeight: 800,
-                            fontSize: "1.02rem",
-                            textDecoration: "none",
-                            textAlign: "center",
-                            border: "1px solid #cbe9f1",
-                          }}
-                        >
-                          Ver detalhes
-                        </Link>
-                        {/* Se houver whatsapp: falar agora */}
-                        {getContatoFromDemanda(item)?.whatsapp ? (
-                          <Link
-                            href={`https://wa.me/${String(getContatoFromDemanda(item).whatsapp).replace(/\D/g, "")}`}
-                            target="_blank"
-                            className="group-hover:scale-[1.02] transition"
-                            style={{
-                              background: "#219EBC",
-                              color: "#fff",
-                              padding: "13px 0",
-                              borderRadius: 12,
-                              fontWeight: 800,
-                              fontSize: "1.02rem",
-                              textDecoration: "none",
-                              textAlign: "center",
-                              boxShadow: "0 2px 10px #219EBC22",
-                            }}
-                          >
-                            Falar agora
-                          </Link>
-                        ) : (
+                      contatoLiberado ? (
+                        // Patrocinador + categoria compatível: ver detalhes e falar agora
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
                           <Link
                             href={`/demandas/${item.id}`}
                             className="group-hover:scale-[1.02] transition"
                             style={{
-                              background: "#219EBC",
-                              color: "#fff",
+                              background: "#e5f3f7",
+                              color: "#0b7285",
                               padding: "13px 0",
                               borderRadius: 12,
                               fontWeight: 800,
                               fontSize: "1.02rem",
                               textDecoration: "none",
                               textAlign: "center",
-                              boxShadow: "0 2px 10px #219EBC22",
+                              border: "1px solid #cbe9f1",
                             }}
                           >
-                            Contato / opções
+                            Ver detalhes
                           </Link>
-                        )}
-                      </div>
+                          {contato?.whatsapp ? (
+                            <Link
+                              href={`https://wa.me/${String(contato.whatsapp).replace(/\D/g, "")}`}
+                              target="_blank"
+                              className="group-hover:scale-[1.02] transition"
+                              style={{
+                                background: "#219EBC",
+                                color: "#fff",
+                                padding: "13px 0",
+                                borderRadius: 12,
+                                fontWeight: 800,
+                                fontSize: "1.02rem",
+                                textDecoration: "none",
+                                textAlign: "center",
+                                boxShadow: "0 2px 10px #219EBC22",
+                              }}
+                            >
+                              Falar agora
+                            </Link>
+                          ) : (
+                            <Link
+                              href={`/demandas/${item.id}`}
+                              className="group-hover:scale-[1.02] transition"
+                              style={{
+                                background: "#219EBC",
+                                color: "#fff",
+                                padding: "13px 0",
+                                borderRadius: 12,
+                                fontWeight: 800,
+                                fontSize: "1.02rem",
+                                textDecoration: "none",
+                                textAlign: "center",
+                                boxShadow: "0 2px 10px #219EBC22",
+                              }}
+                            >
+                              Contato / opções
+                            </Link>
+                          )}
+                        </div>
+                      ) : (
+                        // Patrocinador, mas categoria fora da atuação: fluxo como público (sem contato)
+                        <Link
+                          href={`/demandas/${item.id}`}
+                          className="group-hover:scale-[1.02] transition"
+                          style={{
+                            background: "#219EBC",
+                            color: "#fff",
+                            padding: "13px 0",
+                            borderRadius: 12,
+                            fontWeight: 800,
+                            fontSize: "1.12rem",
+                            boxShadow: "0 2px 10px #219EBC22",
+                            textDecoration: "none",
+                            border: "none",
+                            outline: "none",
+                            letterSpacing: ".01em",
+                            marginTop: 14,
+                            display: "block",
+                            textAlign: "center",
+                          }}
+                          title="Contato bloqueado — desbloqueie no detalhe da demanda"
+                        >
+                          Atender Demanda (desbloquear)
+                        </Link>
+                      )
                     ) : (
+                      // Usuário comum
                       <Link
                         href={`/demandas/${item.id}`}
                         className="group-hover:scale-[1.02] transition"

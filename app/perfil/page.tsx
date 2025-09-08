@@ -24,32 +24,120 @@ import {
 } from "lucide-react";
 
 /** =========================
- *  Constantes / Listas
+ *  Taxonomia (Categoria → Subcategorias)
  *  ========================= */
+const TAXONOMIA: Record<string, string[]> = {
+  "Equipamentos de Perfuração e Demolição": [
+    "Perfuratrizes",
+    "Rompedores/Martelos",
+    "Bits/Brocas",
+    "Carretas de Perfuração",
+    "Compressores",
+    "Ferramentas de Demolição",
+  ],
+  "Equipamentos de Carregamento e Transporte": [
+    "Pás-Carregadeiras",
+    "Escavadeiras",
+    "Retroescavadeiras",
+    "Caminhões Fora-de-Estrada",
+    "Tratores de Esteiras",
+    "Motoniveladoras",
+  ],
+  "Britagem e Classificação": [
+    "Britador de Mandíbulas",
+    "Britador Cônico",
+    "Britador de Impacto",
+    "Peneiras Vibratórias",
+    "Alimentadores",
+    "Correias Transportadoras",
+  ],
+  "Beneficiamento e Processamento Mineral": [
+    "Moinhos (Bolas/Rolos)",
+    "Ciclones",
+    "Classificadores Espirais",
+    "Espessadores",
+    "Flotação",
+    "Bombas de Polpa",
+  ],
+  "Peças e Componentes Industriais": [
+    "Motores",
+    "Transmissões/Redutores",
+    "Sistemas Hidráulicos",
+    "Sistemas Elétricos",
+    "Filtros e Filtração",
+    "Mangueiras/Conexões",
+  ],
+  "Desgaste e Revestimento": [
+    "Revestimento de Britadores",
+    "Chapas AR",
+    "Dentes/Lâminas",
+    "Placas Cerâmicas",
+    "Revestimentos de Borracha",
+  ],
+  "Automação, Elétrica e Controle": [
+    "CLPs/Controladores",
+    "Sensores/Instrumentação",
+    "Inversores/Soft-Starters",
+    "Painéis/Quadros",
+    "SCADA/Supervisório",
+  ],
+  "Lubrificação e Produtos Químicos": [
+    "Óleos e Graxas",
+    "Sistemas Centralizados",
+    "Aditivos",
+    "Reagentes de Flotação",
+    "Desincrustantes/Limpeza",
+  ],
+  "Equipamentos Auxiliares e Ferramentas": [
+    "Geradores",
+    "Soldagem/Corte",
+    "Bombas",
+    "Ferramentas de Torque",
+    "Compressores Auxiliares",
+  ],
+  "EPIs (Equipamentos de Proteção Individual)": [
+    "Capacetes",
+    "Luvas",
+    "Óculos/Face Shield",
+    "Respiradores",
+    "Protetores Auriculares",
+    "Botas",
+  ],
+  "Instrumentos de Medição e Controle": [
+    "Vibração/Análise",
+    "Alinhamento a Laser",
+    "Balanças/Pesagem",
+    "Medidores de Espessura",
+    "Termografia",
+  ],
+  "Manutenção e Serviços Industriais": [
+    "Mecânica Pesada",
+    "Caldeiraria/Solda",
+    "Usinagem",
+    "Alinhamento/Balanceamento",
+    "Inspeções/NR",
+    "Elétrica/Automação",
+  ],
+  "Veículos e Pneus": [
+    "Pickups/Utilitários",
+    "Caminhões 3/4",
+    "Empilhadeiras",
+    "Pneus OTR",
+    "Recapagem/Serviços",
+  ],
+  "Outros": ["Diversos"],
+};
+
+// Derivados
+const CATEGORIAS = Object.keys(TAXONOMIA);
+
 // Use somente números com DDI+DDD, ex: Brasil (55) + DDD (31) + número
-const SUPPORT_WHATSAPP = "5531990903613"; // <- troque pelo seu
+const SUPPORT_WHATSAPP = "5531990903613";
 
 const estados = [
   "BRASIL",
   "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
   "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"
-];
-
-const categoriasBase = [
-  "Equipamentos de Perfuração e Demolição",
-  "Equipamentos de Carregamento e Transporte",
-  "Britagem e Classificação",
-  "Beneficiamento e Processamento Mineral",
-  "Peças e Componentes Industriais",
-  "Desgaste e Revestimento",
-  "Automação, Elétrica e Controle",
-  "Lubrificação e Produtos Químicos",
-  "Equipamentos Auxiliares e Ferramentas",
-  "EPIs (Equipamentos de Proteção Individual)",
-  "Instrumentos de Medição e Controle",
-  "Manutenção e Serviços Industriais",
-  "Veículos e Pneus",
-  "Outros"
 ];
 
 const diasSemana = [
@@ -63,6 +151,7 @@ const diasSemana = [
 ];
 
 type AgendaDia = { ativo: boolean; das: string; ate: string };
+type CategoriaPair = { categoria: string; subcategoria: string };
 
 type PerfilForm = {
   nome: string;
@@ -77,8 +166,11 @@ type PerfilForm = {
   // Atuação
   prestaServicos: boolean;
   vendeProdutos: boolean;
-  categoriasAtuacao: string[];  // até 5
-  categoriasLocked?: boolean;   // trava edição após salvar com 5
+  // NOVO: pares de atuação (Categoria → Subcategoria), até 5
+  categoriasAtuacaoPairs: CategoriaPair[];
+  // legado (mantido por compatibilidade com telas antigas/filtros):
+  categoriasAtuacao: string[];
+  categoriasLocked?: boolean;
   categoriasLockedAt?: any;
   // Cobertura
   atendeBrasil: boolean;
@@ -90,7 +182,7 @@ type PerfilForm = {
   portfolioVideos: string[];
   // Preferências de lead
   leadPreferencias: {
-    categorias: string[];
+    categorias: string[]; // mantém simples por enquanto
     ufs: string[];
     ticketMin?: number | null;
     ticketMax?: number | null;
@@ -106,15 +198,13 @@ export default function PerfilPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
-  // inputs auxiliares
-  const [categoriaInput, setCategoriaInput] = useState("");
-  const [leadCategoriaInput, setLeadCategoriaInput] = useState("");
-  const [leadUfInput, setLeadUfInput] = useState("");
-  const [novoVideo, setNovoVideo] = useState("");
+  // Seletores categoria → subcategoria
+  const [selCategoria, setSelCategoria] = useState("");
+  const [selSubcategoria, setSelSubcategoria] = useState("");
 
   // controle de lock definitivo de categorias
   const [categoriasLocked, setCategoriasLocked] = useState<boolean>(false);
-  const [categoriasOriginais, setCategoriasOriginais] = useState<string[]>([]);
+  const [pairsOriginais, setPairsOriginais] = useState<CategoriaPair[]>([]);
 
   // Cidades da UF (IBGE)
   const [cidades, setCidades] = useState<string[]>([]);
@@ -134,7 +224,8 @@ export default function PerfilPage() {
     tipo: "Usuário",
     prestaServicos: false,
     vendeProdutos: false,
-    categoriasAtuacao: [],
+    categoriasAtuacaoPairs: [],
+    categoriasAtuacao: [], // legado
     categoriasLocked: false,
     atendeBrasil: false,
     ufsAtendidas: [],
@@ -169,10 +260,27 @@ export default function PerfilPage() {
       const snap = await getDoc(ref);
 
       if (snap.exists()) {
-        const data = snap.data() || {};
-        const cats = Array.isArray(data.categoriasAtuacao) ? data.categoriasAtuacao : [];
-        setCategoriasOriginais(cats);
-        setCategoriasLocked(!!data.categoriasLocked);
+        const data: any = snap.data() || {};
+
+        // Lock e pares (novo) + fallback para legado
+        const locked = !!data.categoriasLocked;
+        const pairs: CategoriaPair[] = Array.isArray(data.categoriasAtuacaoPairs)
+          ? (data.categoriasAtuacaoPairs as CategoriaPair[])
+          : [];
+
+        // Se não tem pares, tentar construir a partir do legado (categoria sem sub ainda)
+        let initialPairs = pairs;
+        if (!pairs?.length && Array.isArray(data.categoriasAtuacao) && data.categoriasAtuacao.length) {
+          initialPairs = (data.categoriasAtuacao as string[])
+            .slice(0, 5)
+            .map((c: string) => ({
+              categoria: c,
+              subcategoria: "", // usuário deverá selecionar antes de salvar
+            }));
+        }
+
+        setPairsOriginais(initialPairs);
+        setCategoriasLocked(locked);
 
         setForm((prev) => ({
           ...prev,
@@ -187,8 +295,9 @@ export default function PerfilPage() {
           tipo: data.tipo || prev.tipo,
           prestaServicos: !!data.prestaServicos,
           vendeProdutos: !!data.vendeProdutos,
-          categoriasAtuacao: cats,
-          categoriasLocked: !!data.categoriasLocked,
+          categoriasAtuacaoPairs: initialPairs,
+          categoriasAtuacao: Array.isArray(data.categoriasAtuacao) ? data.categoriasAtuacao : [], // legado
+          categoriasLocked: locked,
           atendeBrasil: !!data.atendeBrasil,
           ufsAtendidas: data.ufsAtendidas || [],
           agenda: data.agenda || prev.agenda,
@@ -271,135 +380,51 @@ export default function PerfilPage() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  function addCategoria() {
+  const subcatsDaSelecionada = selCategoria ? TAXONOMIA[selCategoria] || [] : [];
+
+  function addParCategoria() {
     if (categoriasLocked) return; // travado: não mexe
-    if (!categoriaInput || form.categoriasAtuacao.includes(categoriaInput)) return;
-    if (form.categoriasAtuacao.length >= 5) {
-      setMsg("Você pode escolher até 5 categorias de atuação.");
+    if (!selCategoria) {
+      setMsg("Selecione uma categoria.");
       return;
     }
-    setForm(f => ({ ...f, categoriasAtuacao: [...f.categoriasAtuacao, categoriaInput] }));
-    setCategoriaInput("");
+    if (!selSubcategoria) {
+      setMsg("Selecione uma subcategoria.");
+      return;
+    }
+    if (form.categoriasAtuacaoPairs.length >= 5) {
+      setMsg("Você pode escolher até 5 categorias (pares).");
+      return;
+    }
+    // Regra: 1 categoria principal não pode se repetir (garante 5 categorias distintas)
+    const jaTemMesmaCategoria = form.categoriasAtuacaoPairs.some(
+      (p) => p.categoria === selCategoria
+    );
+    if (jaTemMesmaCategoria) {
+      setMsg("Você já escolheu essa categoria. Remova o par atual para trocar a subcategoria.");
+      return;
+    }
+    const novoPar: CategoriaPair = { categoria: selCategoria, subcategoria: selSubcategoria };
+    setForm((f) => ({
+      ...f,
+      categoriasAtuacaoPairs: [...f.categoriasAtuacaoPairs, novoPar],
+    }));
+    setSelCategoria("");
+    setSelSubcategoria("");
+    setMsg("");
   }
 
-  function removeCategoria(cat: string) {
-    if (categoriasLocked) return; // travado: não mexe
-    setForm(f => ({ ...f, categoriasAtuacao: f.categoriasAtuacao.filter(c => c !== cat) }));
+  function removeParCategoria(par: CategoriaPair) {
+    if (categoriasLocked) return;
+    setForm((f) => ({
+      ...f,
+      categoriasAtuacaoPairs: f.categoriasAtuacaoPairs.filter(
+        (p) => !(p.categoria === par.categoria && p.subcategoria === par.subcategoria)
+      ),
+    }));
   }
 
   async function pedirAlteracaoViaWhatsApp() {
-  if (!userId) return;
-
-  // (opcional) registra no Firestore para você ter histórico
-  try {
-    await addDoc(collection(db, "supportRequests"), {
-      userId,
-      tipo: "categoriasAtuacao",
-      mensagem: "Solicito alteração nas minhas categorias de atuação.",
-      createdAt: serverTimestamp(),
-      status: "open",
-      canal: "whatsapp",
-    });
-  } catch (e) {
-    console.warn("Falha ao registrar ticket (segue somente via WhatsApp):", e);
-  }
-
-  // monta uma mensagem útil pro time
-  const texto = `
-Olá, equipe de suporte! Quero alterar minhas categorias de atuação.
-
-• UID: ${userId}
-• Nome: ${form.nome || "-"}
-• E-mail: ${form.email || "-"}
-• Categorias atuais: ${form.categoriasAtuacao?.join(", ") || "-"}
-
-Mensagem: Solicito liberação para alterar minhas categorias.
-  `.trim();
-
-  // abre o WhatsApp Web/app com a mensagem preenchida
-  const url = `https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(texto)}`;
-  window.open(url, "_blank", "noopener,noreferrer");
-}
-
-  function toggleUfAtendida(uf: string) {
-    if (uf === "BRASIL") {
-      setForm(f => ({
-        ...f,
-        atendeBrasil: !f.atendeBrasil,
-        ufsAtendidas: !f.atendeBrasil ? ["BRASIL"] : []
-      }));
-      return;
-    }
-    if (form.atendeBrasil) {
-      setForm(f => ({ ...f, atendeBrasil: false, ufsAtendidas: [uf] }));
-      return;
-    }
-    const has = form.ufsAtendidas.includes(uf);
-    setForm(f => ({
-      ...f,
-      ufsAtendidas: has ? f.ufsAtendidas.filter(u => u !== uf) : [...f.ufsAtendidas, uf]
-    }));
-  }
-
-  function addLeadCategoria() {
-    if (!leadCategoriaInput) return;
-    if (!form.leadPreferencias.categorias.includes(leadCategoriaInput)) {
-      setForm(f => ({
-        ...f,
-        leadPreferencias: {
-          ...f.leadPreferencias,
-          categorias: [...f.leadPreferencias.categorias, leadCategoriaInput]
-        }
-      }));
-    }
-    setLeadCategoriaInput("");
-  }
-
-  function removeLeadCategoria(cat: string) {
-    setForm(f => ({
-      ...f,
-      leadPreferencias: {
-        ...f.leadPreferencias,
-        categorias: f.leadPreferencias.categorias.filter(c => c !== cat)
-      }
-    }));
-  }
-
-  function addLeadUf() {
-    if (!leadUfInput) return;
-    if (!form.leadPreferencias.ufs.includes(leadUfInput)) {
-      setForm(f => ({
-        ...f,
-        leadPreferencias: {
-          ...f.leadPreferencias,
-          ufs: [...f.leadPreferencias.ufs, leadUfInput]
-        }
-      }));
-    }
-    setLeadUfInput("");
-  }
-
-  function removeLeadUf(uf: string) {
-    setForm(f => ({
-      ...f,
-      leadPreferencias: {
-        ...f.leadPreferencias,
-        ufs: f.leadPreferencias.ufs.filter(u => u !== uf)
-      }
-    }));
-  }
-
-  function addVideo() {
-    if (!novoVideo.trim()) return;
-    setForm(f => ({ ...f, portfolioVideos: [...f.portfolioVideos, novoVideo.trim()] }));
-    setNovoVideo("");
-  }
-
-  function removeVideo(url: string) {
-    setForm(f => ({ ...f, portfolioVideos: f.portfolioVideos.filter(v => v !== url) }));
-  }
-
-  async function pedirAlteracaoAoSuporte() {
     if (!userId) return;
     try {
       await addDoc(collection(db, "supportRequests"), {
@@ -408,12 +433,103 @@ Mensagem: Solicito liberação para alterar minhas categorias.
         mensagem: "Solicito alteração nas minhas categorias de atuação.",
         createdAt: serverTimestamp(),
         status: "open",
+        canal: "whatsapp",
       });
-      alert("Pedido enviado ao suporte. Em breve entraremos em contato.");
     } catch (e) {
-      console.error(e);
-      alert("Falha ao abrir ticket. Tente novamente mais tarde.");
+      console.warn("Falha ao registrar ticket (segue somente via WhatsApp):", e);
     }
+
+    const texto = `
+Olá, equipe de suporte! Quero alterar minhas categorias de atuação.
+
+• UID: ${userId}
+• Nome: ${form.nome || "-"}
+• E-mail: ${form.email || "-"}
+• Categorias atuais: ${form.categoriasAtuacaoPairs?.map(p=>`${p.categoria} › ${p.subcategoria||"-"}`).join(" | ") || "-"}
+
+Mensagem: Solicito liberação para alterar minhas categorias.
+    `.trim();
+
+    const url = `https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(texto)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function toggleUfAtendida(uf: string) {
+    if (uf === "BRASIL") {
+      setForm((f) => ({
+        ...f,
+        atendeBrasil: !f.atendeBrasil,
+        ufsAtendidas: !f.atendeBrasil ? ["BRASIL"] : [],
+      }));
+      return;
+    }
+    if (form.atendeBrasil) {
+      setForm((f) => ({ ...f, atendeBrasil: false, ufsAtendidas: [uf] }));
+      return;
+    }
+    const has = form.ufsAtendidas.includes(uf);
+    setForm((f) => ({
+      ...f,
+      ufsAtendidas: has ? f.ufsAtendidas.filter((u) => u !== uf) : [...f.ufsAtendidas, uf],
+    }));
+  }
+
+  function addLeadCategoria() {
+    // Mantemos preferências simples por enquanto
+    const escolha = selCategoria || "";
+    if (!escolha) return;
+    if (!form.leadPreferencias.categorias.includes(escolha)) {
+      setForm((f) => ({
+        ...f,
+        leadPreferencias: {
+          ...f.leadPreferencias,
+          categorias: [...f.leadPreferencias.categorias, escolha],
+        },
+      }));
+    }
+  }
+
+  function removeLeadCategoria(cat: string) {
+    setForm((f) => ({
+      ...f,
+      leadPreferencias: {
+        ...f.leadPreferencias,
+        categorias: f.leadPreferencias.categorias.filter((c) => c !== cat),
+      },
+    }));
+  }
+
+  function addLeadUf(uf: string) {
+    if (!uf) return;
+    if (!form.leadPreferencias.ufs.includes(uf)) {
+      setForm((f) => ({
+        ...f,
+        leadPreferencias: {
+          ...f.leadPreferencias,
+          ufs: [...f.leadPreferencias.ufs, uf],
+        },
+      }));
+    }
+  }
+
+  function removeLeadUf(uf: string) {
+    setForm((f) => ({
+      ...f,
+      leadPreferencias: {
+        ...f.leadPreferencias,
+        ufs: f.leadPreferencias.ufs.filter((u) => u !== uf),
+      },
+    }));
+  }
+
+  function addVideo(url?: string) {
+    const value = (url ?? "").trim();
+    if (!value) return;
+    setForm((f) => ({ ...f, portfolioVideos: [...f.portfolioVideos, value] }));
+  }
+
+  function removeVideo(url: string) {
+    setForm((f) => ({ ...f, portfolioVideos: f.portfolioVideos.filter((v) => v !== url) }));
   }
 
   async function salvar(e?: React.FormEvent) {
@@ -424,11 +540,43 @@ Mensagem: Solicito liberação para alterar minhas categorias.
     setMsg("");
 
     try {
+      // Valida pares: todos precisam ter subcategoria
+      if (!form.categoriasAtuacaoPairs.length) {
+        setMsg("Escolha pelo menos 1 par (Categoria + Subcategoria).");
+        setSaving(false);
+        return;
+      }
+      if (form.categoriasAtuacaoPairs.length > 5) {
+        setMsg("Você pode escolher no máximo 5 categorias (pares).");
+        setSaving(false);
+        return;
+      }
+      const algumSemSub = form.categoriasAtuacaoPairs.some(
+        (p) => !p.subcategoria || p.subcategoria.trim() === ""
+      );
+      if (algumSemSub) {
+        setMsg("Todos os pares precisam de subcategoria selecionada.");
+        setSaving(false);
+        return;
+      }
+
+      // Garante unicidade de categorias principais:
+      const categoriasPrincipais = form.categoriasAtuacaoPairs.map((p) => p.categoria);
+      const setCategorias = new Set(categoriasPrincipais);
+      if (setCategorias.size !== categoriasPrincipais.length) {
+        setMsg("Cada categoria principal deve ser única (uma subcategoria por categoria).");
+        setSaving(false);
+        return;
+      }
+
       // Se já está travado, ignora qualquer tentativa de alteração local
-      const categoriasParaSalvar = categoriasLocked ? categoriasOriginais : form.categoriasAtuacao;
+      const paresParaSalvar = categoriasLocked ? pairsOriginais : form.categoriasAtuacaoPairs;
 
       // Travar DEFINITIVO somente quando tiver exatamente 5 no momento do salvar
-      const shouldLockNow = !categoriasLocked && categoriasParaSalvar.length === 5;
+      const shouldLockNow = !categoriasLocked && paresParaSalvar.length === 5;
+
+      // Legado: mantemos também `categoriasAtuacao` como lista de categorias principais (para filtros antigos)
+      const legadoCategorias = paresParaSalvar.map((p) => p.categoria);
 
       await updateDoc(doc(db, "usuarios", userId), {
         nome: form.nome,
@@ -441,7 +589,8 @@ Mensagem: Solicito liberação para alterar minhas categorias.
         // atuação
         prestaServicos: form.prestaServicos,
         vendeProdutos: form.vendeProdutos,
-        categoriasAtuacao: categoriasParaSalvar,
+        categoriasAtuacaoPairs: paresParaSalvar,
+        categoriasAtuacao: legadoCategorias, // <- compatibilidade
         ...(shouldLockNow ? { categoriasLocked: true, categoriasLockedAt: serverTimestamp() } : {}),
         // cobertura
         atendeBrasil: form.atendeBrasil,
@@ -451,21 +600,21 @@ Mensagem: Solicito liberação para alterar minhas categorias.
         // portfolio
         portfolioImagens: form.portfolioImagens,
         portfolioVideos: form.portfolioVideos,
-        // preferências de lead
+        // preferências de lead (mantidas simples)
         leadPreferencias: {
           categorias: form.leadPreferencias.categorias,
           ufs: form.leadPreferencias.ufs,
           ticketMin: form.leadPreferencias.ticketMin ?? null,
-          ticketMax: form.leadPreferencias.ticketMax ?? null
+          ticketMax: form.leadPreferencias.ticketMax ?? null,
         },
         // Mercado Pago
         mpConnected: !!form.mpConnected,
-        mpStatus: form.mpStatus || "desconectado"
+        mpStatus: form.mpStatus || "desconectado",
       });
 
       if (shouldLockNow) {
         setCategoriasLocked(true);
-        setCategoriasOriginais(categoriasParaSalvar);
+        setPairsOriginais(paresParaSalvar);
       }
 
       setMsg("Perfil atualizado com sucesso!");
@@ -515,14 +664,9 @@ Mensagem: Solicito liberação para alterar minhas categorias.
         <div className="lock-banner">
           <Lock size={16} />
           Suas categorias de atuação estão travadas. Para alterar, fale com o suporte.
-          <button
-  type="button"
-  className="btn-sec"
-  onClick={pedirAlteracaoViaWhatsApp}
->
-  <HelpCircle size={14} /> Pedir alteração ao suporte
-</button>
-
+          <button type="button" className="btn-sec" onClick={pedirAlteracaoViaWhatsApp}>
+            <HelpCircle size={14} /> Pedir alteração ao suporte
+          </button>
         </div>
       )}
 
@@ -555,7 +699,7 @@ Mensagem: Solicito liberação para alterar minhas categorias.
                     value={form.estado || ""}
                     onChange={(e) => {
                       const uf = e.target.value;
-                      setForm(f => ({ ...f, estado: uf, cidade: "" })); // reset cidade
+                      setForm((f) => ({ ...f, estado: uf, cidade: "" }));
                     }}
                   >
                     <option value="">Selecione</option>
@@ -565,17 +709,13 @@ Mensagem: Solicito liberação para alterar minhas categorias.
                 <div>
                   <label className="label">Cidade</label>
 
-                  {/* Sem UF ou BRASIL: desabilita */}
                   {(!form.estado || form.estado === "BRASIL") && (
                     <input className="input" value={form.cidade || ""} placeholder="—" disabled />
                   )}
 
-                  {/* Com UF válida */}
                   {form.estado && form.estado !== "BRASIL" && (
                     <>
-                      {cidadesLoading && (
-                        <input className="input" value="Carregando cidades..." disabled />
-                      )}
+                      {cidadesLoading && <input className="input" value="Carregando cidades..." disabled />}
 
                       {!cidadesLoading && !cidadesErro && cidades.length > 0 && (
                         <select
@@ -615,48 +755,76 @@ Mensagem: Solicito liberação para alterar minhas categorias.
           </div>
         </div>
 
-        {/* Card 2: Atuação / Categorias (lock definitivo) */}
+        {/* Card 2: Atuação (pares) */}
         <div className="card">
           <div className="card-title">Atuação</div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
             <div className="grid gap-2">
               <label className="checkbox">
-                <input type="checkbox" checked={form.prestaServicos}
-                       onChange={(e) => setField("prestaServicos", e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={form.prestaServicos}
+                  onChange={(e) => setField("prestaServicos", e.target.checked)}
+                />
                 <span>Presto serviços</span>
               </label>
               <label className="checkbox">
-                <input type="checkbox" checked={form.vendeProdutos}
-                       onChange={(e) => setField("vendeProdutos", e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={form.vendeProdutos}
+                  onChange={(e) => setField("vendeProdutos", e.target.checked)}
+                />
                 <span>Vendo produtos</span>
               </label>
             </div>
 
             <div>
-              <div className="label">Categorias que você atua (até 5)</div>
-              <div className="flex gap-2 items-center">
+              <div className="label">Categorias que você atua (até 5 pares)</div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-center">
                 <select
                   className="input"
-                  value={categoriaInput}
-                  onChange={(e) => setCategoriaInput(e.target.value)}
+                  value={selCategoria}
                   disabled={categoriasLocked}
+                  onChange={(e) => {
+                    setSelCategoria(e.target.value);
+                    setSelSubcategoria(""); // reset sub
+                  }}
                 >
                   <option value="">Selecionar categoria...</option>
-                  {categoriasBase.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {CATEGORIAS.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
                 </select>
-                <button type="button" className="btn-sec" onClick={addCategoria} disabled={categoriasLocked}>
-                  + Adicionar
-                </button>
+
+                <select
+                  className="input"
+                  value={selSubcategoria}
+                  disabled={categoriasLocked || !selCategoria}
+                  onChange={(e) => setSelSubcategoria(e.target.value)}
+                >
+                  <option value="">{selCategoria ? "Selecionar subcategoria..." : "Escolha uma categoria"}</option>
+                  {subcatsDaSelecionada.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+
+                <div className="md:col-span-2">
+                  <button type="button" className="btn-sec" onClick={addParCategoria} disabled={categoriasLocked}>
+                    + Adicionar par
+                  </button>
+                </div>
               </div>
 
-              {form.categoriasAtuacao.length > 0 && (
-                <div className="chips">
-                  {form.categoriasAtuacao.map((c) => (
-                    <span key={c} className="chip" title={categoriasLocked ? "Categorias travadas" : ""}>
-                      <Tag size={14} /> {c}
+              {/* Chips com pares */}
+              {form.categoriasAtuacaoPairs.length > 0 && (
+                <div className="chips" style={{ marginTop: 10 }}>
+                  {form.categoriasAtuacaoPairs.map((p) => (
+                    <span key={`${p.categoria}__${p.subcategoria || "-"}`} className="chip" title={categoriasLocked ? "Categorias travadas" : ""}>
+                      <Tag size={14} /> {p.categoria} <span style={{ opacity: 0.5 }}>›</span> {p.subcategoria || "—"}
                       {!categoriasLocked && (
-                        <button type="button" onClick={() => removeCategoria(c)}>×</button>
+                        <button type="button" onClick={() => removeParCategoria(p)}>×</button>
                       )}
                     </span>
                   ))}
@@ -669,18 +837,13 @@ Mensagem: Solicito liberação para alterar minhas categorias.
                     <Lock size={12} style={{ display: "inline", marginRight: 6 }} />
                     Categorias travadas
                   </span>
-                  <button
-  type="button"
-  className="btn-sec"
-  onClick={pedirAlteracaoViaWhatsApp}
->
-  <HelpCircle size={14} /> Pedir alteração ao suporte
-</button>
-
+                  <button type="button" className="btn-sec" onClick={pedirAlteracaoViaWhatsApp}>
+                    <HelpCircle size={14} /> Pedir alteração ao suporte
+                  </button>
                 </div>
               ) : (
                 <div style={{ marginTop: 8, fontSize: 12, color: "#334155" }}>
-                  Ao salvar com 5 categorias, seu perfil ficará travado para alterações.
+                  Ao salvar com 5 pares (Categoria + Subcategoria), seu perfil ficará travado para alterações.
                 </div>
               )}
             </div>
@@ -733,7 +896,7 @@ Mensagem: Solicito liberação para alterar minhas categorias.
                     <input
                       type="checkbox"
                       checked={dia.ativo}
-                      onChange={(e) => setForm(f => ({
+                      onChange={(e) => setForm((f) => ({
                         ...f,
                         agenda: { ...f.agenda, [d.key]: { ...dia, ativo: e.target.checked } }
                       }))}
@@ -746,7 +909,7 @@ Mensagem: Solicito liberação para alterar minhas categorias.
                       className="input"
                       value={dia.das}
                       disabled={!dia.ativo}
-                      onChange={(e) => setForm(f => ({
+                      onChange={(e) => setForm((f) => ({
                         ...f,
                         agenda: { ...f.agenda, [d.key]: { ...dia, das: e.target.value } }
                       }))}
@@ -757,7 +920,7 @@ Mensagem: Solicito liberação para alterar minhas categorias.
                       className="input"
                       value={dia.ate}
                       disabled={!dia.ativo}
-                      onChange={(e) => setForm(f => ({
+                      onChange={(e) => setForm((f) => ({
                         ...f,
                         agenda: { ...f.agenda, [d.key]: { ...dia, ate: e.target.value } }
                       }))}
@@ -784,8 +947,24 @@ Mensagem: Solicito liberação para alterar minhas categorias.
             <div>
               <div className="label">Vídeos (URLs YouTube/Vimeo)</div>
               <div className="flex gap-2">
-                <input className="input" placeholder="https://..." value={novoVideo} onChange={(e) => setNovoVideo(e.target.value)} />
-                <button type="button" className="btn-sec" onClick={addVideo}>+ Adicionar</button>
+                <input
+                  className="input"
+                  placeholder="https://..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addVideo((e.target as HTMLInputElement).value);
+                      (e.target as HTMLInputElement).value = "";
+                    }
+                  }}
+                />
+                <button type="button" className="btn-sec" onClick={() => {
+                  const el = document.querySelector<HTMLInputElement>('input[placeholder="https://..."]');
+                  if (el?.value) {
+                    addVideo(el.value);
+                    el.value = "";
+                  }
+                }}>+ Adicionar</button>
               </div>
               {form.portfolioVideos.length > 0 && (
                 <ul style={{ marginTop: 10, display: "grid", gap: 8 }}>
@@ -801,7 +980,7 @@ Mensagem: Solicito liberação para alterar minhas categorias.
           </div>
         </div>
 
-        {/* Card 6: Preferências de Lead */}
+        {/* Card 6: Preferências de Lead (simples) */}
         <div className="card">
           <div className="card-title">Preferências de Lead</div>
 
@@ -809,9 +988,16 @@ Mensagem: Solicito liberação para alterar minhas categorias.
             <div>
               <div className="label">Categorias preferidas</div>
               <div className="flex gap-2 items-center">
-                <select className="input" value={leadCategoriaInput} onChange={(e) => setLeadCategoriaInput(e.target.value)}>
+                <select
+                  className="input"
+                  value={selCategoria}
+                  onChange={(e) => {
+                    setSelCategoria(e.target.value);
+                    setSelSubcategoria("");
+                  }}
+                >
                   <option value="">Selecionar...</option>
-                  {categoriasBase.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <button type="button" className="btn-sec" onClick={addLeadCategoria}>+ Adicionar</button>
               </div>
@@ -829,11 +1015,10 @@ Mensagem: Solicito liberação para alterar minhas categorias.
             <div>
               <div className="label">UFs preferidas</div>
               <div className="flex gap-2 items-center">
-                <select className="input" value={leadUfInput} onChange={(e) => setLeadUfInput(e.target.value)}>
+                <select className="input" onChange={(e) => addLeadUf(e.target.value)}>
                   <option value="">Selecionar UF...</option>
                   {estados.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
                 </select>
-                <button type="button" className="btn-sec" onClick={addLeadUf}>+ Adicionar</button>
               </div>
               {form.leadPreferencias.ufs.length > 0 && (
                 <div className="chips">
@@ -852,7 +1037,7 @@ Mensagem: Solicito liberação para alterar minhas categorias.
                     type="number"
                     className="input"
                     value={form.leadPreferencias.ticketMin ?? ""}
-                    onChange={(e) => setForm(f => ({
+                    onChange={(e) => setForm((f) => ({
                       ...f, leadPreferencias: { ...f.leadPreferencias, ticketMin: e.target.value ? Number(e.target.value) : null }
                     }))}
                     min={0}
@@ -864,7 +1049,7 @@ Mensagem: Solicito liberação para alterar minhas categorias.
                     type="number"
                     className="input"
                     value={form.leadPreferencias.ticketMax ?? ""}
-                    onChange={(e) => setForm(f => ({
+                                        onChange={(e) => setForm((f) => ({
                       ...f, leadPreferencias: { ...f.leadPreferencias, ticketMax: e.target.value ? Number(e.target.value) : null }
                     }))}
                     min={0}
@@ -1033,3 +1218,4 @@ Mensagem: Solicito liberação para alterar minhas categorias.
     </section>
   );
 }
+

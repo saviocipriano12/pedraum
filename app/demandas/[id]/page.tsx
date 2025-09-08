@@ -459,50 +459,18 @@ function resolveUnitPriceFromCents(cents?: number): number {
   return 19.9; // fallback
 }
 
- async function atender() {
+async function atender() {
   if (!uid) return;
-  if (patrocinioAtivo) return;
 
-  setPaying(true);
-  setMsg(null);
+  // monta mensagem automática
+  const msg = encodeURIComponent(
+    `Olá! Quero atender esta demanda: "${title}" (ID: ${id})`
+  );
 
-  try {
-    await ensureAssignmentDoc();
-
-    const demandaId = String(id);
-    const leadId = demandaId; // usamos o id da demanda como leadId (mantém compatibilidade)
-    const tituloPagamento = `Contato da demanda ${title}`;
-    const unit_price = resolveUnitPriceFromCents(priceCents); // ex.: 1990 -> 19.9
-
-    const res = await fetch("/api/mp/create-preference", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: tituloPagamento,
-        unit_price,
-        quantity: 1,
-        userId: uid,
-        leadId,          // ✅ agora vai
-        demandaId        // ✅ agora vai
-        // (qualquer outro campo o backend não usa)
-      }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok || !data?.init_point) {
-      console.error("create-preference error:", data);
-      throw new Error(data?.message || data?.error || "Erro ao criar preferência");
-    }
-
-    window.location.href = data.init_point || data.sandbox_init_point;
-  } catch (e: any) {
-    console.error(e);
-    setMsg(e?.message || "Erro ao iniciar pagamento.");
-  } finally {
-    setPaying(false);
-  }
+  // redireciona para o WhatsApp do Pedraum
+  window.open(`https://wa.me/5531990903613?text=${msg}`, "_blank");
 }
+
 
 
   function copy(text?: string) {

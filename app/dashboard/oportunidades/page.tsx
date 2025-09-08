@@ -47,6 +47,7 @@ type Assignment = {
 function normalizeDemand(raw: any) {
   const title = raw?.title ?? raw?.titulo ?? "Demanda";
   const description = raw?.description ?? raw?.descricao ?? "";
+  const PEDRAUM_WPP_NUMBER = "5531990903613"; // +55 31 99090-3613
   const category = raw?.category ?? raw?.categoria ?? "";
   const uf = raw?.uf ?? raw?.estado ?? "";
   const city = raw?.city ?? raw?.cidade ?? "";
@@ -54,6 +55,11 @@ function normalizeDemand(raw: any) {
     raw?.contact ?? (raw?.whatsapp ? { whatsapp: raw.whatsapp } : undefined);
 
   return { title, description, category, uf, city, contact };
+}
+const PEDRAUM_WPP_NUMBER = "5531990903613"; // +55 31 99090-3613
+
+function waLinkToPedraum(text: string) {
+  return `https://wa.me/${PEDRAUM_WPP_NUMBER}?text=${encodeURIComponent(text)}`;
 }
 
 function centsToReaisText(cents?: number) {
@@ -166,42 +172,29 @@ export default function OportunidadesPage() {
   /* --------------------------- Ações --------------------------- */
   // Usa sua rota atual (/api/mp/create-preference) que espera unit_price (em reais).
   async function atender(a: Assignment) {
-    if (!uid) return;
-    setAbrindo(a.demandId);
-    try {
-      const title = normalizeDemand(a.demand || {}).title || "Contato";
+  if (!uid) return;
+  setAbrindo(a.demandId);
 
-      // amount vem em centavos -> converte para reais (number)
-      if (typeof a?.pricing?.amount !== "number") {
-        alert("Preço do lead não encontrado.");
-        return;
-      }
-      const unit_price = a.pricing.amount / 100;
+  try {
+    const n = normalizeDemand(a.demand || {});
+    const msg =
+      `Olá! Quero atender esta demanda no Pedraum.\n` +
+      `• Título: "${n.title || "Demanda"}"\n` +
+      `• Demanda ID: ${a.demandId}\n` +
+      `• Assignment ID: ${a.id}\n` +
+      (typeof a?.pricing?.amount === "number"
+        ? `• Preço exibido: R$ ${(a.pricing.amount / 100).toFixed(2)}\n`
+        : "");
 
-      const res = await fetch("/api/mp/create-preference", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: uid, // comprador
-          leadId: a.id,
-          demandaId: a.demandId,
-          title,
-          unit_price, // sua rota atual precisa disso
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data?.init_point) {
-        window.location.href = data.init_point; // redirect Checkout Pro
-        return;
-      }
-      alert(data?.message || data?.error || "Falha ao criar preferência de pagamento.");
-    } catch (e: any) {
-      alert(e.message || "Erro ao iniciar pagamento.");
-    } finally {
-      setAbrindo(null);
-    }
+    // abre o WhatsApp do Pedraum em nova aba
+    window.open(waLinkToPedraum(msg), "_blank");
+  } catch (e) {
+    alert("Não foi possível abrir o WhatsApp. Tente novamente.");
+  } finally {
+    setAbrindo(null);
   }
+}
+
 
   /* ---------------------------- UI ---------------------------- */
 
@@ -451,7 +444,8 @@ function OportunidadeCard({
               cursor: atendendo ? "not-allowed" : "pointer",
             }}
           >
-            {atendendo ? <Loader2 size={16} className="animate-spin" /> : "Atender (desbloquear)"}
+           {atendendo ? <Loader2 size={16} className="animate-spin" /> : "Falar no WhatsApp"}
+
           </button>
         ) : norm?.contact?.whatsapp ? (
           <a

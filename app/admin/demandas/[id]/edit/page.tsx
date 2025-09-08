@@ -48,6 +48,29 @@ import {
 } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
 
+// --- Categorias globais para filtro (pode importar de onde centralizou a TAXONOMIA) ---
+const TAXONOMIA: Record<string, string[]> = {
+  "Equipamentos de Perfuração e Demolição": [],
+  "Equipamentos de Carregamento e Transporte": [],
+  "Britagem e Classificação": [],
+  "Beneficiamento e Processamento Mineral": [],
+  "Peças e Componentes Industriais": [],
+  "Desgaste e Revestimento": [],
+  "Automação, Elétrica e Controle": [],
+  "Lubrificação e Produtos Químicos": [],
+  "Equipamentos Auxiliares e Ferramentas": [],
+  "EPIs (Equipamentos de Proteção Individual)": [],
+  "Instrumentos de Medição e Controle": [],
+  "Manutenção e Serviços Industriais": [],
+  "Veículos e Pneus": [],
+  "Outros": [],
+};
+const TODAS_CATEGORIAS = Object.keys(TAXONOMIA);
+const UFS = [
+  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
+  "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"
+];
+
 /* ===================== Tipos ===================== */
 type Usuario = {
   id: string;
@@ -252,6 +275,36 @@ export default function EditDemandaPage() {
     );
     return () => unsub();
   }, [demandaId]);
+function docToUsuario(d: any): Usuario {
+  const raw = d.data ? (d.data() as any) : (d as any); // aceita Firestore Doc ou objeto cru
+  // 1) tenta categoriasAtuacao (legado salvo no PerfilPage)
+  // 2) tenta categoriasAtuacaoPairs (novo: extrai as "categorias principais")
+  // 3) por fim, usa categorias (se já existir no usuário)
+  let categorias: string[] = [];
+  if (Array.isArray(raw.categoriasAtuacao)) {
+    categorias = raw.categoriasAtuacao;
+  } else if (Array.isArray(raw.categoriasAtuacaoPairs)) {
+    categorias = raw.categoriasAtuacaoPairs
+      .map((p: any) => p?.categoria)
+      .filter(Boolean);
+  } else if (Array.isArray(raw.categorias)) {
+    categorias = raw.categorias;
+  }
+
+  // UF(s): alguns perfis guardam ufsAtendidas (perfil novo) ou ufs (antigo)
+  const ufs = Array.isArray(raw.ufsAtendidas)
+    ? raw.ufsAtendidas
+    : Array.isArray(raw.ufs)
+    ? raw.ufs
+    : [];
+
+  return {
+    id: d.id ?? raw.id,
+    ...raw,
+    categorias,
+    ufs,
+  } as Usuario;
+}
 
   /* ===================== catálogo usuários ===================== */
   useEffect(() => {
@@ -266,7 +319,7 @@ export default function EditDemandaPage() {
       let qBuild: any = base;
       if (!reset && paging.last) qBuild = query(base, startAfter(paging.last));
       const snap = await getDocs(qBuild);
-      const list: Usuario[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      const list: Usuario[] = snap.docs.map(docToUsuario);
       setUsuarios(prev => reset ? list : [...prev, ...list]);
       setPaging({ last: snap.docs[snap.docs.length - 1], ended: snap.size < 40 });
     } finally {
@@ -286,40 +339,41 @@ export default function EditDemandaPage() {
       const resultados = new Map<string, Usuario>();
 
       if (t.length >= 8) {
-        try {
-          const byId = await getDoc(doc(db, "usuarios", t));
-          if (byId.exists()) resultados.set(byId.id, { id: byId.id, ...(byId.data() as any) });
-        } catch {}
-      }
+  try {
+    const byId = await getDoc(doc(db, "usuarios", t));
+    if (byId.exists()) resultados.set(byId.id, docToUsuario(byId));
+  } catch {}
+}
 
-      if (t.includes("@")) {
-        const qEmailExato = query(collection(db, "usuarios"), where("email", "==", t.toLowerCase()));
-        const s1 = await getDocs(qEmailExato);
-        s1.forEach(d => resultados.set(d.id, { id: d.id, ...(d.data() as any) }));
-      }
+const qEmailExato = query(collection(db, "usuarios"), where("email", "==", t.toLowerCase()));
+const s1 = await getDocs(qEmailExato);
+s1.forEach(d => resultados.set(d.id, docToUsuario(d)));
+
 
       const tCap = t.charAt(0).toUpperCase() + t.slice(1);
-      const qNome = query(
-        collection(db, "usuarios"),
-        orderBy("nome"),
-        startAt(tCap),
-        endAt(tCap + "\uf8ff"),
-        limit(50)
-      );
-      const s2 = await getDocs(qNome);
-      s2.forEach(d => resultados.set(d.id, { id: d.id, ...(d.data() as any) }));
+     const qNome = query(
+  collection(db, "usuarios"),
+  orderBy("nome"),
+  startAt(tCap),
+  endAt(tCap + "\uf8ff"),
+  limit(50)
+);
+const s2 = await getDocs(qNome);
+s2.forEach(d => resultados.set(d.id, docToUsuario(d)));
+
 
       const tLower = t.toLowerCase();
       try {
         const qEmail = query(
-          collection(db, "usuarios"),
-          orderBy("email"),
-          startAt(tLower),
-          endAt(tLower + "\uf8ff"),
-          limit(50)
-        );
-        const s3 = await getDocs(qEmail);
-        s3.forEach(d => resultados.set(d.id, { id: d.id, ...(d.data() as any) }));
+  collection(db, "usuarios"),
+  orderBy("email"),
+  startAt(tLower),
+  endAt(tLower + "\uf8ff"),
+  limit(50)
+);
+const s3 = await getDocs(qEmail);
+s3.forEach(d => resultados.set(d.id, docToUsuario(d)));
+
       } catch {}
 
       setUsuarios(Array.from(resultados.values()));
@@ -832,21 +886,25 @@ export default function EditDemandaPage() {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <div>
                 <label style={miniLabel}>
-                  <Filter size={13} /> Categoria
-                </label>
-                <select value={fCat} onChange={(e)=>setFCat(e.target.value)} style={{ ...input, width: 190 }}>
-                  <option value="">Todas</option>
-                  {form.categoria && <option value={form.categoria}>{form.categoria}</option>}
-                </select>
+  <Filter size={13} /> Categoria
+</label>
+<select value={fCat} onChange={(e)=>setFCat(e.target.value)} style={{ ...input, width: 220 }}>
+  <option value="">Todas</option>
+  {TODAS_CATEGORIAS.map((c) => (
+    <option key={c} value={c}>{c}</option>
+  ))}
+</select>
+
               </div>
               <div>
                 <label style={miniLabel}>
                   <Filter size={13} /> UF
                 </label>
-                <select value={fUF} onChange={(e)=>setFUF(e.target.value)} style={{ ...input, width: 140 }}>
-                  <option value="">Todas</option>
-                  {form.estado && <option value={form.estado}>{form.estado}</option>}
-                </select>
+<select value={fUF} onChange={(e)=>setFUF(e.target.value)} style={{ ...input, width: 140 }}>
+  <option value="">Todas</option>
+  {UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+</select>
+
               </div>
               <button type="button" onClick={()=>loadUsuarios(true)} style={ghostBtn}>
                 <RefreshCw size={16} /> Atualizar

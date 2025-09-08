@@ -5,7 +5,7 @@ import { MercadoPagoConfig, Preference } from "mercadopago";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Utilitário: falha cedo e com mensagem clara no log */
+// Fail-fast de env com fallback seguro para BASE_URL
 function reqEnv(name: string, fallback?: string) {
   const v = process.env[name] ?? fallback;
   if (!v) throw new Error(`ENV ausente: ${name}`);
@@ -15,61 +15,65 @@ function reqEnv(name: string, fallback?: string) {
 export async function POST(req: NextRequest) {
   const startedAt = Date.now();
   try {
-    // ==== ENVs (com fallbacks seguros) ====
+    // ENVs
     const MP_ACCESS_TOKEN = reqEnv("MP_ACCESS_TOKEN");
-    // Você usa NEXT_PUBLIC_BASE_URL; deixei fallback para o domínio oficial
-    const BASE_URL = reqEnv("NEXT_PUBLIC_BASE_URL", "https://pedraum.com.br");
+    const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? "https://pedraum.com.br";
 
-    const MP_BACKURL_SUCCESS = process.env.MP_BACKURL_SUCCESS ?? `${BASE_URL}/checkout/sucesso`;
-    const MP_BACKURL_FAILURE = process.env.MP_BACKURL_FAILURE ?? `${BASE_URL}/checkout/falhou`;
-    const MP_BACKURL_PENDING = process.env.MP_BACKURL_PENDING ?? `${BASE_URL}/checkout/pendente`;
+    const BACK_SUCCESS = process.env.MP_BACKURL_SUCCESS ?? `${BASE_URL}/checkout/sucesso`;
+    const BACK_FAILURE = process.env.MP_BACKURL_FAILURE ?? `${BASE_URL}/checkout/falhou`;
+    const BACK_PENDING = process.env.MP_BACKURL_PENDING ?? `${BASE_URL}/checkout/pendente`;
+    const NOTIFICATION_URL = `${BASE_URL}/api/mp/webhook`;
 
-    // ==== Body ====
-    const { userId, leadId, title, unit_price, demandaId } = await req.json();
-
+    // Body
+    const { userId, leadId, title, unit_price, demandaId, quantity } = await req.json();
     const price = Number(unit_price);
-    if (!price || price <= 0 || Number.isNaN(price)) {
+    const qty = Number(quantity ?? 1);
+
+    if (!price || Number.isNaN(price) || price <= 0) {
       throw new Error(`unit_price inválido: ${unit_price}`);
     }
+    if (!qty || Number.isNaN(qty) || qty <= 0) {
+      throw new Error(`quantity inválido: ${quantity}`);
+    }
 
-    // Instanciar o SDK *dentro* do handler garante ENV presente em runtime
+    // SDK (dentro do handler garante env carregada)
     const mp = new MercadoPagoConfig({ accessToken: MP_ACCESS_TOKEN });
     const preference = new Preference(mp);
 
-    const body: any = {
-      items: [
-        {
-          id: String(leadId ?? "lead"),
-          title: String(title ?? "Pagamento Pedraum"),
-          quantity: 1,
-          currency_id: "BRL",
-          unit_price: price,
-        },
-      ],
-      back_urls: {
-        success: MP_BACKURL_SUCCESS,
-        failure: MP_BACKURL_FAILURE,
-        pending: MP_BACKURL_PENDING,
-      },
-      auto_return: "approved",
-      external_reference: JSON.stringify({ userId, leadId, demandaId }),
-      // Garanta URL absoluta e https
-      notification_url: `${BASE_URL}/api/mp/webhook`,
-      // Evita erro em cliques repetidos
-      metadata: { userId, leadId, demandaId, env: "production" },
-    };
-
-    // Idempotency opcional; ajuda em produção
+    // Idempotência p/ evitar problemas de clique duplo
     const idempotencyKey = `${demandaId ?? "d"}-${leadId ?? "l"}-${userId ?? "u"}-${Date.now()}`;
 
-    const resp = await preference.create({ body, requestOptions: { idempotencyKey } });
+    const resp = await preference.create({
+      body: {
+        items: [
+          {
+            id: String(leadId ?? "lead"),
+            title: String(title ?? "Pagamento Pedraum"),
+            quantity: qty,
+            currency_id: "BRL",
+            unit_price: price,
+          },
+        ],
+        back_urls: {
+          success: BACK_SUCCESS,
+          failure: BACK_FAILURE,
+          pending: BACK_PENDING,
+        },
+        notification_url: NOTIFICATION_URL,
+        auto_return: "approved",
+        statement_descriptor: "PEDRAUM",
+        external_reference: JSON.stringify({ userId, leadId, demandaId }),
+        metadata: { userId, leadId, demandaId, env: "production" },
+      },
+      requestOptions: { idempotencyKey },
+    });
 
     return NextResponse.json(
       {
         ok: true,
-        preferenceId: resp.id,
-        init_point: resp.init_point,
-        sandbox_init_point: resp.sandbox_init_point,
+        pref_id: resp?.id,
+        init_point: resp?.init_point,
+        sandbox_init_point: resp?.sandbox_init_point,
         took_ms: Date.now() - startedAt,
       },
       { status: 200 }

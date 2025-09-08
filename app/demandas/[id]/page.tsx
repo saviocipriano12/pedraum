@@ -453,44 +453,57 @@ export default function DemandaDetalhePage() {
       }
     }
   }
+function resolveUnitPriceFromCents(cents?: number): number {
+  const n = Number(cents);
+  if (Number.isFinite(n) && n > 0) return Number((n / 100).toFixed(2));
+  return 19.9; // fallback
+}
 
-  async function atender() {
-    if (!uid) return;
-    if (patrocinioAtivo) return;
+ async function atender() {
+  if (!uid) return;
+  if (patrocinioAtivo) return;
 
-    setPaying(true);
-    setMsg(null);
-    try {
-      await ensureAssignmentDoc();
+  setPaying(true);
+  setMsg(null);
 
-      const tituloPagamento = `Contato da demanda ${title}`;
-      const precoReais = Number(priceCents) / 100;
+  try {
+    await ensureAssignmentDoc();
 
-      const res = await fetch("/api/mp/create-preference", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: tituloPagamento,
-          unit_price: precoReais,
-          quantity: 1,
-          userId: uid,
-          kind: "lead",
-          resourceId: String(id),
-          payerEmail: auth.currentUser?.email || perfil?.email,
-        }),
-      });
+    const demandaId = String(id);
+    const leadId = demandaId; // usamos o id da demanda como leadId (mantém compatibilidade)
+    const tituloPagamento = `Contato da demanda ${title}`;
+    const unit_price = resolveUnitPriceFromCents(priceCents); // ex.: 1990 -> 19.9
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Erro ao criar preferência");
+    const res = await fetch("/api/mp/create-preference", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: tituloPagamento,
+        unit_price,
+        quantity: 1,
+        userId: uid,
+        leadId,          // ✅ agora vai
+        demandaId        // ✅ agora vai
+        // (qualquer outro campo o backend não usa)
+      }),
+    });
 
-      window.location.href = data.init_point || data.sandbox_init_point;
-    } catch (e: any) {
-      console.error(e);
-      setMsg(e?.message || "Erro ao iniciar pagamento.");
-    } finally {
-      setPaying(false);
+    const data = await res.json();
+
+    if (!res.ok || !data?.init_point) {
+      console.error("create-preference error:", data);
+      throw new Error(data?.message || data?.error || "Erro ao criar preferência");
     }
+
+    window.location.href = data.init_point || data.sandbox_init_point;
+  } catch (e: any) {
+    console.error(e);
+    setMsg(e?.message || "Erro ao iniciar pagamento.");
+  } finally {
+    setPaying(false);
   }
+}
+
 
   function copy(text?: string) {
     if (!text) return;

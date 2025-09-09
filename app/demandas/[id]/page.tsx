@@ -622,176 +622,179 @@ export default function DemandaDetalhePage() {
         </div>
       </div>
 
-      {/* Grid principal */}
-      <div className="op-grid">
-        {/* ===== MÍDIA ===== */}
-        <div className="op-media">
-          {imagens.length > 0 && imgOk ? (
-            <>
+   {/* Grid principal */}
+<div className="op-grid">
+  {/* ===== MÍDIA (coluna esquerda) ===== */}
+  <div className="op-media">
+    {imagens.length > 0 && imgOk ? (
+      <>
+        <img
+          src={imgPrincipal}
+          alt={title}
+          className="op-img"
+          onLoad={() => setImgOk(true)}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).src = "/images/no-image.png";
+            setImgOk(false);
+          }}
+        />
+        {imagens.length > 1 && (
+          <div className="op-thumbs op-thumbs-scroll">
+            {imagens.map((img, idx) => (
               <img
-                src={imgPrincipal}
-                alt={title}
-                className="op-img"
-                onLoad={() => setImgOk(true)}
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = "/images/no-image.png";
-                  setImgOk(false);
-                }}
+                key={idx}
+                src={img || "/images/no-image.png"}
+                alt={`Imagem ${idx + 1}`}
+                className={`op-thumb ${idx === imgIdx ? "op-thumb--active" : ""}`}
+                onClick={() => setImgIdx(idx)}
+                onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
               />
-              {imagens.length > 1 && (
-                <div className="op-thumbs op-thumbs-scroll">
-                  {imagens.map((img, idx) => (
-                    <img
-                      key={idx}
-                      src={img || "/images/no-image.png"}
-                      alt={`Imagem ${idx + 1}`}
-                      className={`op-thumb ${idx === imgIdx ? "op-thumb--active" : ""}`}
-                      onClick={() => setImgIdx(idx)}
-                      onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
-                    />
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="op-noimg">
-              <div className="op-noimg-badge">
-                <ImageIcon size={18} /> Sem fotos
-              </div>
-              <div className="op-noimg-avatar">{initials(title)}</div>
-              <div className="op-noimg-title" title={title}>
-                {title}
-              </div>
-              <div className="op-noimg-meta">
-                <span>
-                  <Tag size={16} /> {category}
-                  {subcat ? ` • ${subcat}` : ""}
-                </span>
-                <span>
-                  <MapPin size={16} /> {city}, {uf}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* ===== Descrição (agora abaixo da imagem) ===== */}
-          {description && (
-            <div className="op-desc-card">
-              <div className="op-desc-header">
-                <span className="op-desc-badge">Descrição</span>
-              </div>
-              <div className="op-desc-body">{description}</div>
-            </div>
-          )}
+            ))}
+          </div>
+        )}
+      </>
+    ) : (
+      <div className="op-noimg">
+        <div className="op-noimg-badge">
+          <ImageIcon size={18} /> Sem fotos
         </div>
-
-        {/* ===== Infos ===== */}
-        <div className="op-info">
-          {/* Meta list */}
-          <div className="op-meta-list">
-            <span>
-              <Tag size={18} /> {category}
-              {subcat ? ` • ${subcat}` : ""}
-            </span>
-            <span>
-              <MapPin size={18} /> {city}, {uf}
-            </span>
-            <span>
-              <Calendar size={18} /> Prazo: {prazoStr || "—"}
-            </span>
-            <span>
-              <BadgeCheck size={18} /> Orçamento: {orcamento}
-            </span>
-          </div>
-
-          {/* ===== CTA box ===== */}
-          <div className="op-cta">
-            {/* preço removido da UI */}
-            {!unlocked ? (
-              <>
-                {/* Hero CTA */}
-                <div className="op-cta-highlight">
-                  <h3 className="op-cta-title">
-                    <Zap size={18} /> Desbloqueie o contato e fale direto com o cliente
-                  </h3>
-                  <ul className="op-benefits">
-                    <li>⚡ Acesso imediato ao WhatsApp e E-mail</li>
-                    <li>💼 Oportunidade ativa procurando solução</li>
-                  </ul>
-
-                  <button
-                    onClick={atender}
-                    disabled={paying || false /* patrocinador sem match de categoria NÃO libera contato */}
-                    className="op-btn-laranja op-btn-big"
-                    aria-disabled={paying || false}
-                    style={{
-                      background: paying ? "#d1d5db" : "#FB8500",
-                      cursor: paying ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {paying ? "Abrindo pagamento…" : "Atender agora"}
-                  </button>
-
-                  <div className="op-cta-note">
-                    Após o pagamento aprovado, o contato é liberado automaticamente nesta página.
-                  </div>
-                </div>
-
-                {/* Upsell patrocinador */}
-                {!patrocinioAtivo && (
-                  <div className="op-upsell">
-                    <div className="op-upsell-left">
-                      <strong>Seja Patrocinador</strong> e veja contatos sem pagar por demanda nas suas categorias.
-                    </div>
-                    <a href={WPP_SPONSOR_URL} target="_blank" rel="noopener noreferrer" className="op-upsell-btn">
-                      Conhecer planos <ChevronRight size={16} />
-                    </a>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="op-contact">
-                <div className="op-contact-title">
-                  <CheckCircle2 size={18} /> Contato liberado
-                </div>
-                <div className="op-contact-grid">
-                  <div>
-                    <div className="op-contact-label">Nome</div>
-                    <div className="op-contact-value">{contatoNome || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="op-contact-label">E-mail</div>
-                    <div className="op-contact-value">{contatoEmail || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="op-contact-label">WhatsApp / Telefone</div>
-                    <div className="op-contact-wpp">
-                      <span className="op-contact-value">{contatoWpp || "—"}</span>
-                      {contatoWpp && (
-                        <button onClick={() => copy(String(contatoWpp))} className="op-copy" title="Copiar">
-                          <Copy size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {wppDigits && (
-                  <a
-                    target="_blank"
-                    href={`https://wa.me/${wppDigits}?text=${encodeURIComponent(
-                      `Olá! Vi sua demanda "${title}" no Pedraum e posso te atender.`
-                    )}`}
-                    className="op-btn-azul"
-                  >
-                    <PhoneCall size={16} /> Abrir WhatsApp
-                  </a>
-                )}
-              </div>
-            )}
-          </div>
+        <div className="op-noimg-avatar">{initials(title)}</div>
+        <div className="op-noimg-title" title={title}>
+          {title}
+        </div>
+        <div className="op-noimg-meta">
+          <span>
+            <Tag size={16} /> {category}
+            {subcat ? ` • ${subcat}` : ""}
+          </span>
+          <span>
+            <MapPin size={16} /> {city}, {uf}
+          </span>
         </div>
       </div>
+    )}
+
+    {/* ===== CTA (agora abaixo da imagem) ===== */}
+    <div className="op-cta">
+      {!unlocked ? (
+        <>
+          <div className="op-cta-highlight">
+            <h3 className="op-cta-title">
+              <Zap size={18} /> Desbloqueie o contato e fale direto com o cliente
+            </h3>
+
+            <ul className="op-benefits">
+              <li>⚡ Acesso imediato ao WhatsApp e E-mail</li>
+              <li>💼 Oportunidade ativa procurando solução</li>
+            </ul>
+
+            <button
+              onClick={atender}
+              disabled={paying || false}
+              className="op-btn-laranja op-btn-big"
+              aria-disabled={paying || false}
+              style={{
+                background: paying ? "#d1d5db" : "#FB8500",
+                cursor: paying ? "not-allowed" : "pointer",
+              }}
+            >
+              {paying ? "Abrindo pagamento…" : "Atender agora"}
+            </button>
+
+            <div className="op-cta-note">
+              Após o pagamento aprovado, o contato é liberado automaticamente nesta página.
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="op-contact">
+          <div className="op-contact-title">
+            <CheckCircle2 size={18} /> Contato liberado
+          </div>
+
+          <div className="op-contact-grid">
+            <div>
+              <div className="op-contact-label">Nome</div>
+              <div className="op-contact-value">{contatoNome || "—"}</div>
+            </div>
+            <div>
+              <div className="op-contact-label">E-mail</div>
+              <div className="op-contact-value">{contatoEmail || "—"}</div>
+            </div>
+            <div>
+              <div className="op-contact-label">WhatsApp / Telefone</div>
+              <div className="op-contact-wpp">
+                <span className="op-contact-value">{contatoWpp || "—"}</span>
+                {contatoWpp && (
+                  <button onClick={() => copy(String(contatoWpp))} className="op-copy" title="Copiar">
+                    <Copy size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {wppDigits && (
+            <a
+              target="_blank"
+              href={`https://wa.me/${wppDigits}?text=${encodeURIComponent(
+                `Olá! Vi sua demanda "${title}" no Pedraum e posso te atender.`
+              )}`}
+              className="op-btn-azul"
+            >
+              <PhoneCall size={16} /> Abrir WhatsApp
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  </div>
+
+  {/* ===== INFOS (coluna direita) ===== */}
+  <div className="op-info">
+    {/* Meta list */}
+    <div className="op-meta-list">
+      <span>
+        <Tag size={18} /> {category}
+        {subcat ? ` • ${subcat}` : ""}
+      </span>
+      <span>
+        <MapPin size={18} /> {city}, {uf}
+      </span>
+      <span>
+        <Calendar size={18} /> Prazo: {prazoStr || "—"}
+      </span>
+      <span>
+        <BadgeCheck size={18} /> Orçamento: {orcamento}
+      </span>
+    </div>
+
+    {/* ===== Descrição ===== */}
+    {description && (
+      <div className="op-desc-card">
+        <div className="op-desc-header">
+          <span className="op-desc-badge">Descrição</span>
+        </div>
+        <div className="op-desc-body">{description}</div>
+      </div>
+    )}
+
+    {/* ===== Upsell patrocinador (agora aqui, embaixo da descrição) ===== */}
+    {!patrocinioAtivo && (
+      <div className="op-upsell">
+        <div className="op-upsell-left">
+          <strong>Seja Patrocinador</strong> e veja contatos sem pagar por demanda nas suas categorias.
+        </div>
+        <a href={WPP_SPONSOR_URL} target="_blank" rel="noopener noreferrer" className="op-upsell-btn">
+          Conhecer planos <ChevronRight size={16} />
+        </a>
+      </div>
+    )}
+  </div>
+</div>
+
+
+               
 
       {relacionadas.length > 0 && (
         <div className="op-recomenda">

@@ -17,12 +17,12 @@ import {
   Loader2,
   Target,
   MapPin,
-  BadgeDollarSign,
   CheckCircle2,
   Filter,
   Eye,
   LockOpen,
 } from "lucide-react";
+
 
 /* ----------------------------- Tipos ----------------------------- */
 
@@ -62,10 +62,6 @@ function waLinkToPedraum(text: string) {
   return `https://wa.me/${PEDRAUM_WPP_NUMBER}?text=${encodeURIComponent(text)}`;
 }
 
-function centsToReaisText(cents?: number) {
-  const v = typeof cents === "number" ? cents : 1990;
-  return (v / 100).toFixed(2).replace(".", ",");
-}
 
 function sortByCreatedAtDesc(a: Assignment, b: Assignment) {
   const ta = a.createdAt?.seconds ?? a.createdAt?._seconds ?? 0;
@@ -340,29 +336,6 @@ function filtra(list: Assignment[], busca: string, cat: string, uf: string, cida
   });
 }
 
-function PriceBadge({ a }: { a: Assignment }) {
-  const reais = centsToReaisText(a?.pricing?.amount);
-  return (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        background: "#fff7ed",
-        color: "#9a3412",
-        border: "1px solid #fed7aa",
-        padding: "6px 10px",
-        borderRadius: 999,
-        fontWeight: 800,
-        fontSize: 13,
-      }}
-    >
-      <BadgeDollarSign size={16} />
-      R$ {reais}
-    </div>
-  );
-}
-
 function OportunidadeCard({
   a,
   unlocked,
@@ -391,28 +364,27 @@ function OportunidadeCard({
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-        <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{norm.title}</div>
-        {!unlocked ? (
-          <PriceBadge a={a} />
-        ) : (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              background: "#ecfdf5",
-              color: "#065f46",
-              border: "1px solid #a7f3d0",
-              padding: "6px 10px",
-              borderRadius: 999,
-              fontWeight: 800,
-              fontSize: 13,
-            }}
-          >
-            <CheckCircle2 size={16} /> Em atendimento
-          </span>
-        )}
-      </div>
+  <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{norm.title}</div>
+  {unlocked && (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        background: "#ecfdf5",
+        color: "#065f46",
+        border: "1px solid #a7f3d0",
+        padding: "6px 10px",
+        borderRadius: 999,
+        fontWeight: 800,
+        fontSize: 13,
+      }}
+    >
+      <CheckCircle2 size={16} /> Em atendimento
+    </span>
+  )}
+</div>
+
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#475569", fontSize: 13 }}>
         <MapPin size={16} />

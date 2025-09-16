@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   doc,
@@ -18,6 +18,11 @@ import Link from "next/link";
 import { Tag, Calendar, MapPin, BadgeCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { onAuthStateChanged } from "firebase/auth";
+import dynamic from "next/dynamic";
+
+// carrega só no cliente (evita SSR do react-pdf)
+const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
+const PDFThumb = dynamic(() => import("@/components/PDFThumb"), { ssr: false });
 
 type ProdutoDoc = {
   id: string;
@@ -176,7 +181,6 @@ function ModalContato({
                   return;
                 }
 
-                // Salva lead com vendedor original automaticamente em vendedoresLiberados
                 await addDoc(collection(db, "leads"), {
                   nome: form.nome,
                   telefone: form.telefone,
@@ -190,9 +194,7 @@ function ModalContato({
                   tipoProduto: produto.categoria || produto.tipo || "",
                   userId: user.uid,
                   vendedorId: produto.userId,
-                  vendedoresLiberados: vendedorEmail
-                    ? [{ email: vendedorEmail, status: "ofertado" }]
-                    : [],
+                  vendedoresLiberados: vendedorEmail ? [{ email: vendedorEmail, status: "ofertado" }] : [],
                   status: "novo",
                   statusPagamento: "pendente",
                   valorLead: 19.9,
@@ -210,56 +212,13 @@ function ModalContato({
               }}
               style={{ display: "flex", flexDirection: "column", gap: 13 }}
             >
-              <input
-                name="nome"
-                placeholder="Nome completo"
-                value={form.nome}
-                onChange={handleChange}
-                required
-                className="input-modal"
-              />
-              <input
-                name="telefone"
-                placeholder="Telefone / WhatsApp"
-                value={form.telefone}
-                onChange={handleChange}
-                required
-                className="input-modal"
-              />
-              <input
-                name="email"
-                type="email"
-                placeholder="E-mail"
-                value={form.email}
-                onChange={handleChange}
-                required
-                className="input-modal"
-              />
-              <input
-                name="cidade"
-                placeholder="Cidade"
-                value={form.cidade}
-                onChange={handleChange}
-                className="input-modal"
-              />
-              <input
-                name="cpf"
-                placeholder="CPF ou CNPJ"
-                value={form.cpf}
-                onChange={handleChange}
-                className="input-modal"
-              />
-              <textarea
-                name="mensagem"
-                placeholder="Mensagem/interesse (opcional)"
-                value={form.mensagem}
-                onChange={handleChange}
-                className="input-modal"
-                rows={3}
-              />
-              <button type="submit" className="btn-modal-laranja">
-                Enviar mensagem
-              </button>
+              <input name="nome" placeholder="Nome completo" value={form.nome} onChange={handleChange} required className="input-modal" />
+              <input name="telefone" placeholder="Telefone / WhatsApp" value={form.telefone} onChange={handleChange} required className="input-modal" />
+              <input name="email" type="email" placeholder="E-mail" value={form.email} onChange={handleChange} required className="input-modal" />
+              <input name="cidade" placeholder="Cidade" value={form.cidade} onChange={handleChange} className="input-modal" />
+              <input name="cpf" placeholder="CPF ou CNPJ" value={form.cpf} onChange={handleChange} className="input-modal" />
+              <textarea name="mensagem" placeholder="Mensagem/interesse (opcional)" value={form.mensagem} onChange={handleChange} className="input-modal" rows={3} />
+              <button type="submit" className="btn-modal-laranja">Enviar mensagem</button>
               <span style={{ fontSize: "0.8rem", marginTop: 6, color: "#777", textAlign: "center" }}>
                 Ao continuar, você concorda que a Pedraum Brasil não participa das negociações nem garante
                 pagamentos, entregas ou resultados.
@@ -276,9 +235,7 @@ function ModalContato({
                 outline: none;
                 transition: border 0.15s;
               }
-              .input-modal:focus {
-                border: 1.5px solid #219EBC;
-              }
+              .input-modal:focus { border: 1.5px solid #219EBC; }
               .btn-modal-laranja {
                 margin-top: 11px;
                 background: #fb8500;
@@ -291,9 +248,7 @@ function ModalContato({
                 cursor: pointer;
                 transition: background 0.14s;
               }
-              .btn-modal-laranja:hover {
-                background: #e17000;
-              }
+              .btn-modal-laranja:hover { background: #e17000; }
             `}</style>
           </motion.div>
         </motion.div>
@@ -313,6 +268,13 @@ export default function ProdutoDetalhePage() {
 
   // galeria
   const [imgIndex, setImgIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  // PDF
+  const [pdfOpen, setPdfOpen] = useState(false);
+  const pdfThumbCoverRef = useRef<HTMLDivElement | null>(null);
+  const [pdfThumbReady, setPdfThumbReady] = useState(false);
+  const [pdfThumbWidth, setPdfThumbWidth] = useState(520);
 
   // relacionados
   const [relacionados, setRelacionados] = useState<any[]>([]);
@@ -350,31 +312,62 @@ export default function ProdutoDetalhePage() {
   }, []);
 
   // produto
-useEffect(() => {
-  async function fetchProduto() {
-    if (!id) return;
+  useEffect(() => {
+    async function fetchProduto() {
+      if (!id) return;
 
-    const ref = doc(db, "produtos", String(id));
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return;
+      const ref = doc(db, "produtos", String(id));
+      const snap = await getDoc(ref);
+      if (!snap.exists()) return;
 
-    const data = { id: snap.id, ...(snap.data() as any) } as ProdutoDoc;
-    setProduto(data);
+      const data = { id: snap.id, ...(snap.data() as any) } as ProdutoDoc;
+      setProduto(data);
 
-    // pega email do vendedor original a partir do userId
-    if (data.userId) {
-      const vendRef = doc(db, "usuarios", data.userId as string);
-      const vendSnap = await getDoc(vendRef);
-      if (vendSnap.exists()) {
-        const email = (vendSnap.data() as any)?.email || "";
-        setVendedorEmail(email);
+      if (data.userId) {
+        const vendRef = doc(db, "usuarios", data.userId as string);
+        const vendSnap = await getDoc(vendRef);
+        if (vendSnap.exists()) {
+          const email = (vendSnap.data() as any)?.email || "";
+          setVendedorEmail(email);
+        }
       }
     }
-  }
+    fetchProduto();
+  }, [id]);
 
-  fetchProduto();
-}, [id]);
+  // url do PDF salvo no produto
+  const pdfUrl: string | undefined = (produto as any)?.pdfUrl || undefined;
+  // proxy para evitar CORS
+  const pdfSrc = pdfUrl ? `/api/pdf-proxy?file=${encodeURIComponent(pdfUrl)}` : undefined;
 
+  // lazy/responsivo da thumb do PDF
+  useEffect(() => {
+    if (!pdfSrc) return;
+    const el = pdfThumbCoverRef.current;
+    if (!el) return;
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setPdfThumbReady(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    io.observe(el);
+
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0].contentRect.width;
+      setPdfThumbWidth(Math.max(220, Math.min(560, Math.floor(w - 16))));
+    });
+    ro.observe(el);
+
+    return () => {
+      io.disconnect();
+      ro.disconnect();
+    };
+  }, [pdfSrc]);
 
   // relacionados (mesma categoria)
   useEffect(() => {
@@ -395,7 +388,6 @@ useEffect(() => {
           lista.push({ id: d.id, ...d.data() });
         }
       });
-      // remover expirados e ordenar por mais novo
       const ativos = lista
         .filter((x) => !isExpired(x.createdAt, x.expiraEm))
         .sort((a, b) => {
@@ -435,12 +427,25 @@ useEffect(() => {
       <div className="produto-grid">
         {/* Galeria */}
         <div className="produto-imagens">
-          <img
-            src={imgPrincipal}
-            alt={produto.nome || "Produto"}
-            className="produto-img-principal"
-            onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
-          />
+          <div
+            className="produto-img-principal-wrap"
+            onClick={() => imagens.length > 0 && setLightboxOpen(true)}
+            onKeyDown={(e) => {
+              if ((e.key === "Enter" || e.key === " ") && imagens.length > 0) setLightboxOpen(true);
+            }}
+            role="button"
+            tabIndex={0}
+            title={imagens.length ? "Clique para ampliar" : undefined}
+          >
+            <img
+              src={imgPrincipal}
+              alt={produto.nome || "Produto"}
+              className="produto-img-principal"
+              onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
+            />
+            {imagens.length > 0 && <span className="produto-img-zoom-hint">Clique para ampliar</span>}
+          </div>
+
           {imagens.length > 1 && (
             <div className="produto-miniaturas">
               {imagens.map((img, idx) => (
@@ -455,6 +460,32 @@ useEffect(() => {
               ))}
             </div>
           )}
+
+          {/* Thumb do PDF (miniatura real) */}
+          {pdfSrc && (
+            <div
+              className="produto-pdf-thumb"
+              role="button"
+              tabIndex={0}
+              title="Abrir ficha técnica (PDF)"
+              onClick={() => setPdfOpen(true)}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setPdfOpen(true)}
+            >
+              <div className="produto-pdf-thumb-cover" ref={pdfThumbCoverRef}>
+                <span className="pdf-badge">PDF</span>
+                {pdfThumbReady ? (
+                  <PDFThumb src={pdfSrc} width={pdfThumbWidth} />
+                ) : (
+                  <div className="pdf-thumb-skeleton" />
+                )}
+              </div>
+
+              <div className="produto-pdf-thumb-meta">
+                <div className="titulo">Mais sobre esse produto (PDF)</div>
+                <div className="cta">Clique para abrir</div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Infos */}
@@ -463,24 +494,16 @@ useEffect(() => {
 
           <div className="produto-detalhes-lista">
             {produto.categoria && (
-              <span>
-                <Tag size={18} /> {produto.categoria}
-              </span>
+              <span><Tag size={18} /> {produto.categoria}</span>
             )}
             {produto.ano && (
-              <span>
-                <Calendar size={18} /> {produto.ano}
-              </span>
+              <span><Calendar size={18} /> {produto.ano}</span>
             )}
             {produto.condicao && (
-              <span>
-                <BadgeCheck size={18} /> {produto.condicao}
-              </span>
+              <span><BadgeCheck size={18} /> {produto.condicao}</span>
             )}
             {(produto.cidade || produto.estado) && (
-              <span>
-                <MapPin size={18} /> {produto.cidade || "—"}, {produto.estado || "—"}
-              </span>
+              <span><MapPin size={18} /> {produto.cidade || "—"}, {produto.estado || "—"}</span>
             )}
           </div>
 
@@ -502,7 +525,6 @@ useEffect(() => {
               {expirado ? "Expirado" : "Entrar em Contato"}
             </button>
 
-            {/* WhatsApp secundário (se quiser manter) */}
             {!expirado && (
               <a
                 href={
@@ -526,7 +548,6 @@ useEffect(() => {
             )}
           </div>
 
-          {/* Descrição curta */}
           {produto.descricao && (
             <div className="produto-resumo">
               <div className="produto-desc-item-title">Resumo</div>
@@ -559,22 +580,16 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* Relacionados - Você também pode gostar */}
+      {/* Relacionados */}
       {relacionados.length > 0 && (
         <div className="relacionados-wrap">
           <div className="relacionados-header">
             <h3>Você também pode gostar</h3>
             <div className="relacionados-nav">
-              <button
-                aria-label="Voltar"
-                onClick={() => carrosselRef.current?.scrollBy({ left: -320, behavior: "smooth" })}
-              >
+              <button aria-label="Voltar" onClick={() => carrosselRef.current?.scrollBy({ left: -320, behavior: "smooth" })}>
                 <ChevronLeft />
               </button>
-              <button
-                aria-label="Avançar"
-                onClick={() => carrosselRef.current?.scrollBy({ left: 320, behavior: "smooth" })}
-              >
+              <button aria-label="Avançar" onClick={() => carrosselRef.current?.scrollBy({ left: 320, behavior: "smooth" })}>
                 <ChevronRight />
               </button>
             </div>
@@ -604,376 +619,224 @@ useEffect(() => {
         </div>
       )}
 
-      {/* Modais */}
-      {!carregandoUsuario && usuarioLogado ? (
-        <ModalContato
-          open={modalOpen}
-          onClose={() => setModalOpen(false)}
-          usuario={usuarioLogado}
-          produto={produto}
-          vendedorEmail={vendedorEmail}
-        />
-      ) : (
-        <AnimatePresence>
-          {modalOpen && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+      {/* Lightbox da imagem */}
+      <AnimatePresence>
+        {lightboxOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.85)",
+              zIndex: 1100,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onClick={() => setLightboxOpen(false)}
+          >
+            <motion.img
+              key={imgIndex}
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.25 }}
+              src={imagens[imgIndex] || "/images/no-image.png"}
+              alt={produto.nome || "Produto"}
               style={{
-                position: "fixed",
-                inset: 0,
-                background: "#1119",
-                zIndex: 1002,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
+                maxWidth: "92vw",
+                maxHeight: "88vh",
+                objectFit: "contain",
+                borderRadius: 12,
+                boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
               }}
+              onClick={(e) => e.stopPropagation()}
+              onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
+            />
+
+            {imagens.length > 1 && (
+              <>
+                <button
+                  aria-label="Anterior"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setImgIndex((i) => (i - 1 + imagens.length) % imagens.length);
+                  }}
+                  className="lb-nav lb-left"
+                >
+                  ‹
+                </button>
+                <button
+                  aria-label="Próxima"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setImgIndex((i) => (i + 1) % imagens.length);
+                  }}
+                  className="lb-nav lb-right"
+                >
+                  ›
+                </button>
+              </>
+            )}
+
+            <button
+              aria-label="Fechar"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightboxOpen(false);
+              }}
+              className="lb-close"
             >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                transition={{ type: "spring", duration: 0.32 }}
+              ×
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal com o PDF grande */}
+      <AnimatePresence>
+        {pdfOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.75)",
+              zIndex: 1100,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "4vw",
+            }}
+            onClick={() => setPdfOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.25 }}
+              style={{
+                background: "#fff",
+                borderRadius: 14,
+                width: "min(1100px, 96vw)",
+                height: "min(85vh, 900px)",
+                overflow: "hidden",
+                position: "relative",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                aria-label="Fechar"
+                onClick={() => setPdfOpen(false)}
                 style={{
+                  position: "absolute",
+                  top: 10,
+                  right: 10,
+                  width: 36,
+                  height: 36,
+                  borderRadius: 999,
+                  border: "1px solid #e5e7eb",
                   background: "#fff",
-                  borderRadius: 18,
-                  boxShadow: "0 10px 36px #0003",
-                  padding: 38,
-                  maxWidth: 420,
-                  width: "98vw",
-                  position: "relative",
+                  fontSize: 22,
+                  fontWeight: 900,
+                  cursor: "pointer",
+                  zIndex: 1,
                 }}
               >
-                <button
-                  onClick={() => setModalOpen(false)}
-                  style={{
-                    position: "absolute",
-                    top: 16,
-                    right: 20,
-                    fontSize: 22,
-                    background: "none",
-                    border: "none",
-                    color: "#219EBC",
-                    cursor: "pointer",
-                    fontWeight: 900,
-                  }}
-                  aria-label="Fechar"
-                >
-                  ×
-                </button>
-                <h2 style={{ fontSize: "1.25rem", fontWeight: 900, color: "#023047", marginBottom: 18 }}>
-                  Faça login para entrar em contato com o anunciante
-                </h2>
-                <Link href="/auth/login" className="btn-modal-laranja" style={{ display: "block", textAlign: "center" }}>
-                  Fazer Login
-                </Link>
-              </motion.div>
+                ×
+              </button>
+
+              <div style={{ width: "100%", height: "100%" }}>
+                {pdfSrc && <DrivePDFViewer fileUrl={pdfSrc} height={undefined as any} />}
+              </div>
             </motion.div>
-          )}
-        </AnimatePresence>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* CSS */}
       <style jsx>{`
-        .produto-detalhe {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 38px 0 60px 0;
-          background: #f8fbfd;
-        }
-        .produto-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 14px;
-        }
-        .produto-voltar {
-          color: #219ebc;
-          font-size: 1rem;
-          text-decoration: underline;
-        }
-        .produto-badges .badge {
-          display: inline-block;
-          font-size: 0.82rem;
-          font-weight: 900;
-          padding: 5px 12px;
-          border-radius: 999px;
-          margin-left: 8px;
-        }
-        .badge-novo {
-          background: #10b981;
-          color: #fff;
-        }
-        .badge-expirado {
-          background: #9ca3af;
-          color: #fff;
-        }
+        .produto-detalhe { max-width: 1200px; margin: 0 auto; padding: 38px 0 60px 0; background: #f8fbfd; }
+        .produto-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+        .produto-voltar { color: #219ebc; font-size: 1rem; text-decoration: underline; }
+        .produto-badges .badge { display: inline-block; font-size: 0.82rem; font-weight: 900; padding: 5px 12px; border-radius: 999px; margin-left: 8px; }
+        .badge-novo { background: #10b981; color: #fff; }
+        .badge-expirado { background: #9ca3af; color: #fff; }
 
-        .produto-grid {
-          display: grid;
-          grid-template-columns: 1.1fr 1fr;
-          gap: 32px;
-          margin-top: 10px;
-        }
-        .produto-imagens {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-        }
-        .produto-img-principal {
-          width: 100%;
-          max-width: 560px;
-          aspect-ratio: 1/1;
-          border-radius: 22px;
-          object-fit: cover;
-          box-shadow: 0 4px 32px #0001;
-          background: #fff;
-        }
-        .produto-miniaturas {
-          display: flex;
-          gap: 12px;
-          margin-top: 14px;
-          flex-wrap: wrap;
-          justify-content: center;
-        }
-        .produto-miniatura {
-          width: 76px;
-          height: 76px;
-          border-radius: 12px;
-          object-fit: cover;
-          border: 2px solid #fff;
-          box-shadow: 0 1px 8px #0002;
-          background: #fff;
-          cursor: pointer;
-          transition: transform 0.12s, box-shadow 0.12s;
-        }
-        .produto-miniatura:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px #0002;
-        }
-        .miniatura-ativa {
-          outline: 2px solid #219ebc;
-          outline-offset: 2px;
-        }
+        .produto-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; margin-top: 10px; }
+        .produto-imagens { display: flex; flex-direction: column; align-items: center; }
 
-        .produto-info {
-          display: flex;
-          flex-direction: column;
-          gap: 18px;
-          min-width: 320px;
-        }
-        .produto-titulo {
-          font-size: 2rem;
-          font-weight: 900;
-          color: #023047;
-          letter-spacing: -0.5px;
-          margin: 0;
-        }
-        .produto-detalhes-lista {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px 18px;
-          font-size: 1.02rem;
-          color: #222;
-        }
-        .produto-detalhes-lista span {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          color: #334155;
-          font-weight: 700;
-        }
+        .produto-img-principal-wrap { position: relative; width: 100%; max-width: 560px; cursor: zoom-in; }
+        .produto-img-principal { width: 100%; max-width: 560px; aspect-ratio: 1/1; border-radius: 22px; object-fit: cover; box-shadow: 0 4px 32px #0001; background: #fff; }
+        .produto-img-zoom-hint { position: absolute; right: 12px; bottom: 12px; background: #0000006b; color: #fff; font-size: 12px; font-weight: 800; padding: 6px 8px; border-radius: 8px; }
 
-        .produto-preco-box {
-          background: #fff;
-          border-radius: 16px;
-          border: 1.5px solid #eef2f6;
-          padding: 18px;
-          box-shadow: 0 2px 16px #0000000d;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-        .produto-preco {
-          font-size: 2.1rem;
-          font-weight: 900;
-          color: #fb8500;
-          letter-spacing: 0.5px;
-        }
-        .produto-btn-laranja {
-          width: 100%;
-          border: none;
-          border-radius: 10px;
-          padding: 14px 0;
-          font-weight: 800;
-          font-size: 1.12rem;
-          box-shadow: 0 2px 10px #fb850022;
-          transition: background 0.14s, transform 0.12s;
-        }
-        .produto-btn-laranja:not([aria-disabled="true"]):hover {
-          background: #e17000 !important;
-          transform: translateY(-1px);
-        }
-        .produto-btn-azul {
-          width: 100%;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          border: none;
-          border-radius: 10px;
-          padding: 13px 0;
-          font-weight: 800;
-          font-size: 1.05rem;
-          background: #219ebc;
-          color: #fff;
-          text-decoration: none;
-          box-shadow: 0 2px 10px #219ebc22;
-          transition: background 0.14s, transform 0.12s;
-        }
-        .produto-btn-azul:hover {
-          background: #176684;
-          transform: translateY(-1px);
-        }
+        .produto-miniaturas { display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap; justify-content: center; }
+        .produto-miniatura { width: 76px; height: 76px; border-radius: 12px; object-fit: cover; border: 2px solid #fff; box-shadow: 0 1px 8px #0002; background: #fff; cursor: pointer; transition: transform 0.12s, box-shadow 0.12s; }
+        .produto-miniatura:hover { transform: translateY(-2px); box-shadow: 0 4px 12px #0002; }
+        .miniatura-ativa { outline: 2px solid #219ebc; outline-offset: 2px; }
 
-        .produto-resumo {
-          background: #fff;
-          border: 1.5px solid #eef2f6;
-          border-radius: 16px;
-          padding: 16px 18px;
-          box-shadow: 0 1px 10px #0000000a;
-        }
+        /* Thumb do PDF */
+        .produto-pdf-thumb { width: 100%; max-width: 560px; border: 1.5px solid #eef2f6; border-radius: 16px; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,0.06); overflow: hidden; cursor: zoom-in; margin-top: 16px; transition: transform 0.12s, box-shadow 0.12s; }
+        .produto-pdf-thumb:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(0,0,0,0.08); }
+        .produto-pdf-thumb-cover { position: relative; padding: 8px; display: grid; place-items: center; min-height: 140px; background: linear-gradient(180deg,#f8fbff,#ffffff); }
+        .pdf-badge { position: absolute; top: 10px; left: 10px; background: #ef4444; color: #fff; font-weight: 900; font-size: 12px; padding: 4px 8px; border-radius: 999px; letter-spacing: .4px; }
+        .pdf-thumb-skeleton { width: 100%; height: 160px; border-radius: 8px; background: linear-gradient(90deg, #f2f6fb 25%, #e9eef5 37%, #f2f6fb 63%); background-size: 400% 100%; animation: pdfShimmer 1.2s infinite; }
+        @keyframes pdfShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+        .produto-pdf-thumb-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-top: 1px solid #eef2f6; }
+        .produto-pdf-thumb-meta .titulo { color: #023047; font-weight: 900; }
+        .produto-pdf-thumb-meta .cta { color: #219ebc; font-weight: 800; font-size: 0.92rem; }
 
-        .produto-desc {
-          background: #fff;
-          border-radius: 22px;
-          box-shadow: 0 2px 18px #0001;
-          margin-top: 34px;
-          padding: 28px 28px 28px 28px;
-        }
-        .produto-desc-title {
-          font-size: 1.45rem;
-          font-weight: 900;
-          color: #023047;
-          margin-bottom: 18px;
-        }
-        .produto-desc-grid {
-          display: grid;
-          grid-template-columns: 1.25fr 1fr;
-          gap: 0 50px;
-        }
-        .produto-desc-item-title {
-          font-size: 1.06rem;
-          color: #023047;
-          font-weight: 800;
-          margin-bottom: 6px;
-        }
-        .produto-desc-item-text {
-          font-size: 1.04rem;
-          color: #1f2937;
-        }
+        .produto-info { display: flex; flex-direction: column; gap: 18px; min-width: 320px; }
+        .produto-titulo { font-size: 2rem; font-weight: 900; color: #023047; letter-spacing: -0.5px; margin: 0; }
 
-        .relacionados-wrap {
-          margin-top: 40px;
-        }
-        .relacionados-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 12px;
-        }
-        .relacionados-header h3 {
-          font-size: 1.3rem;
-          color: #023047;
-          font-weight: 900;
-          margin: 0;
-        }
-        .relacionados-nav button {
-          width: 38px;
-          height: 38px;
-          border-radius: 10px;
-          border: 1px solid #e5e7eb;
-          background: #fff;
-          cursor: pointer;
-          margin-left: 8px;
-        }
-        .relacionados {
-          display: grid;
-          grid-auto-flow: column;
-          grid-auto-columns: minmax(240px, 1fr);
-          gap: 14px;
-          overflow-x: auto;
-          scroll-snap-type: x mandatory;
-          padding-bottom: 4px;
-        }
-        .relacionado-card {
-          scroll-snap-align: start;
-          border: 1px solid #eef2f6;
-          border-radius: 14px;
-          background: #fff;
-          text-decoration: none;
-          color: inherit;
-          overflow: hidden;
-          box-shadow: 0 2px 12px #0000000a;
-          transition: transform 0.12s, box-shadow 0.12s;
-          display: flex;
-          flex-direction: column;
-        }
-        .relacionado-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 18px #00000014;
-        }
-        .relacionado-img {
-          width: 100%;
-          height: 140px;
-          background: #f3f6fa;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          overflow: hidden;
-        }
-        .relacionado-img img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-        .relacionado-body {
-          padding: 12px 12px 14px 12px;
-        }
-        .relacionado-titulo {
-          font-weight: 800;
-          font-size: 1rem;
-          color: #023047;
-          margin-bottom: 4px;
-        }
-        .relacionado-cat {
-          font-size: 0.86rem;
-          color: #219ebc;
-          font-weight: 700;
-        }
-        .relacionado-preco {
-          margin-top: 6px;
-          color: #fb8500;
-          font-weight: 900;
-        }
+        .produto-detalhes-lista { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; font-size: 1.02rem; color: #222; }
+        .produto-detalhes-lista span { display: flex; align-items: center; gap: 8px; color: #334155; font-weight: 700; }
+
+        .produto-preco-box { background: #fff; border-radius: 16px; border: 1.5px solid #eef2f6; padding: 18px; box-shadow: 0 2px 16px #0000000d; display: flex; flex-direction: column; gap: 10px; }
+        .produto-preco { font-size: 2.1rem; font-weight: 900; color: #fb8500; letter-spacing: 0.5px; }
+        .produto-btn-laranja { width: 100%; border: none; border-radius: 10px; padding: 14px 0; font-weight: 800; font-size: 1.12rem; box-shadow: 0 2px 10px #fb850022; transition: background 0.14s, transform 0.12s; }
+        .produto-btn-laranja:not([aria-disabled="true"]):hover { background: #e17000 !important; transform: translateY(-1px); }
+        .produto-btn-azul { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 10px; padding: 13px 0; font-weight: 800; font-size: 1.05rem; background: #219ebc; color: #fff; text-decoration: none; box-shadow: 0 2px 10px #219ebc22; transition: background 0.14s, transform 0.12s; }
+        .produto-btn-azul:hover { background: #176684; transform: translateY(-1px); }
+
+        .produto-resumo { background: #fff; border: 1.5px solid #eef2f6; border-radius: 16px; padding: 16px 18px; box-shadow: 0 1px 10px #0000000a; }
+
+        .produto-desc { background: #fff; border-radius: 22px; box-shadow: 0 2px 18px #0001; margin-top: 34px; padding: 28px; }
+        .produto-desc-title { font-size: 1.45rem; font-weight: 900; color: #023047; margin-bottom: 18px; }
+        .produto-desc-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 0 50px; }
+        .produto-desc-item-title { font-size: 1.06rem; color: #023047; font-weight: 800; margin-bottom: 6px; }
+        .produto-desc-item-text { font-size: 1.04rem; color: #1f2937; }
+
+        .relacionados-wrap { margin-top: 40px; }
+        .relacionados-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+        .relacionados-header h3 { font-size: 1.3rem; color: #023047; font-weight: 900; margin: 0; }
+        .relacionados-nav button { width: 38px; height: 38px; border-radius: 10px; border: 1px solid #e5e7eb; background: #fff; cursor: pointer; margin-left: 8px; }
+        .relacionados { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 1fr); gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; }
+        .relacionado-card { scroll-snap-align: start; border: 1.5px solid #eef2f6; border-radius: 14px; background: #fff; text-decoration: none; color: inherit; overflow: hidden; box-shadow: 0 2px 12px #0000000a; transition: transform 0.12s, box-shadow 0.12s; display: flex; flex-direction: column; }
+        .relacionado-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px #00000014; }
+        .relacionado-img { width: 100%; height: 140px; background: #f3f6fa; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .relacionado-img img { width: 100%; height: 100%; object-fit: cover; }
+        .relacionado-body { padding: 12px 12px 14px 12px; }
+        .relacionado-titulo { font-weight: 800; font-size: 1rem; color: #023047; margin-bottom: 4px; }
+        .relacionado-cat { font-size: 0.86rem; color: #219ebc; font-weight: 700; }
+        .relacionado-preco { margin-top: 6px; color: #fb8500; font-weight: 900; }
+
+        /* Lightbox */
+        .lb-nav { position: fixed; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 999px; border: 1px solid #ffffff44; background: #00000055; color: #fff; font-size: 30px; display: grid; place-items: center; cursor: pointer; z-index: 1101; }
+        .lb-left { left: 24px; }
+        .lb-right { right: 24px; }
+        .lb-close { position: fixed; top: 18px; right: 22px; width: 40px; height: 40px; border-radius: 999px; border: 1px solid #ffffff44; background: #00000055; color: #fff; font-size: 26px; display: grid; place-items: center; cursor: pointer; z-index: 1101; }
 
         @media (max-width: 900px) {
-          .produto-grid {
-            grid-template-columns: 1fr;
-            gap: 22px;
-          }
-          .produto-desc-grid {
-            grid-template-columns: 1fr;
-            gap: 18px 0;
-          }
-          .produto-detalhe {
-            padding: 16px 2vw 48px 2vw;
-          }
-          .produto-img-principal {
-            max-width: 100%;
-            aspect-ratio: 4/3;
-          }
+          .produto-grid { grid-template-columns: 1fr; gap: 22px; }
+          .produto-desc-grid { grid-template-columns: 1fr; gap: 18px 0; }
+          .produto-detalhe { padding: 16px 2vw 48px 2vw; }
+          .produto-img-principal { aspect-ratio: 4/3; }
         }
       `}</style>
     </section>

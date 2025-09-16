@@ -1,7 +1,5 @@
 import { createRouteHandler } from "uploadthing/next";
-import { ourFileRouter } from "@/uploadthing.config";
+import { ourFileRouter } from "./core";
 
-
-export const { GET, POST } = createRouteHandler({
-  router: ourFileRouter,
-});
+/** Publica GET/POST em /api/uploadthing */
+export const { GET, POST } = createRouteHandler({ router: ourFileRouter });

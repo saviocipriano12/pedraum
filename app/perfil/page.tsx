@@ -292,6 +292,54 @@ export default function PerfilPage() {
   function setField<K extends keyof PerfilForm>(key: K, value: PerfilForm[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
+  function n(s: string) {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+function buildCategoriesAll(
+  pairs: { categoria: string; subcategoria: string }[],
+  legacy: string[] = []
+) {
+  const set = new Set<string>(legacy.filter(Boolean));
+  for (const p of pairs) set.add(p.categoria);
+  return Array.from(set);
+}
+function buildPairsSearch(
+  pairs: { categoria: string; subcategoria: string }[]
+) {
+  return pairs
+    .filter((p) => p.categoria && p.subcategoria)
+    .map((p) => `${n(p.categoria)}::${n(p.subcategoria)}`);
+}
+function buildUfsSearch(atendeBrasil: boolean, ufsAtendidas: string[] = []) {
+  const arr = (ufsAtendidas || []).map((u) => String(u).trim().toUpperCase());
+  if (atendeBrasil && !arr.includes("BRASIL")) arr.push("BRASIL");
+  return arr;
+}
+
+// Normalização robusta (remove acentos, normaliza espaços e caixa)
+function norm(s: string = "") {
+  return s
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+// Deduplica pares mantendo o último (ou o primeiro; aqui mantenho o último)
+function dedupPairs(pairs: { categoria: string; subcategoria: string }[]) {
+  const m = new Map<string, { categoria: string; subcategoria: string }>();
+  for (const p of pairs) {
+    const key = `${norm(p.categoria)}::${norm(p.subcategoria)}`;
+    m.set(key, p);
+  }
+  return Array.from(m.values());
+}
 
   // Set de categorias já selecionadas
   const selectedCategoriasSet = useMemo(
@@ -309,30 +357,32 @@ export default function PerfilPage() {
 
   const subcatsDaSelecionada = selCategoria ? (TAXONOMIA[selCategoria] || []) : [];
 
-  function addParCategoria() {
-    if (!selCategoria) { setMsg("Selecione uma categoria."); return; }
-    if (!selSubcategoria) { setMsg("Selecione uma subcategoria."); return; }
+ function addParCategoria() {
+  if (!selCategoria) { setMsg("Selecione uma categoria."); return; }
+  if (!selSubcategoria) { setMsg("Selecione uma subcategoria."); return; }
 
-    const isCategoriaNova = !selectedCategoriasSet.has(selCategoria);
+  const isCategoriaNova = !selectedCategoriasSet.has(selCategoria);
 
-    // Regra 1: se travado, não pode criar categoria nova (apenas subcategorias das existentes)
-    if (categoriasLocked && isCategoriaNova) {
-      setMsg("Categorias travadas: adicione subcategorias apenas das categorias já escolhidas.");
-      return;
-    }
-
-    // Regra 2: se não travado, ao atingir 5 categorias, só pode subcategorias dentro dessas 5
-    if (!categoriasLocked && isCategoriaNova && selectedCategoriasSet.size >= MAX_CATEGORIAS) {
-      setMsg(`Você já tem ${MAX_CATEGORIAS}/${MAX_CATEGORIAS} categorias. Selecione uma dessas para adicionar subcategorias.`);
-      return;
-    }
-
-    const novoPar: CategoriaPair = { categoria: selCategoria, subcategoria: selSubcategoria };
-    setForm((f) => ({ ...f, categoriasAtuacaoPairs: [...f.categoriasAtuacaoPairs, novoPar] }));
-    setSelCategoria("");
-    setSelSubcategoria("");
-    setMsg("");
+  if (categoriasLocked && isCategoriaNova) {
+    setMsg("Categorias travadas: adicione subcategorias apenas das categorias já escolhidas.");
+    return;
   }
+  if (!categoriasLocked && isCategoriaNova && selectedCategoriasSet.size >= MAX_CATEGORIAS) {
+    setMsg(`Você já tem ${MAX_CATEGORIAS}/${MAX_CATEGORIAS} categorias. Selecione uma dessas para adicionar subcategorias.`);
+    return;
+  }
+
+  const novoPar: CategoriaPair = { categoria: selCategoria, subcategoria: selSubcategoria };
+
+  setForm((f) => {
+    const novos = dedupPairs([...f.categoriasAtuacaoPairs, novoPar]);
+    return { ...f, categoriasAtuacaoPairs: novos };
+  });
+  setSelCategoria("");
+  setSelSubcategoria("");
+  setMsg("");
+}
+
 
   function removeParCategoria(par: CategoriaPair) {
     setForm((f) => {
@@ -381,104 +431,146 @@ Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
   }
 
   function toggleUfAtendida(uf: string) {
-    if (uf === "BRASIL") {
-      setForm((f) => ({
-        ...f,
-        atendeBrasil: !f.atendeBrasil,
-        ufsAtendidas: !f.atendeBrasil ? ["BRASIL"] : [],
-      }));
-      return;
-    }
-    if (form.atendeBrasil) {
-      setForm((f) => ({ ...f, atendeBrasil: false, ufsAtendidas: [uf] }));
-      return;
-    }
-    const has = form.ufsAtendidas.includes(uf);
+  if (uf === "BRASIL") {
     setForm((f) => ({
       ...f,
-      ufsAtendidas: has ? f.ufsAtendidas.filter((u) => u !== uf) : [...f.ufsAtendidas, uf],
+      atendeBrasil: !f.atendeBrasil,
+      ufsAtendidas: !f.atendeBrasil ? ["BRASIL"] : [],
     }));
+    return;
   }
+
+  if (form.atendeBrasil) {
+    setForm((f) => ({ ...f, atendeBrasil: false, ufsAtendidas: [uf] }));
+    return;
+  }
+
+  const has = form.ufsAtendidas.includes(uf.toUpperCase());
+  setForm((f) => ({
+    ...f,
+    ufsAtendidas: has
+      ? f.ufsAtendidas.filter((u) => u !== uf.toUpperCase())
+      : [...f.ufsAtendidas, uf.toUpperCase()],
+  }));
+}
+
 
   async function salvar(e?: React.FormEvent) {
-    e?.preventDefault();
-    if (!userId) return;
+  e?.preventDefault();
+  if (!userId) return;
 
-    setSaving(true);
-    setMsg("");
+  setSaving(true);
+  setMsg("");
 
-    try {
-      if (!form.categoriasAtuacaoPairs.length) {
-        setMsg("Adicione pelo menos 1 par (Categoria + Subcategoria).");
-        setSaving(false); return;
-      }
-      const algumSemSub = form.categoriasAtuacaoPairs.some((p) => !p.subcategoria?.trim());
-      if (algumSemSub) {
-        setMsg("Todos os pares precisam de subcategoria selecionada.");
-        setSaving(false); return;
-      }
-
-      const categoriasDistintas = Array.from(new Set(form.categoriasAtuacaoPairs.map(p => p.categoria)));
-      if (categoriasDistintas.length > MAX_CATEGORIAS) {
-        setMsg(`Você pode escolher no máximo ${MAX_CATEGORIAS} categorias distintas.`);
-        setSaving(false); return;
-      }
-
-      if (categoriasLocked) {
-        const mesmas =
-          categoriasDistintas.length === categoriasOriginaisSet.size &&
-          categoriasDistintas.every((c) => categoriasOriginaisSet.has(c));
-        if (!mesmas) {
-          setMsg("Categorias travadas: não é possível alterar o conjunto de CATEGORIAS.");
-          setSaving(false); return;
-        }
-      }
-
-      const shouldLockNow = !categoriasLocked && categoriasDistintas.length === MAX_CATEGORIAS;
-      const legadoCategorias = categoriasDistintas;
-
-      await updateDoc(doc(db, "usuarios", userId), {
-        nome: form.nome,
-        telefone: form.telefone || "",
-        cidade: form.estado === "BRASIL" ? "" : (form.cidade || ""),
-        estado: form.estado || "",
-        cpf_cnpj: form.cpf_cnpj || "",
-        bio: form.bio || "",
-        avatar: form.avatar || "",
-        prestaServicos: form.prestaServicos,
-        vendeProdutos: form.vendeProdutos,
-        categoriasAtuacaoPairs: form.categoriasAtuacaoPairs,
-        categoriasAtuacao: legadoCategorias,
-        ...(shouldLockNow ? { categoriasLocked: true, categoriasLockedAt: serverTimestamp() } : {}),
-        atendeBrasil: form.atendeBrasil,
-        ufsAtendidas: form.atendeBrasil ? ["BRASIL"] : form.ufsAtendidas,
-        agenda: form.agenda,
-        portfolioImagens: form.portfolioImagens,
-        portfolioVideos: form.portfolioVideos,
-        leadPreferencias: {
-          categorias: form.leadPreferencias.categorias,
-          ufs: form.leadPreferencias.ufs,
-          ticketMin: form.leadPreferencias.ticketMin ?? null,
-          ticketMax: form.leadPreferencias.ticketMax ?? null,
-        },
-        mpConnected: !!form.mpConnected,
-        mpStatus: form.mpStatus || "desconectado",
-      });
-
-      if (shouldLockNow) {
-        setCategoriasLocked(true);
-        setPairsOriginais(form.categoriasAtuacaoPairs);
-      }
-
-      setMsg("Perfil atualizado com sucesso!");
-    } catch (err) {
-      console.error(err);
-      setMsg("Erro ao salvar alterações.");
-    } finally {
-      setSaving(false);
-      setTimeout(() => setMsg(""), 4000);
+  try {
+    if (!form.categoriasAtuacaoPairs.length) {
+      setMsg("Adicione pelo menos 1 par (Categoria + Subcategoria).");
+      setSaving(false); return;
     }
+    const algumSemSub = form.categoriasAtuacaoPairs.some((p) => !p.subcategoria?.trim());
+    if (algumSemSub) {
+      setMsg("Todos os pares precisam de subcategoria selecionada.");
+      setSaving(false); return;
+    }
+
+    // Deduplica pares e atualiza localmente antes de validar
+    const paresDedup = dedupPairs(form.categoriasAtuacaoPairs);
+    const categoriasDistintas = Array.from(new Set(paresDedup.map(p => p.categoria)));
+
+    if (categoriasDistintas.length > MAX_CATEGORIAS) {
+      setMsg(`Você pode escolher no máximo ${MAX_CATEGORIAS} categorias distintas.`);
+      setSaving(false); return;
+    }
+
+    if (categoriasLocked) {
+      const mesmas =
+        categoriasDistintas.length === categoriasOriginaisSet.size &&
+        categoriasDistintas.every((c) => categoriasOriginaisSet.has(c));
+      if (!mesmas) {
+        setMsg("Categorias travadas: não é possível alterar o conjunto de CATEGORIAS.");
+        setSaving(false); return;
+      }
+    }
+
+    const shouldLockNow = !categoriasLocked && categoriasDistintas.length === MAX_CATEGORIAS;
+
+    // ===================== Normalizações para filtros =====================
+    // 1) Campos legados/compatíveis
+    const legadoCategorias = categoriasDistintas;         // ex.: ["Britagem e Classificação", ...]
+    const legadoCategoriasLower = legadoCategorias.map(norm);
+
+    // 2) Campos indexáveis (para filtros rápidos no admin)
+    const catsSearch = Array.from(new Set(legadoCategoriasLower)); // ["britagem e classificacao", ...]
+    const pairsSearch = Array.from(
+      new Set(
+        paresDedup.map(p => `${norm(p.categoria)}::${norm(p.subcategoria)}`)
+      )
+    ); // ["britagem e classificacao::britador conico", ...]
+
+    // 3) UFs normalizadas
+    let ufsFinal = form.atendeBrasil ? ["BRASIL"] :
+      (form.ufsAtendidas || []).map(u => (u || "").toString().trim().toUpperCase());
+    ufsFinal = Array.from(new Set(ufsFinal));
+
+    await updateDoc(doc(db, "usuarios", userId), {
+  // Identidade
+  nome: form.nome,
+  telefone: form.telefone || "",
+  cidade: form.estado === "BRASIL" ? "" : (form.cidade || ""),
+  estado: form.estado || "",
+  cpf_cnpj: form.cpf_cnpj || "",
+  bio: form.bio || "",
+  avatar: form.avatar || "",
+  prestaServicos: form.prestaServicos,
+  vendeProdutos: form.vendeProdutos,
+
+  // ===== Fonte da verdade =====
+  categoriasAtuacaoPairs: form.categoriasAtuacaoPairs,
+
+  // ===== Compatibilidade (legado) =====
+  categoriasAtuacao: Array.from(new Set(form.categoriasAtuacaoPairs.map(p => p.categoria))),
+  categorias: Array.from(new Set(form.categoriasAtuacaoPairs.map(p => p.categoria))),
+
+  // ===== Novos campos materializados =====
+  categoriesAll: buildCategoriesAll(form.categoriasAtuacaoPairs, form.categoriasAtuacao),
+  pairsSearch: buildPairsSearch(form.categoriasAtuacaoPairs),
+  ufsSearch: buildUfsSearch(form.atendeBrasil, form.ufsAtendidas),
+
+  // Cobertura
+  atendeBrasil: form.atendeBrasil,
+  ufsAtendidas: form.ufsAtendidas,
+
+  // Extras
+  agenda: form.agenda,
+  portfolioImagens: form.portfolioImagens,
+  portfolioVideos: form.portfolioVideos,
+  leadPreferencias: {
+    categorias: form.leadPreferencias.categorias,
+    ufs: form.leadPreferencias.ufs,
+    ticketMin: form.leadPreferencias.ticketMin ?? null,
+    ticketMax: form.leadPreferencias.ticketMax ?? null,
+  },
+  mpConnected: !!form.mpConnected,
+  mpStatus: form.mpStatus || "desconectado",
+});
+
+
+    if (shouldLockNow) {
+      setCategoriasLocked(true);
+      setPairsOriginais(paresDedup);
+    }
+
+    setForm(f => ({ ...f, categoriasAtuacaoPairs: paresDedup })); // reflete dedup
+    setMsg("Perfil atualizado com sucesso!");
+  } catch (err) {
+    console.error(err);
+    setMsg("Erro ao salvar alterações.");
+  } finally {
+    setSaving(false);
+    setTimeout(() => setMsg(""), 4000);
   }
+}
+
 
   const subcatsCountByCategoria = useMemo(() => {
     const m = new Map<string, number>();

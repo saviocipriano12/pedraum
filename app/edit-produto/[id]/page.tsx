@@ -1,312 +1,143 @@
-// app/produtos/[id]/editar/page.tsx
 "use client";
-
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter, useParams } from "next/navigation";
 import { db } from "@/firebaseConfig";
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  serverTimestamp,
-  Timestamp,
-} from "firebase/firestore";
-import { Loader2, Save, ArrowLeft } from "lucide-react";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { Loader, Save } from "lucide-react";
+import Link from "next/link";
 
-/** =========================
- *  Tipos
- *  ========================= */
-type Produto = {
-  titulo: string;
-  descricao?: string;
-  preco?: number; // em centavos OU reais? Aqui tratamos como reais no formulário.
-  categoria?: string;
-  ativo?: boolean;
-  atualizadoEm?: Timestamp;
-};
-
-function isEmpty(str?: string | null) {
-  return !str || str.trim().length === 0;
-}
-
-/** =========================
- *  Página
- *  ========================= */
-export default function EditarProdutoPage() {
-  const { id } = useParams<{ id: string }>();
+export default function EditProdutoPage() {
   const router = useRouter();
+  const params = useParams();
+  const { id } = params as { id: string };
 
-  const [carregando, setCarregando] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
-
-  const [form, setForm] = useState<Produto>({
-    titulo: "",
+  const [erro, setErro] = useState("");
+  const [produto, setProduto] = useState<any>({
+    nome: "",
     descricao: "",
-    preco: undefined,
-    categoria: "",
-    ativo: true,
+    status: "",
+    imagem: "",
   });
 
-  const docRef = useMemo(() => (id ? doc(db, "produtos", id) : null), [id]);
-
-  /** Carrega dados do produto */
   useEffect(() => {
-    let ativo = true;
-    async function run() {
-      if (!docRef) return;
-      setCarregando(true);
-      setErro(null);
+    async function fetchProduto() {
+      setLoading(true);
       try {
-        const snap = await getDoc(docRef);
-        if (!snap.exists()) {
-          setErro("Produto não encontrado.");
-          setCarregando(false);
-          return;
-        }
-        const data = snap.data() as Produto;
-
-        // Normalização simples
-        setForm({
-          titulo: data.titulo ?? "",
-          descricao: data.descricao ?? "",
-          // Se o preço estiver salvo em centavos, ajuste aqui conforme seu padrão:
-          // preco: typeof data.preco === "number" ? data.preco / 100 : undefined,
-          preco: typeof data.preco === "number" ? data.preco : undefined,
-          categoria: data.categoria ?? "",
-          ativo: typeof data.ativo === "boolean" ? data.ativo : true,
-        });
-      } catch (e: any) {
-        if (!ativo) return;
-        setErro(e?.message || "Falha ao carregar o produto.");
-      } finally {
-        if (!ativo) return;
-        setCarregando(false);
+        const ref = doc(db, "produtos", id);
+        const snap = await getDoc(ref);
+        if (!snap.exists()) throw new Error("Produto não encontrado!");
+        setProduto({ id, ...snap.data() });
+      } catch (err: any) {
+        setErro(err.message || "Erro ao carregar produto");
       }
+      setLoading(false);
     }
-    run();
-    return () => {
-      ativo = false;
-    };
-  }, [docRef]);
+    if (id) fetchProduto();
+  }, [id]);
 
-  /** Handlers */
-  function handleChange(
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) {
-    const { name, value, type } = e.target;
-    if (name === "preco") {
-      // Mantém como número (reais). Ajuste para centavos se preferir.
-      const num = value.replace(",", "."); // permite vírgula
-      const parsed = num === "" ? undefined : Number(num);
-      setForm((f) => ({ ...f, preco: isNaN(parsed as number) ? undefined : parsed }));
-      return;
-    }
-    if (type === "checkbox") {
-      const target = e.target as HTMLInputElement;
-      setForm((f) => ({ ...f, [name]: target.checked }));
-      return;
-    }
-    setForm((f) => ({ ...f, [name]: value }));
-  }
-
-  async function onSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setErro(null);
-    setOkMsg(null);
-
-    // Validação básica
-    if (isEmpty(form.titulo)) {
-      setErro("O título é obrigatório.");
-      return;
-    }
-    if (form.preco !== undefined && form.preco < 0) {
-      setErro("Preço inválido.");
-      return;
-    }
-
-    if (!docRef) {
-      setErro("Referência inválida do produto.");
-      return;
-    }
-
     setSalvando(true);
+    setErro("");
     try {
-      // Se quiser salvar em centavos, converta aqui:
-      // const precoEmCentavos = typeof form.preco === "number" ? Math.round(form.preco * 100) : undefined;
-
-      await updateDoc(docRef, {
-        titulo: form.titulo.trim(),
-        descricao: (form.descricao || "").trim(),
-        // preco: precoEmCentavos,
-        preco: typeof form.preco === "number" ? form.preco : null,
-        categoria: (form.categoria || "").trim(),
-        ativo: !!form.ativo,
-        atualizadoEm: serverTimestamp(),
+      await updateDoc(doc(db, "produtos", id), {
+        nome: produto.nome,
+        descricao: produto.descricao,
+        status: produto.status,
+        imagem: produto.imagem,
+        atualizadoEm: new Date(),
       });
-
-      setOkMsg("Produto atualizado com sucesso!");
-      // Redirecionar após salvar? Descomente se quiser:
-      // router.push(`/produtos/${id}`);
-    } catch (e: any) {
-      setErro(e?.message || "Falha ao salvar as alterações.");
-    } finally {
-      setSalvando(false);
+      router.push("/meus-produtos");
+    } catch (err: any) {
+      setErro(err.message || "Erro ao salvar.");
     }
+    setSalvando(false);
   }
 
-  if (carregando) {
-    return (
-      <div className="max-w-3xl mx-auto p-6">
-        <div className="flex items-center gap-2 text-gray-600">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          <span>Carregando produto...</span>
-        </div>
-      </div>
-    );
+  function handleChange(e: any) {
+    setProduto((old: any) => ({
+      ...old,
+      [e.target.name]: e.target.value,
+    }));
   }
 
-  if (erro && !salvando && isEmpty(form.titulo) && !okMsg) {
-    return (
-      <div className="max-w-3xl mx-auto p-6">
-        <div className="mb-4">
-          <Link
-            href="/produtos"
-            className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Voltar
-          </Link>
-        </div>
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
-          {erro}
-        </div>
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center min-h-screen">
+      <Loader className="animate-spin mb-3" size={38} />
+      <div className="text-lg font-bold text-[#219EBC]">Carregando produto...</div>
+    </div>
+  );
 
   return (
-    <div className="max-w-3xl mx-auto p-6">
-      {/* Cabeçalho */}
-      <div className="mb-6 flex items-center justify-between">
-        <Link
-          href="/produtos"
-          className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Voltar
-        </Link>
-        <h1 className="text-xl font-semibold">Editar Produto</h1>
-      </div>
+    <section style={{ maxWidth: 580, margin: "0 auto", padding: "42px 4vw 60px 4vw" }}>
+      <Link href="/meus-produtos" className="text-[#2563eb] font-bold mb-6 inline-block">
+        ← Voltar para Meus Produtos
+      </Link>
+      <h1 className="text-2xl md:text-3xl font-black text-[#023047] mb-6">Editar Produto</h1>
 
-      {/* Alertas */}
-      {erro && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
-          {erro}
-        </div>
-      )}
-      {okMsg && (
-        <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-green-700">
-          {okMsg}
-        </div>
-      )}
-
-      {/* Formulário */}
-      <form onSubmit={onSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         <div>
-          <label className="mb-1 block text-sm font-medium">Título *</label>
+          <label className="block mb-1 font-bold text-[#023047]">Nome do produto</label>
           <input
-            name="titulo"
-            value={form.titulo}
+            name="nome"
+            className="w-full px-4 py-3 border rounded-xl outline-none text-lg font-semibold"
+            value={produto.nome}
             onChange={handleChange}
-            placeholder="Ex: Retroescavadeira JCB 3C"
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            required
           />
         </div>
-
         <div>
-          <label className="mb-1 block text-sm font-medium">Descrição</label>
+          <label className="block mb-1 font-bold text-[#023047]">Descrição</label>
           <textarea
             name="descricao"
-            value={form.descricao}
+            className="w-full px-4 py-3 border rounded-xl outline-none text-base min-h-[90px]"
+            value={produto.descricao}
             onChange={handleChange}
-            placeholder="Detalhes do produto..."
-            rows={5}
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block mb-1 font-bold text-[#023047]">Status</label>
+          <input
+            name="status"
+            className="w-full px-4 py-3 border rounded-xl outline-none text-base"
+            value={produto.status}
+            onChange={handleChange}
+            placeholder="ex: disponível, vendido..."
+          />
+        </div>
+        <div>
+          <label className="block mb-1 font-bold text-[#023047]">URL da imagem</label>
+          <input
+            name="imagem"
+            className="w-full px-4 py-3 border rounded-xl outline-none text-base"
+            value={produto.imagem}
+            onChange={handleChange}
+            placeholder="https://"
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-sm font-medium">Preço (R$)</label>
-            <input
-              name="preco"
-              value={typeof form.preco === "number" ? String(form.preco) : ""}
-              onChange={handleChange}
-              inputMode="decimal"
-              placeholder="Ex: 15000"
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Dica: use apenas números. Ajuste para centavos no backend se preferir.
-            </p>
+        {erro && (
+          <div className="text-red-700 bg-red-100 border border-red-200 px-4 py-2 rounded-xl text-base text-center mb-1 w-full">
+            {erro}
           </div>
+        )}
 
-          <div>
-            <label className="mb-1 block text-sm font-medium">Categoria</label>
-            <input
-              name="categoria"
-              value={form.categoria}
-              onChange={handleChange}
-              placeholder="Ex: Máquinas"
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="flex items-end">
-            <label className="inline-flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                name="ativo"
-                checked={!!form.ativo}
-                onChange={handleChange}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm font-medium">Ativo</span>
-            </label>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={salvando}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {salvando ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Salvando...
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4" />
-                Salvar alterações
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => router.push(`/produtos/${id}`)}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-          >
-            Visualizar
-          </button>
-        </div>
+        <button
+          type="submit"
+          disabled={salvando}
+          className="w-full bg-gradient-to-r from-[#FB8500] to-[#FFB703] hover:from-[#FB8500] hover:to-[#ff9800] text-white py-4 rounded-xl font-bold text-xl flex items-center justify-center transition disabled:opacity-60 disabled:cursor-not-allowed shadow-lg"
+          style={{ letterSpacing: ".01em", boxShadow: "0 6px 18px #ffb70355" }}
+        >
+          {salvando ? (
+            <Loader className="animate-spin mr-2" size={24} />
+          ) : (
+            <Save className="mr-2" size={24} />
+          )}
+          {salvando ? "Salvando..." : "Salvar Alterações"}
+        </button>
       </form>
-    </div>
+    </section>
   );
 }

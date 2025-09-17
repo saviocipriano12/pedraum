@@ -4,11 +4,13 @@
   "private": true,
   "description": "Plataforma Pedraum - Next.js + Firebase + Mercado Pago",
   "type": "module",
- "scripts": {
-  "dev": "next dev",
-  "build": "next build",
-  "start": "next start",
-  "postinstall": "node scripts/copy-pdf-worker.cjs" },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "postinstall": "node -e \"const fs=require('fs');const path=require('path');const src=require.resolve('pdfjs-dist/build/pdf.worker.min.mjs');const outDir=path.join(process.cwd(),'public');const out=path.join(outDir,'pdf.worker.min.mjs');fs.mkdirSync(outDir,{recursive:true});fs.copyFileSync(src,out);console.log('[react-pdf] Copiado:',src,'->',out);\"",
+    "prebuild": "node -e \"const fs=require('fs');const path=require('path');const src=require.resolve('pdfjs-dist/build/pdf.worker.min.mjs');const outDir=path.join(process.cwd(),'public');const out=path.join(outDir,'pdf.worker.min.mjs');fs.mkdirSync(outDir,{recursive:true});fs.copyFileSync(src,out);console.log('[react-pdf] (prebuild) Copiado:',src,'->',out);\""
+  },
   "engines": {
     "node": "20.x"
   },

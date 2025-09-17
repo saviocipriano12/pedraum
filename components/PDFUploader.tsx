@@ -1,17 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { UploadButton } from "@uploadthing/react";
 import type { OurFileRouter } from "@/uploadthing.config";
 
 type EndpointName = Extract<keyof OurFileRouter, string>;
 
 interface Props {
-  initialUrl?: string | null;        // modo edição
+  /** URL inicial (modo edição) */
+  initialUrl?: string | null;
+  /** Callback com a URL final do PDF (ou null ao remover) */
   onUploaded: (url: string | null) => void;
-  endpoint?: EndpointName;           // default: "pdfUploader"
+  /** Slug de upload no backend (default: "pdfUploader") */
+  endpoint?: EndpointName;
   className?: string;
   disableUpload?: boolean;
+
+  /** 🔁 Compat: algumas páginas antigas passam `mode="create"| "edit"` */
+  mode?: string;
 }
 
 export default function PDFUploader({
@@ -20,9 +26,16 @@ export default function PDFUploader({
   endpoint = "pdfUploader",
   className,
   disableUpload = false,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  mode, // apenas para compatibilidade; não é usado internamente
 }: Props) {
   const [currentUrl, setCurrentUrl] = useState<string | null>(initialUrl);
   const hasFile = useMemo(() => !!currentUrl, [currentUrl]);
+
+  // 🔄 Mantém o estado sincronizado se a prop initialUrl mudar (ex.: ao carregar dados)
+  useEffect(() => {
+    setCurrentUrl(initialUrl ?? null);
+  }, [initialUrl]);
 
   function handleRemove() {
     setCurrentUrl(null);
@@ -35,6 +48,7 @@ export default function PDFUploader({
         <UploadButton<OurFileRouter, EndpointName>
           endpoint={endpoint}
           onBeforeUploadBegin={(files) => {
+            // aceita só PDF e limita a 1 arquivo
             const pdfs = files.filter((f) => {
               const ct = (f.type ?? "").toLowerCase();
               const byCT = ct.includes("pdf");
@@ -71,7 +85,12 @@ export default function PDFUploader({
         <div className="rounded-md border p-2 text-sm text-slate-700 flex items-center justify-between">
           <div className="truncate">
             <span className="font-semibold">PDF anexado:</span>{" "}
-            <a href={currentUrl!} target="_blank" rel="noreferrer" className="underline hover:no-underline">
+            <a
+              href={currentUrl!}
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:no-underline"
+            >
               abrir
             </a>
           </div>

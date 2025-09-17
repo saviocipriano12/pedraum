@@ -334,7 +334,7 @@ function CreateProdutoForm() {
                 <div className="px-4 pb-4 space-y-3">
                   <div className="rounded-lg border border-dashed p-3">
                     {/* O PDFUploader deve retornar a URL final do arquivo (ex.: Firebase Storage) */}
-                    <PDFUploader mode="create" onUploaded={setPdfUrl} />
+                    <PDFUploader onUploaded={setPdfUrl} />
                   </div>
 
                   {pdfUrl ? (

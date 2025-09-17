@@ -1,27 +1,12 @@
-// components/ProductPdfUploader.tsx
 "use client";
-
-import { UploadButton } from "@uploadthing/react";
-import type { OurFileRouter } from "@/app/api/uploadthing/core";
+import PDFUploader from "./PDFUploader";
 
 type Props = {
-  onUploaded?: (url: string) => void;
+  onUploaded: (url: string | null) => void;
+  initialUrl?: string | null;
 };
 
-export default function ProductPdfUploader({ onUploaded }: Props) {
-  return (
-    <div className="space-y-2">
-      {/* v6 do UploadThing espera 2 genéricos: <Router, "endpoint"> */}
-      <UploadButton<OurFileRouter, "produtoPdf">
-        endpoint="produtoPdf"
-        onClientUploadComplete={(res) => {
-          const url = res?.[0]?.url;
-          if (url) onUploaded?.(url);
-        }}
-        onUploadError={(error) => {
-          console.error("Erro no upload:", error);
-        }}
-      />
-    </div>
-  );
+/** Wrapper específico do produto apontando para o slug padrão de PDF. */
+export default function ProductPdfUploader({ onUploaded, initialUrl = null }: Props) {
+  return <PDFUploader onUploaded={onUploaded} initialUrl={initialUrl} endpoint="pdfUploader" />;
 }

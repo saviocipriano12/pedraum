@@ -397,7 +397,7 @@ const userCats: string[] = useMemo(() => {
           gap: 10,
         }}
       >
-        Vitrine de Oportunidades
+        Vitrine de Demandas
         {isPatrocinador && (
           <span
             style={{
@@ -440,7 +440,7 @@ const userCats: string[] = useMemo(() => {
             outline: "none",
           }}
         >
-          <Plus size={22} /> Postar uma Necessidade
+          <Plus size={22} /> Postar uma Demanda
         </Link>
 
         {/* CTA para virar patrocinador — só aparece para não patrocinador */}

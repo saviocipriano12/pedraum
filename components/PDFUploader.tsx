@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { UploadButton } from "@/utils/uploadthing";
+import { UploadButton } from "@uploadthing/react";
+import type { OurFileRouter } from "@/app/api/uploadthing/core";
 import { db } from "@/firebaseConfig";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
 
 type Props = {
-  /** default = "create": só retorna URL; "edit": salva no Firestore também */
+  /** default = "create": só retorna URL; "edit": também salva no Firestore */
   mode?: "create" | "edit";
   collection?: string;  // obrigatório se mode="edit"
   docId?: string;       // obrigatório se mode="edit"
-  onUploaded?: (url: string) => void;
+  onUploaded?: (url: string) => void; // <-- use este nome MESMO
 };
 
 export default function PDFUploader({
@@ -31,28 +32,30 @@ export default function PDFUploader({
 
   return (
     <div className="space-y-2">
-      <UploadButton
-        endpoint="productPdf"
+      {/* Algumas versões do UploadThing exigem 2 genéricos: <Router, "endpoint"> */}
+      <UploadButton<OurFileRouter, "produtoPdf">
+        endpoint="produtoPdf"
         onClientUploadComplete={async (res) => {
-          const u = (res?.[0] as any)?.ufsUrl ?? (res?.[0] as any)?.url;
-          if (!u) return alert("Upload finalizado, mas sem URL.");
+          // res: Array<{ url: string; ... }>
+          const uploadedUrl = res?.[0]?.url;
+          if (!uploadedUrl) return;
 
-          try {
-            if (mode === "edit") await salvarNoFirestore(u);
-            setUrl(u);
-            onUploaded?.(u);
-            alert(mode === "edit" ? "PDF enviado e salvo!" : "PDF enviado!");
-          } catch (e) {
-            console.error(e);
-            alert("Erro ao salvar o PDF no Firestore.");
-          }
+          setUrl(uploadedUrl);
+
+          // dispara callback do pai (se houver)
+          onUploaded?.(uploadedUrl);
+
+          // salva no Firestore quando estiver em modo "edit"
+          await salvarNoFirestore(uploadedUrl);
         }}
-        onUploadError={(err: Error) => alert(`Erro no upload: ${err.message}`)}
+        onUploadError={(error) => {
+          console.error("Erro no upload:", error);
+          // aqui você pode exibir um toast se quiser
+        }}
       />
-
       {url && (
-        <p className="text-xs break-all">
-          PDF: <span className="font-mono">{url}</span>
+        <p className="text-sm text-gray-500 break-all">
+          PDF enviado: {url}
         </p>
       )}
     </div>

@@ -1,45 +1,27 @@
+// components/ProductPdfUploader.tsx
 "use client";
 
-import { useState } from "react";
-// Ajuste o import conforme sua versão do UploadThing no frontend:
-import { UploadButton } from "@uploadthing/react"; // ou "@/utils/uploadthing" se você criou um wrapper
+import { UploadButton } from "@uploadthing/react";
+import type { OurFileRouter } from "@/app/api/uploadthing/core";
 
 type Props = {
-  produtoId: string;
-  onUploaded?: (url: string) => void; // callback para você salvar no Firestore via client, se preferir
+  onUploaded?: (url: string) => void;
 };
 
-export default function ProductPdfUploader({ produtoId, onUploaded }: Props) {
-  const [url, setUrl] = useState<string | null>(null);
-
+export default function ProductPdfUploader({ onUploaded }: Props) {
   return (
     <div className="space-y-2">
-      <UploadButton
-        endpoint="productPdf"
+      {/* v6 do UploadThing espera 2 genéricos: <Router, "endpoint"> */}
+      <UploadButton<OurFileRouter, "produtoPdf">
+        endpoint="produtoPdf"
         onClientUploadComplete={(res) => {
-          const uploadedUrl = res?.[0]?.url;
-          if (uploadedUrl) {
-            setUrl(uploadedUrl);
-            onUploaded?.(uploadedUrl);
-          }
+          const url = res?.[0]?.url;
+          if (url) onUploaded?.(url);
         }}
-        onUploadError={(error: Error) => alert(`Erro no upload: ${error.message}`)}
-        content={{
-          button({ ready }) {
-            return ready ? "Enviar PDF (até 8MB)" : "Carregando…";
-          },
-          allowedContent() {
-            return "Somente .pdf";
-          },
+        onUploadError={(error) => {
+          console.error("Erro no upload:", error);
         }}
-        appearance={{
-          button: "px-4 py-2 rounded-md border",
-          container: "flex flex-col gap-2",
-        }}
-        // Se sua rota .onUploadComplete espera metadata, envie assim:
-        // metadata={{ produtoId }}
       />
-      {url ? <p className="text-xs break-all">PDF enviado: {url}</p> : null}
     </div>
   );
 }

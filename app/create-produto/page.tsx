@@ -6,8 +6,12 @@ import { useRouter } from "next/navigation";
 import { db, auth } from "@/firebaseConfig";
 import { collection, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import ImageUploader from "@/components/ImageUploader";
-import PDFUploader from "@/components/PDFUploader";
-import DrivePDFViewer from "@/components/DrivePDFViewer";
+import dynamic from "next/dynamic"; // <-- IMPORTANTE
+
+// ✅ Usa dynamic para evitar DOMMatrix no build
+const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
+const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
+
 import {
   Loader2, Save, Tag, DollarSign, Layers, Calendar, MapPin, BookOpen, Package, List, FileText, Upload, Image as ImageIcon
 } from "lucide-react";

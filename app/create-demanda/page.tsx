@@ -8,18 +8,17 @@ import { db, auth } from "@/firebaseConfig";
 import { collection, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
 import ImageUploader from "@/components/ImageUploader";
 import nextDynamic from "next/dynamic";
+import {
+  Loader2, Save, Tag, MapPin, CheckCircle2, Sparkles, Upload, BookOpen,
+  List, Layers, Info, ArrowLeft, FileText, Image as ImageIcon
+} from "lucide-react";
+
+// ✅ apenas isso, sem revalidate
+export const dynamic = "force-dynamic";
 
 const PDFUploader = nextDynamic(() => import("@/components/PDFUploader"), { ssr: false });
 const DrivePDFViewer = nextDynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
 
-
-import {
-  Loader2, Save, Tag, MapPin, CheckCircle2, Sparkles, Upload, BookOpen, List, Layers, Info, ArrowLeft, FileText, Image as ImageIcon
-} from "lucide-react";
-
-/* ===== Opt-outs para evitar erro de prerender ===== */
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 
 /* ================== Categorias (mesmas do create-produto) ================== */

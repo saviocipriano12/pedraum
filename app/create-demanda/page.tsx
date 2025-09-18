@@ -2,19 +2,25 @@
 "use client";
 
 import AuthGateRedirect from "@/components/AuthGateRedirect";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { db, auth } from "@/firebaseConfig";
 import { collection, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
 import ImageUploader from "@/components/ImageUploader";
-import dynamic from "next/dynamic";
+import nextDynamic from "next/dynamic";
 
-const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
-const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
+const PDFUploader = nextDynamic(() => import("@/components/PDFUploader"), { ssr: false });
+const DrivePDFViewer = nextDynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
+
 
 import {
   Loader2, Save, Tag, MapPin, CheckCircle2, Sparkles, Upload, BookOpen, List, Layers, Info, ArrowLeft, FileText, Image as ImageIcon
 } from "lucide-react";
+
+/* ===== Opt-outs para evitar erro de prerender ===== */
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 
 /* ================== Categorias (mesmas do create-produto) ================== */
 const categorias = [
@@ -93,15 +99,15 @@ type FormState = {
   autorNome: string;
   autorEmail: string;
   autorWhatsapp: string;
-  whatsapp?: string; // legado
+  whatsapp?: string;
   outraCategoriaTexto: string;
 };
 
 const ESTADOS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 const RASCUNHO_KEY = "pedraum:create-demandas:draft_v2";
 
-/* ================== Página ================== */
-export default function CreateDemandaPage() {
+/* ===== Componente interno com toda a lógica ===== */
+function CreateDemandaContent() {
   const router = useRouter();
 
   const [imagens, setImagens] = useState<string[]>([]);
@@ -192,7 +198,7 @@ export default function CreateDemandaPage() {
     return () => unsub();
   }, []);
 
-  /* ---------- Cidades por UF (IBGE) — MUNICÍPIOS ---------- */
+  /* ---------- Cidades por UF (IBGE) ---------- */
   useEffect(() => {
     let abort = false;
     async function fetchCidades(uf: string) {
@@ -234,8 +240,6 @@ export default function CreateDemandaPage() {
   }
 
   const isOutros = form.categoria === "Outros";
-  const subcategoriasDisponiveis =
-    categorias.find((c) => c.nome === form.categoria)?.subcategorias || [];
 
   /* ---------- Preview ---------- */
   const preview = useMemo(() => {
@@ -268,15 +272,7 @@ export default function CreateDemandaPage() {
 
     const subcategoriaOk = isOutros ? !!form.outraCategoriaTexto.trim() : !!form.subcategoria;
 
-    if (
-      !form.titulo ||
-      !form.descricao ||
-      !form.categoria ||
-      !subcategoriaOk ||
-      !form.prazo ||
-      !form.estado ||
-      !form.cidade
-    ) {
+    if (!form.titulo || !form.descricao || !form.categoria || !subcategoriaOk || !form.prazo || !form.estado || !form.cidade) {
       setError("Preencha todos os campos obrigatórios (*).");
       setLoading(false);
       return;
@@ -326,7 +322,7 @@ export default function CreateDemandaPage() {
       await addDoc(collection(db, "demandas"), payload);
       localStorage.removeItem(RASCUNHO_KEY);
       setSuccess("Demanda cadastrada com sucesso!");
-      setTimeout(() => router.push("/oportunidades"), 900); // 👈 volta para Oportunidades
+      setTimeout(() => router.push("/oportunidades"), 900);
     } catch (err) {
       console.error(err);
       setError("Erro ao cadastrar. Tente novamente.");
@@ -341,7 +337,6 @@ export default function CreateDemandaPage() {
       className="min-h-screen flex flex-col items-center py-8 px-2 sm:px-4"
       style={{ background: "linear-gradient(135deg, #f7f9fb, #ffffff 45%, #e0e7ef)" }}
     >
-      {/* 🔙 Botão Voltar no topo, fora do card */}
       <div className="w-full max-w-3xl px-2 mb-3 flex">
         <button
           type="button"
@@ -370,10 +365,8 @@ export default function CreateDemandaPage() {
           border: "1px solid #eef2f7",
         }}
       >
-        {/* Gate de autenticação */}
         <AuthGateRedirect />
 
-        {/* Título */}
         <h1
           style={{
             fontSize: "2.3rem",
@@ -390,7 +383,6 @@ export default function CreateDemandaPage() {
           Cadastrar Demanda
         </h1>
 
-        {/* Dica topo */}
         <div style={hintCardStyle}>
           <Info className="w-5 h-5" />
           <p style={{ margin: 0 }}>
@@ -398,9 +390,7 @@ export default function CreateDemandaPage() {
           </p>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-          {/* Anexos: Imagens + PDF */}
           <div
             className="rounded-2xl border"
             style={{ background: "linear-gradient(180deg,#f8fbff, #ffffff)", borderColor: "#e6ebf2", padding: 18 }}
@@ -602,7 +592,6 @@ export default function CreateDemandaPage() {
               <div><span style={muted}>Local:</span> {preview.local}</div>
               <div><span style={muted}>Prazo:</span> {preview.prazo}</div>
               <div><span style={muted}>Imagens:</span> {preview.imagens}</div>
-              {pdfUrl && <div><span style={muted}>PDF:</span> anexado</div>}
             </div>
             <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>
               {savingDraft ? "Salvando rascunho..." : "Rascunho salvo automaticamente"}
@@ -639,6 +628,15 @@ export default function CreateDemandaPage() {
         </form>
       </section>
     </main>
+  );
+}
+
+/* ===== Página exportada com Suspense ===== */
+export default function CreateDemandaPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Carregando…</div>}>
+      <CreateDemandaContent />
+    </Suspense>
   );
 }
 

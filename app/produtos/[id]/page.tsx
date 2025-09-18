@@ -15,7 +15,15 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "@/firebaseConfig";
 import Link from "next/link";
-import { Tag, Calendar, MapPin, BadgeCheck, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Tag,
+  Calendar,
+  MapPin,
+  BadgeCheck,
+  ChevronLeft,
+  ChevronRight,
+  ShieldCheck, // 👈 novo ícone
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { onAuthStateChanged } from "firebase/auth";
 import dynamic from "next/dynamic";
@@ -35,13 +43,17 @@ type ProdutoDoc = {
   descricao?: string;
   preco?: number | string | null;
   ano?: number | string;
-  condicao?: string;
+  condicao?: string; // agora: "Novo com garantia", "Novo sem garantia", etc.
   cidade?: string;
   estado?: string;
   tipo?: string;
   destaques?: string;
   sobre?: string;
   condicoes?: string;
+
+  // 👇 novos campos
+  hasWarranty?: boolean;
+  warrantyMonths?: number | null;
 };
 
 // ======================= Utils =======================
@@ -76,6 +88,24 @@ function currency(preco: any) {
 function resumo(str: string = "", len = 120) {
   if (!str) return "";
   return str.length <= len ? str : str.slice(0, len - 3) + "...";
+}
+
+// helper de garantia (compat com anúncios antigos)
+function resolveGarantia(p: ProdutoDoc) {
+  const explicitHas = !!p.hasWarranty;
+  const months = typeof p.warrantyMonths === "number" ? p.warrantyMonths : null;
+  const cond = (p.condicao || "").toLowerCase();
+
+  const condImpliesYes = /com garantia/.test(cond);
+  const condImpliesNo = /sem garantia/.test(cond);
+
+  const has = explicitHas || condImpliesYes ? true : condImpliesNo ? false : false;
+
+  let text = "Sem garantia";
+  if (has) {
+    text = months && months > 0 ? `${months} meses de garantia` : "Com garantia";
+  }
+  return { has, months, text };
 }
 
 // ======================= Modal de contato =======================
@@ -260,7 +290,7 @@ function ModalContato({
 // ======================= Página =======================
 export default function ProdutoDetalhePage() {
   const { id } = useParams();
-  const [produto, setProduto] = useState<any>(null);
+  const [produto, setProduto] = useState<ProdutoDoc | null>(null);
   const [usuarioLogado, setUsuarioLogado] = useState<any>(null);
   const [carregandoUsuario, setCarregandoUsuario] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -410,6 +440,9 @@ export default function ProdutoDetalhePage() {
   const precoFmt = currency(produto.preco);
   const podeMostrarPreco = Boolean(precoFmt);
 
+  // 👇 garantia
+  const garantia = resolveGarantia(produto);
+
   return (
     <section className="produto-detalhe">
       {/* Topo / Breadcrumbs */}
@@ -420,6 +453,7 @@ export default function ProdutoDetalhePage() {
         <div className="produto-badges">
           {isNovo(produto.createdAt) && !expirado && <span className="badge badge-novo">NOVO</span>}
           {expirado && <span className="badge badge-expirado">EXPIRADO</span>}
+          {garantia.has && !expirado && <span className="badge badge-garantia">GARANTIA</span>}
         </div>
       </div>
 
@@ -505,6 +539,8 @@ export default function ProdutoDetalhePage() {
             {(produto.cidade || produto.estado) && (
               <span><MapPin size={18} /> {produto.cidade || "—"}, {produto.estado || "—"}</span>
             )}
+            {/* 👇 Garantia visual aqui */}
+            <span><ShieldCheck size={18} /> {garantia.text}</span>
           </div>
 
           {/* Preço + CTA */}
@@ -575,7 +611,9 @@ export default function ProdutoDetalhePage() {
 
           <div>
             <div className="produto-desc-item-title">Condições</div>
-            <div className="produto-desc-item-text">{produto.condicoes || produto.condicao || "—"}</div>
+            <div className="produto-desc-item-text">
+              {(produto.condicoes || produto.condicao || "—") + (garantia.has ? ` • ${garantia.text}` : " • Sem garantia")}
+            </div>
           </div>
         </div>
       </div>
@@ -767,6 +805,7 @@ export default function ProdutoDetalhePage() {
         .produto-badges .badge { display: inline-block; font-size: 0.82rem; font-weight: 900; padding: 5px 12px; border-radius: 999px; margin-left: 8px; }
         .badge-novo { background: #10b981; color: #fff; }
         .badge-expirado { background: #9ca3af; color: #fff; }
+        .badge-garantia { background: #2563eb; color: #fff; } /* 👈 destaque de Garantia */
 
         .produto-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; margin-top: 10px; }
         .produto-imagens { display: flex; flex-direction: column; align-items: center; }

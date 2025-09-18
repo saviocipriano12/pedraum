@@ -3,14 +3,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { db, auth } from "@/firebaseConfig";
 import {
   doc,
-  getDoc,
   updateDoc,
   addDoc,
   collection,
   serverTimestamp,
+  onSnapshot,
 } from "firebase/firestore";
 import ImageUploader from "@/components/ImageUploader";
 import {
@@ -20,7 +21,15 @@ import {
   LinkIcon,
   Lock,
   HelpCircle,
+  CheckSquare,
+  Square,
+  Upload,
+  FileText,
 } from "lucide-react";
+
+/** ==== PDF (SSR desativado para evitar erro no Next) ==== */
+const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
+const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
 
 /** =========================
  *  Taxonomia (Categoria → Subcategorias)
@@ -151,14 +160,15 @@ type PerfilForm = {
   prestaServicos: boolean;
   vendeProdutos: boolean;
   categoriasAtuacaoPairs: CategoriaPair[];
-  categoriasAtuacao: string[]; // legado p/ filtros antigos
+  categoriasAtuacao: string[]; // legado
   categoriasLocked?: boolean;
   categoriasLockedAt?: any;
   atendeBrasil: boolean;
   ufsAtendidas: string[];
   agenda: Record<string, AgendaDia>;
   portfolioImagens: string[];
-  portfolioVideos: string[];
+  /** ⇩ Novo: PDF único do portfólio */
+  portfolioPdfUrl?: string | null;
   leadPreferencias: {
     categorias: string[];
     ufs: string[];
@@ -177,8 +187,16 @@ export default function PerfilPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
+  // imagens e PDF do portfólio
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+
+  // cidades por UF
+  const [cidades, setCidades] = useState<string[]>([]);
+  const [carregandoCidades, setCarregandoCidades] = useState(false);
+
+  // seleção de categoria e subcategorias (multi)
   const [selCategoria, setSelCategoria] = useState("");
-  const [selSubcategoria, setSelSubcategoria] = useState("");
+  const [selSubcats, setSelSubcats] = useState<string[]>([]);
 
   const [categoriasLocked, setCategoriasLocked] = useState<boolean>(false);
   const [pairsOriginais, setPairsOriginais] = useState<CategoriaPair[]>([]);
@@ -214,7 +232,7 @@ export default function PerfilPage() {
       dom: { ativo: false, das: "08:00", ate: "12:00" },
     },
     portfolioImagens: [],
-    portfolioVideos: [],
+    portfolioPdfUrl: null,
     leadPreferencias: { categorias: [], ufs: [], ticketMin: null, ticketMax: null },
     mpConnected: false,
     mpStatus: "desconectado",
@@ -222,22 +240,25 @@ export default function PerfilPage() {
 
   const avatarLista = useMemo(() => (form.avatar ? [form.avatar] : []), [form.avatar]);
 
-  /** Auth + load inicial */
+  /** Auth + realtime load */
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (user) => {
+    const unsubAuth = auth.onAuthStateChanged((user) => {
       if (!user) {
         setLoading(false);
         return;
       }
       setUserId(user.uid);
       const ref = doc(db, "usuarios", user.uid);
-      const snap = await getDoc(ref);
-
-      if (snap.exists()) {
+      const unsubUser = onSnapshot(ref, (snap) => {
+        if (!snap.exists()) {
+          setLoading(false);
+          return;
+        }
         const data: any = snap.data() || {};
         const locked = !!data.categoriasLocked;
+
         const pairs: CategoriaPair[] = Array.isArray(data.categoriasAtuacaoPairs)
-          ? (data.categoriasAtuacaoPairs as CategoriaPair[])
+          ? data.categoriasAtuacaoPairs
           : [];
 
         let initialPairs = pairs;
@@ -270,7 +291,7 @@ export default function PerfilPage() {
           ufsAtendidas: data.ufsAtendidas || [],
           agenda: data.agenda || prev.agenda,
           portfolioImagens: data.portfolioImagens || [],
-          portfolioVideos: data.portfolioVideos || [],
+          portfolioPdfUrl: data.portfolioPdfUrl || null,
           leadPreferencias: {
             categorias: data.leadPreferencias?.categorias || [],
             ufs: data.leadPreferencias?.ufs || [],
@@ -280,75 +301,92 @@ export default function PerfilPage() {
           mpConnected: !!data.mpConnected,
           mpStatus: data.mpStatus || "desconectado",
         }));
-      } else {
-        setForm((prev) => ({ ...prev, email: user.email || prev.email }));
-      }
-      setLoading(false);
+
+        // sincroniza estado local do PDF
+        setPdfUrl(data.portfolioPdfUrl || null);
+
+        setLoading(false);
+      });
+
+      return () => unsubUser();
     });
-    return () => unsub();
+
+    return () => unsubAuth();
   }, []);
+
+  /** Estados/UF -> cidades (IBGE) */
+  useEffect(() => {
+    let abort = false;
+
+    async function fetchCidades(uf: string) {
+      if (!uf || uf === "BRASIL") {
+        setCidades([]);
+        return;
+      }
+      setCarregandoCidades(true);
+      try {
+        const res = await fetch(
+          `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`,
+          { cache: "no-store" }
+        );
+        const data = (await res.json()) as Array<{ nome: string }>;
+        if (abort) return;
+
+        const nomes = data
+          .map((m) => m.nome)
+          .sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+        setCidades(nomes);
+      } catch {
+        if (!abort) setCidades([]);
+      } finally {
+        if (!abort) setCarregandoCidades(false);
+      }
+    }
+
+    fetchCidades(form.estado || "");
+    return () => {
+      abort = true;
+    };
+  }, [form.estado]);
 
   /** Helpers */
   function setField<K extends keyof PerfilForm>(key: K, value: PerfilForm[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
-  function n(s: string) {
-  return (s || "")
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-function buildCategoriesAll(
-  pairs: { categoria: string; subcategoria: string }[],
-  legacy: string[] = []
-) {
-  const set = new Set<string>(legacy.filter(Boolean));
-  for (const p of pairs) set.add(p.categoria);
-  return Array.from(set);
-}
-function buildPairsSearch(
-  pairs: { categoria: string; subcategoria: string }[]
-) {
-  return pairs
-    .filter((p) => p.categoria && p.subcategoria)
-    .map((p) => `${n(p.categoria)}::${n(p.subcategoria)}`);
-}
-function buildUfsSearch(atendeBrasil: boolean, ufsAtendidas: string[] = []) {
-  const arr = (ufsAtendidas || []).map((u) => String(u).trim().toUpperCase());
-  if (atendeBrasil && !arr.includes("BRASIL")) arr.push("BRASIL");
-  return arr;
-}
+  const norm = (s: string = "") =>
+    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").trim().toLowerCase();
 
-// Normalização robusta (remove acentos, normaliza espaços e caixa)
-function norm(s: string = "") {
-  return s
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-// Deduplica pares mantendo o último (ou o primeiro; aqui mantenho o último)
-function dedupPairs(pairs: { categoria: string; subcategoria: string }[]) {
-  const m = new Map<string, { categoria: string; subcategoria: string }>();
-  for (const p of pairs) {
-    const key = `${norm(p.categoria)}::${norm(p.subcategoria)}`;
-    m.set(key, p);
+  function dedupPairs(pairs: CategoriaPair[]) {
+    const m = new Map<string, CategoriaPair>();
+    for (const p of pairs) m.set(`${norm(p.categoria)}::${norm(p.subcategoria)}`, p);
+    return Array.from(m.values());
   }
-  return Array.from(m.values());
-}
 
-  // Set de categorias já selecionadas
+  function buildCategoriesAll(pairs: CategoriaPair[], legacy: string[] = []) {
+    const set = new Set<string>((legacy || []).filter(Boolean));
+    for (const p of pairs) set.add(p.categoria);
+    return Array.from(set);
+  }
+  function buildPairsSearch(pairs: CategoriaPair[]) {
+    return pairs
+      .filter((p) => p.categoria && p.subcategoria)
+      .map((p) => `${norm(p.categoria)}::${norm(p.subcategoria)}`);
+  }
+  function buildUfsSearch(atendeBrasil: boolean, ufsAtendidas: string[] = []) {
+    const arr = (ufsAtendidas || []).map((u) => String(u).trim().toUpperCase());
+    if (atendeBrasil && !arr.includes("BRASIL")) arr.push("BRASIL");
+    return Array.from(new Set(arr));
+  }
+
+  // Categorias selecionadas atualmente
   const selectedCategoriasSet = useMemo(
     () => new Set(form.categoriasAtuacaoPairs.map((p) => p.categoria)),
     [form.categoriasAtuacaoPairs]
   );
   const selectedCategorias = useMemo(() => Array.from(selectedCategoriasSet), [selectedCategoriasSet]);
 
-  // Dropdown controlado: quando atingir 5 ou estiver travado, listar só as categorias já escolhidas
+  // Dropdown controlado (respeita lock e limite)
   const categoriasDropdown = useMemo(() => {
     if (categoriasLocked) return selectedCategorias;
     if (selectedCategoriasSet.size >= MAX_CATEGORIAS) return selectedCategorias;
@@ -357,32 +395,39 @@ function dedupPairs(pairs: { categoria: string; subcategoria: string }[]) {
 
   const subcatsDaSelecionada = selCategoria ? (TAXONOMIA[selCategoria] || []) : [];
 
- function addParCategoria() {
-  if (!selCategoria) { setMsg("Selecione uma categoria."); return; }
-  if (!selSubcategoria) { setMsg("Selecione uma subcategoria."); return; }
-
-  const isCategoriaNova = !selectedCategoriasSet.has(selCategoria);
-
-  if (categoriasLocked && isCategoriaNova) {
-    setMsg("Categorias travadas: adicione subcategorias apenas das categorias já escolhidas.");
-    return;
+  /** ====== MULTI-SELEÇÃO DE SUBCATEGORIAS ====== */
+  function toggleSubcat(sc: string) {
+    setSelSubcats((curr) =>
+      curr.includes(sc) ? curr.filter((s) => s !== sc) : [...curr, sc]
+    );
   }
-  if (!categoriasLocked && isCategoriaNova && selectedCategoriasSet.size >= MAX_CATEGORIAS) {
-    setMsg(`Você já tem ${MAX_CATEGORIAS}/${MAX_CATEGORIAS} categorias. Selecione uma dessas para adicionar subcategorias.`);
-    return;
+  function marcarTodas() {
+    setSelSubcats(subcatsDaSelecionada);
+  }
+  function limparSelecao() {
+    setSelSubcats([]);
   }
 
-  const novoPar: CategoriaPair = { categoria: selCategoria, subcategoria: selSubcategoria };
+  function addParesSelecionados() {
+    if (!selCategoria) { setMsg("Selecione uma categoria."); return; }
+    if (!selSubcats.length) { setMsg("Marque uma ou mais subcategorias."); return; }
 
-  setForm((f) => {
-    const novos = dedupPairs([...f.categoriasAtuacaoPairs, novoPar]);
-    return { ...f, categoriasAtuacaoPairs: novos };
-  });
-  setSelCategoria("");
-  setSelSubcategoria("");
-  setMsg("");
-}
+    const isCategoriaNova = !selectedCategoriasSet.has(selCategoria);
+    if (categoriasLocked && isCategoriaNova) {
+      setMsg("Categorias travadas: adicione subcategorias apenas das categorias já escolhidas.");
+      return;
+    }
+    if (!categoriasLocked && isCategoriaNova && selectedCategoriasSet.size >= MAX_CATEGORIAS) {
+      setMsg(`Você já tem ${MAX_CATEGORIAS}/${MAX_CATEGORIAS} categorias. Selecione uma dessas para adicionar subcategorias.`);
+      return;
+    }
 
+    const novos = selSubcats.map((s) => ({ categoria: selCategoria, subcategoria: s }));
+    setForm((f) => ({ ...f, categoriasAtuacaoPairs: dedupPairs([...f.categoriasAtuacaoPairs, ...novos]) }));
+    setSelSubcats([]);
+    setSelCategoria("");
+    setMsg("");
+  }
 
   function removeParCategoria(par: CategoriaPair) {
     setForm((f) => {
@@ -412,7 +457,7 @@ function dedupPairs(pairs: { categoria: string; subcategoria: string }[]) {
         canal: "whatsapp",
       });
     } catch (e) {
-      console.warn("Falha ao registrar ticket:", e);
+      // silencioso
     }
 
     const texto = `
@@ -431,146 +476,134 @@ Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
   }
 
   function toggleUfAtendida(uf: string) {
-  if (uf === "BRASIL") {
+    if (uf === "BRASIL") {
+      setForm((f) => ({
+        ...f,
+        atendeBrasil: !f.atendeBrasil,
+        ufsAtendidas: !f.atendeBrasil ? ["BRASIL"] : [],
+      }));
+      return;
+    }
+    if (form.atendeBrasil) {
+      setForm((f) => ({ ...f, atendeBrasil: false, ufsAtendidas: [uf] }));
+      return;
+    }
+    const has = form.ufsAtendidas.includes(uf.toUpperCase());
     setForm((f) => ({
       ...f,
-      atendeBrasil: !f.atendeBrasil,
-      ufsAtendidas: !f.atendeBrasil ? ["BRASIL"] : [],
+      ufsAtendidas: has
+        ? f.ufsAtendidas.filter((u) => u !== uf.toUpperCase())
+        : [...f.ufsAtendidas, uf.toUpperCase()],
     }));
-    return;
   }
-
-  if (form.atendeBrasil) {
-    setForm((f) => ({ ...f, atendeBrasil: false, ufsAtendidas: [uf] }));
-    return;
-  }
-
-  const has = form.ufsAtendidas.includes(uf.toUpperCase());
-  setForm((f) => ({
-    ...f,
-    ufsAtendidas: has
-      ? f.ufsAtendidas.filter((u) => u !== uf.toUpperCase())
-      : [...f.ufsAtendidas, uf.toUpperCase()],
-  }));
-}
-
 
   async function salvar(e?: React.FormEvent) {
-  e?.preventDefault();
-  if (!userId) return;
+    e?.preventDefault();
+    if (!userId) return;
 
-  setSaving(true);
-  setMsg("");
+    setSaving(true);
+    setMsg("");
 
-  try {
-    if (!form.categoriasAtuacaoPairs.length) {
-      setMsg("Adicione pelo menos 1 par (Categoria + Subcategoria).");
-      setSaving(false); return;
-    }
-    const algumSemSub = form.categoriasAtuacaoPairs.some((p) => !p.subcategoria?.trim());
-    if (algumSemSub) {
-      setMsg("Todos os pares precisam de subcategoria selecionada.");
-      setSaving(false); return;
-    }
-
-    // Deduplica pares e atualiza localmente antes de validar
-    const paresDedup = dedupPairs(form.categoriasAtuacaoPairs);
-    const categoriasDistintas = Array.from(new Set(paresDedup.map(p => p.categoria)));
-
-    if (categoriasDistintas.length > MAX_CATEGORIAS) {
-      setMsg(`Você pode escolher no máximo ${MAX_CATEGORIAS} categorias distintas.`);
-      setSaving(false); return;
-    }
-
-    if (categoriasLocked) {
-      const mesmas =
-        categoriasDistintas.length === categoriasOriginaisSet.size &&
-        categoriasDistintas.every((c) => categoriasOriginaisSet.has(c));
-      if (!mesmas) {
-        setMsg("Categorias travadas: não é possível alterar o conjunto de CATEGORIAS.");
+    try {
+      if (!form.categoriasAtuacaoPairs.length) {
+        setMsg("Adicione pelo menos 1 par (Categoria + Subcategoria).");
         setSaving(false); return;
       }
+      const algumSemSub = form.categoriasAtuacaoPairs.some((p) => !p.subcategoria?.trim());
+      if (algumSemSub) {
+        setMsg("Todos os pares precisam de subcategoria selecionada.");
+        setSaving(false); return;
+      }
+
+      // Dedup + validação de limite de categorias
+      const paresDedup = dedupPairs(form.categoriasAtuacaoPairs);
+      const categoriasDistintas = Array.from(new Set(paresDedup.map(p => p.categoria)));
+      if (categoriasDistintas.length > MAX_CATEGORIAS) {
+        setMsg(`Você pode escolher no máximo ${MAX_CATEGORIAS} categorias distintas.`);
+        setSaving(false); return;
+      }
+
+      if (categoriasLocked) {
+        const mesmas =
+          categoriasDistintas.length === categoriasOriginaisSet.size &&
+          categoriasDistintas.every((c) => categoriasOriginaisSet.has(c));
+        if (!mesmas) {
+          setMsg("Categorias travadas: não é possível alterar o conjunto de CATEGORIAS.");
+          setSaving(false); return;
+        }
+      }
+      const shouldLockNow = !categoriasLocked && categoriasDistintas.length === MAX_CATEGORIAS;
+
+      // Campos materializados p/ busca/filters (compat com o admin)
+      const categoriesAll = buildCategoriesAll(paresDedup, form.categoriasAtuacao);
+      const pairsSearch = buildPairsSearch(paresDedup);
+      const ufsSearch = buildUfsSearch(form.atendeBrasil, form.ufsAtendidas);
+
+      // UFs persistidas (normalizadas)
+      const ufsAtendidas = form.atendeBrasil ? ["BRASIL"] :
+        Array.from(new Set((form.ufsAtendidas || []).map((u) => String(u).trim().toUpperCase())));
+
+      await updateDoc(doc(db, "usuarios", userId), {
+        // Identidade
+        nome: form.nome,
+        telefone: form.telefone || "",
+        cidade: form.estado === "BRASIL" ? "" : (form.cidade || ""),
+        estado: form.estado || "",
+        cpf_cnpj: form.cpf_cnpj || "",
+        bio: form.bio || "",
+        avatar: form.avatar || "",
+
+        prestaServicos: form.prestaServicos,
+        vendeProdutos: form.vendeProdutos,
+
+        // ===== Fonte da verdade =====
+        categoriasAtuacaoPairs: paresDedup,
+
+        // ===== Compatibilidade (legado) =====
+        categoriasAtuacao: categoriasDistintas,
+        categorias: categoriasDistintas,
+
+        // ===== Materializações (filtros/indexação) =====
+        categoriesAll,
+        pairsSearch,
+        ufsSearch,
+
+        // Cobertura
+        atendeBrasil: form.atendeBrasil,
+        ufsAtendidas,
+
+        // Portfólio (imagens + PDF)
+        portfolioImagens: form.portfolioImagens,
+        portfolioPdfUrl: pdfUrl || null,
+
+        // Extras
+        agenda: form.agenda,
+        leadPreferencias: {
+          categorias: form.leadPreferencias.categorias,
+          ufs: form.leadPreferencias.ufs,
+          ticketMin: form.leadPreferencias.ticketMin ?? null,
+          ticketMax: form.leadPreferencias.ticketMax ?? null,
+        },
+        mpConnected: !!form.mpConnected,
+        mpStatus: form.mpStatus || "desconectado",
+        atualizadoEm: serverTimestamp(),
+      });
+
+      if (shouldLockNow) {
+        setCategoriasLocked(true);
+        setPairsOriginais(paresDedup);
+      }
+
+      setForm(f => ({ ...f, categoriasAtuacaoPairs: paresDedup }));
+      setMsg("Perfil atualizado com sucesso!");
+    } catch (err) {
+      console.error(err);
+      setMsg("Erro ao salvar alterações.");
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMsg(""), 4000);
     }
-
-    const shouldLockNow = !categoriasLocked && categoriasDistintas.length === MAX_CATEGORIAS;
-
-    // ===================== Normalizações para filtros =====================
-    // 1) Campos legados/compatíveis
-    const legadoCategorias = categoriasDistintas;         // ex.: ["Britagem e Classificação", ...]
-    const legadoCategoriasLower = legadoCategorias.map(norm);
-
-    // 2) Campos indexáveis (para filtros rápidos no admin)
-    const catsSearch = Array.from(new Set(legadoCategoriasLower)); // ["britagem e classificacao", ...]
-    const pairsSearch = Array.from(
-      new Set(
-        paresDedup.map(p => `${norm(p.categoria)}::${norm(p.subcategoria)}`)
-      )
-    ); // ["britagem e classificacao::britador conico", ...]
-
-    // 3) UFs normalizadas
-    let ufsFinal = form.atendeBrasil ? ["BRASIL"] :
-      (form.ufsAtendidas || []).map(u => (u || "").toString().trim().toUpperCase());
-    ufsFinal = Array.from(new Set(ufsFinal));
-
-    await updateDoc(doc(db, "usuarios", userId), {
-  // Identidade
-  nome: form.nome,
-  telefone: form.telefone || "",
-  cidade: form.estado === "BRASIL" ? "" : (form.cidade || ""),
-  estado: form.estado || "",
-  cpf_cnpj: form.cpf_cnpj || "",
-  bio: form.bio || "",
-  avatar: form.avatar || "",
-  prestaServicos: form.prestaServicos,
-  vendeProdutos: form.vendeProdutos,
-
-  // ===== Fonte da verdade =====
-  categoriasAtuacaoPairs: form.categoriasAtuacaoPairs,
-
-  // ===== Compatibilidade (legado) =====
-  categoriasAtuacao: Array.from(new Set(form.categoriasAtuacaoPairs.map(p => p.categoria))),
-  categorias: Array.from(new Set(form.categoriasAtuacaoPairs.map(p => p.categoria))),
-
-  // ===== Novos campos materializados =====
-  categoriesAll: buildCategoriesAll(form.categoriasAtuacaoPairs, form.categoriasAtuacao),
-  pairsSearch: buildPairsSearch(form.categoriasAtuacaoPairs),
-  ufsSearch: buildUfsSearch(form.atendeBrasil, form.ufsAtendidas),
-
-  // Cobertura
-  atendeBrasil: form.atendeBrasil,
-  ufsAtendidas: form.ufsAtendidas,
-
-  // Extras
-  agenda: form.agenda,
-  portfolioImagens: form.portfolioImagens,
-  portfolioVideos: form.portfolioVideos,
-  leadPreferencias: {
-    categorias: form.leadPreferencias.categorias,
-    ufs: form.leadPreferencias.ufs,
-    ticketMin: form.leadPreferencias.ticketMin ?? null,
-    ticketMax: form.leadPreferencias.ticketMax ?? null,
-  },
-  mpConnected: !!form.mpConnected,
-  mpStatus: form.mpStatus || "desconectado",
-});
-
-
-    if (shouldLockNow) {
-      setCategoriasLocked(true);
-      setPairsOriginais(paresDedup);
-    }
-
-    setForm(f => ({ ...f, categoriasAtuacaoPairs: paresDedup })); // reflete dedup
-    setMsg("Perfil atualizado com sucesso!");
-  } catch (err) {
-    console.error(err);
-    setMsg("Erro ao salvar alterações.");
-  } finally {
-    setSaving(false);
-    setTimeout(() => setMsg(""), 4000);
   }
-}
-
 
   const subcatsCountByCategoria = useMemo(() => {
     const m = new Map<string, number>();
@@ -655,15 +688,25 @@ Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
                     {estados.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
                   </select>
                 </div>
+
+                {/* Cidade com IBGE, bloqueada quando "BRASIL" */}
                 <div>
                   <label className="label">Cidade</label>
-                  <input
+                  <select
                     className="input"
                     value={form.cidade || ""}
                     onChange={(e) => setField("cidade", e.target.value)}
-                    placeholder={form.estado && form.estado !== "BRASIL" ? "Digite sua cidade" : "—"}
-                    disabled={!form.estado || form.estado === "BRASIL"}
-                  />
+                    disabled={!form.estado || form.estado === "BRASIL" || carregandoCidades}
+                  >
+                    <option value="">
+                      {!form.estado ? "Selecione o estado"
+                        : form.estado === "BRASIL" ? "—"
+                        : (carregandoCidades ? "Carregando..." : "Selecione a cidade")}
+                    </option>
+                    {cidades.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -702,46 +745,70 @@ Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
 
             <div>
               <div className="label">
-                Categorias que você atua (até {MAX_CATEGORIAS} <b>categorias</b>; <b>subcategorias</b> ilimitadas)
+                Categorias (até {MAX_CATEGORIAS} <b>categorias</b>; <b>subcategorias</b> ilimitadas)
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-center">
-                <select
-                  className="input"
-                  value={selCategoria}
-                  onChange={(e) => {
-                    setSelCategoria(e.target.value);
-                    setSelSubcategoria("");
-                  }}
-                >
-                  <option value="">Selecionar categoria...</option>
-                  {categoriasDropdown.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+              {/* Seletor de categoria */}
+              <select
+                className="input"
+                value={selCategoria}
+                onChange={(e) => {
+                  setSelCategoria(e.target.value);
+                  setSelSubcats([]); // reseta seleção ao trocar de categoria
+                }}
+              >
+                <option value="">Selecionar categoria...</option>
+                {categoriasDropdown.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
 
-                <select
-                  className="input"
-                  value={selSubcategoria}
-                  disabled={!selCategoria}
-                  onChange={(e) => setSelSubcategoria(e.target.value)}
-                >
-                  <option value="">{selCategoria ? "Selecionar subcategoria..." : "Escolha uma categoria"}</option>
-                  {subcatsDaSelecionada.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-
-                <div className="md:col-span-2">
-                  <button type="button" className="btn-sec" onClick={addParCategoria}>
-                    + Adicionar par
+              {/* Lista MULTI de subcategorias */}
+              <div style={{ marginTop: 8 }}>
+                <div className="label" style={{ marginBottom: 8 }}>Subcategorias da categoria selecionada</div>
+                <div className="flex items-center gap-8" style={{ marginBottom: 8 }}>
+                  <button type="button" className="btn-sec" disabled={!selCategoria} onClick={marcarTodas}>
+                    Marcar tudo
                   </button>
+                  <button type="button" className="btn-sec" disabled={!selCategoria} onClick={limparSelecao}>
+                    Limpar seleção
+                  </button>
+                  <button type="button" className="btn-sec" disabled={!selCategoria || !selSubcats.length} onClick={addParesSelecionados}>
+                    + Adicionar selecionadas
+                  </button>
+                </div>
+
+                <div className="subcat-grid">
+                  {selCategoria ? (
+                    subcatsDaSelecionada.map((s) => {
+                      const checked = selSubcats.includes(s);
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          className="subcat-pill"
+                          onClick={() => toggleSubcat(s)}
+                          aria-pressed={checked}
+                          title={checked ? "Clique para desmarcar" : "Clique para marcar"}
+                          style={{
+                            background: checked ? "#ecfdf5" : "#f7f9fc",
+                            borderColor: checked ? "#baf3cd" : "#e0ecff",
+                            color: checked ? "#059669" : "#2563eb",
+                          }}
+                        >
+                          {checked ? <CheckSquare size={16}/> : <Square size={16}/>} {s}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div style={{ color: "#64748b", fontSize: 14 }}>Selecione uma categoria para listar as subcategorias.</div>
+                  )}
                 </div>
               </div>
 
               {/* Agrupamento por categoria com contador de subcategorias */}
               {selectedCategorias.length > 0 && (
-                <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+                <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
                   {selectedCategorias.map((cat) => {
                     const paresDaCat = form.categoriasAtuacaoPairs.filter(p => p.categoria === cat);
                     return (
@@ -819,68 +886,89 @@ Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
           )}
         </div>
 
-        {/* Portfólio */}
+        {/* Portfólio — Imagens + PDF */}
         <div className="card">
-          <div className="card-title">Portfólio</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-            <div>
-              <div className="label">Imagens (até 12)</div>
-              <ImageUploader
-                imagens={form.portfolioImagens}
-                setImagens={(arr: string[]) => setField("portfolioImagens", arr)}
-                max={12}
-              />
+          <div className="card-title">Portfólio (Imagens + PDF)</div>
+
+          <div
+            className="rounded-2xl border"
+            style={{
+              background: "linear-gradient(180deg,#f8fbff, #ffffff)",
+              borderColor: "#e6ebf2",
+              padding: 16,
+              marginBottom: 12,
+            }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Upload className="w-4 h-4 text-slate-700" />
+              <h3 className="text-slate-800 font-black tracking-tight">Arquivos do portfólio</h3>
             </div>
-            <div>
-              <div className="label">Vídeos (URLs YouTube/Vimeo)</div>
-              <div className="flex gap-2">
-                <input
-                  className="input"
-                  placeholder="https://..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      const v = (e.target as HTMLInputElement).value.trim();
-                      if (v) {
-                        setForm((f) => ({ ...f, portfolioVideos: [...f.portfolioVideos, v] }));
-                        (e.target as HTMLInputElement).value = "";
-                      }
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  className="btn-sec"
-                  onClick={() => {
-                    const el = document.querySelector<HTMLInputElement>('input[placeholder="https://..."]');
-                    if (el?.value.trim()) {
-                      setForm((f) => ({ ...f, portfolioVideos: [...f.portfolioVideos, el.value.trim()] }));
-                      el.value = "";
-                    }
-                  }}
-                >+ Adicionar</button>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Imagens */}
+              <div
+                className="rounded-xl border overflow-hidden"
+                style={{
+                  borderColor: "#e6ebf2",
+                  background:
+                    "radial-gradient(1200px 300px at -200px -200px, #eef6ff 0%, transparent 60%), #ffffff",
+                }}
+              >
+                <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+                  <Tag className="w-4 h-4 text-sky-700" />
+                  <strong className="text-[#0f172a]">Imagens (até 12)</strong>
+                </div>
+                <div className="px-4 pb-4">
+                  <div className="rounded-lg border border-dashed p-3">
+                    <ImageUploader
+                      imagens={form.portfolioImagens}
+                      setImagens={(arr: string[]) => setField("portfolioImagens", arr)}
+                      max={12}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Envie JPG/PNG. Dica: priorize trabalhos finalizados, antes/depois, certificados etc.
+                  </p>
+                </div>
               </div>
-              {form.portfolioVideos.length > 0 && (
-                <ul style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                  {form.portfolioVideos.map((v) => (
-                    <li key={v} className="video-row">
-                      <LinkIcon size={16} /> <a href={v} target="_blank" className="a">{v}</a>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setForm((f) => ({
-                            ...f,
-                            portfolioVideos: f.portfolioVideos.filter((x) => x !== v),
-                          }))
-                        }
-                        title="Remover"
-                      >
-                        ×
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+
+              {/* PDF */}
+              <div
+                className="rounded-xl border overflow-hidden"
+                style={{
+                  borderColor: "#e6ebf2",
+                  background:
+                    "radial-gradient(1200px 300px at -200px -200px, #fff1e6 0%, transparent 60%), #ffffff",
+                }}
+              >
+                <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-orange-600" />
+                  <strong className="text-[#0f172a]">PDF do portfólio — opcional</strong>
+                </div>
+                <div className="px-4 pb-4 space-y-3">
+                  <div className="rounded-lg border border-dashed p-3">
+                    <PDFUploader
+                      initialUrl={pdfUrl}
+                      onUploaded={(url) => {
+                        setPdfUrl(url);
+                      }}
+                    />
+                  </div>
+
+                  {pdfUrl ? (
+                    <div className="rounded-lg border overflow-hidden" style={{ height: 300 }}>
+                      <DrivePDFViewer
+                        fileUrl={`/api/pdf-proxy?file=${encodeURIComponent(pdfUrl || "")}`}
+                        height={300}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Anexe seu portfólio consolidado, certificações ou catálogos (até 8MB).
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -889,9 +977,9 @@ Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
         {msg && (
           <div
             style={{
-              background: msg.includes("sucesso") ? "#f7fafc" : "#fff7f7",
-              color: msg.includes("sucesso") ? "#16a34a" : "#b91c1c",
-              border: `1.5px solid ${msg.includes("sucesso") ? "#c3f3d5" : "#ffdada"}`,
+              background: msg.toLowerCase().includes("sucesso") ? "#f7fafc" : "#fff7f7",
+              color: msg.toLowerCase().includes("sucesso") ? "#16a34a" : "#b91c1c",
+              border: `1.5px solid ${msg.toLowerCase().includes("sucesso") ? "#c3f3d5" : "#ffdada"}`,
               padding: "12px",
               borderRadius: 12,
               textAlign: "center",
@@ -911,122 +999,23 @@ Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
       </form>
 
       <style jsx>{`
-        .card {
-          background: #fff;
-          border-radius: 20px;
-          box-shadow: 0 4px 28px #0001;
-          padding: 24px 22px;
-        }
-        .card-title {
-          font-weight: 900;
-          color: #023047;
-          font-size: 1.2rem;
-          margin-bottom: 14px;
-        }
-        .label {
-          font-weight: 800;
-          color: #023047;
-          margin-bottom: 6px;
-          display: block;
-        }
-        .input {
-          width: 100%;
-          border: 1.6px solid #e5e7eb;
-          border-radius: 10px;
-          background: #f8fafc;
-          padding: 11px 12px;
-          font-size: 16px;
-          color: #222;
-          outline: none;
-        }
-        .checkbox {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          font-weight: 700;
-          color: #023047;
-        }
-        .chips {
-          margin-top: 10px;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-        .chip {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          background: #f3f7ff;
-          color: #2563eb;
-          border: 1px solid #e0ecff;
-          padding: 6px 10px;
-          border-radius: 10px;
-          font-weight: 800;
-          font-size: 0.95rem;
-        }
-        .chip button {
-          background: none; border: none; color: #999; font-weight: 900; cursor: pointer;
-        }
-        .pill {
-          border: 1px solid #e6e9ef;
-          border-radius: 999px;
-          padding: 6px 10px;
-          font-weight: 800;
-          font-size: 0.95rem;
-        }
-        .btn-sec {
-          background: #f7f9fc;
-          color: #2563eb;
-          border: 1px solid #e0ecff;
-          font-weight: 800;
-          border-radius: 10px;
-          padding: 10px 14px;
-        }
-        .btn-gradient {
-          background: linear-gradient(90deg,#fb8500,#fb8500);
-          color: #fff;
-          font-weight: 900;
-          border: none;
-          border-radius: 14px;
-          padding: 14px 26px;
-          font-size: 1.08rem;
-          box-shadow: 0 4px 18px #fb850033;
-        }
-        .video-row {
-          display: grid;
-          grid-template-columns: auto 1fr auto;
-          align-items: center;
-          gap: 8px;
-          background: #f7fafc;
-          border: 1px solid #e6edf6;
-          border-radius: 10px;
-          padding: 8px 10px;
-        }
-        .video-row .a {
-          color: #2563eb;
-          text-decoration: none;
-          font-weight: 700;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .video-row button {
-          background: none; border: none; color: #999; font-weight: 900; cursor: pointer;
-        }
-        .lock-banner {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background: #fff7ed;
-          border: 1px solid #ffedd5;
-          color: #9a3412;
-          padding: 10px 12px;
-          border-radius: 12px;
-          margin-bottom: 16px;
-          font-weight: 800;
-        }
+        .card { background: #fff; border-radius: 20px; box-shadow: 0 4px 28px #0001; padding: 24px 22px; }
+        .card-title { font-weight: 900; color: #023047; font-size: 1.2rem; margin-bottom: 14px; }
+        .label { font-weight: 800; color: #023047; margin-bottom: 6px; display: block; }
+        .input { width: 100%; border: 1.6px solid #e5e7eb; border-radius: 10px; background: #f8fafc; padding: 11px 12px; font-size: 16px; color: #222; outline: none; }
+        .checkbox { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: #023047; }
+        .chips { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; background: #f3f7ff; color: #2563eb; border: 1px solid #e0ecff; padding: 6px 10px; border-radius: 10px; font-weight: 800; font-size: 0.95rem; }
+        .chip button { background: none; border: none; color: #999; font-weight: 900; cursor: pointer; }
+        .pill { border: 1px solid #e6e9ef; border-radius: 999px; padding: 6px 10px; font-weight: 800; font-size: 0.95rem; }
+        .btn-sec { background: #f7f9fc; color: #2563eb; border: 1px solid #e0ecff; font-weight: 800; border-radius: 10px; padding: 10px 14px; }
+        .btn-gradient { background: linear-gradient(90deg,#fb8500,#fb8500); color: #fff; font-weight: 900; border: none; border-radius: 14px; padding: 14px 26px; font-size: 1.08rem; box-shadow: 0 4px 18px #fb850033; }
+        .lock-banner { display: flex; align-items: center; gap: 8px; background: #fff7ed; border: 1px solid #ffedd5; color: #9a3412; padding: 10px 12px; border-radius: 12px; margin-bottom: 16px; font-weight: 800; }
+        .subcat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .subcat-pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid; border-radius: 10px; padding: 8px 10px; font-weight: 800; }
         @media (max-width: 650px) {
           .card { padding: 18px 14px; border-radius: 14px; }
+          .subcat-grid { grid-template-columns: 1fr; }
         }
       `}</style>
     </section>

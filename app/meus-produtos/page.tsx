@@ -1,31 +1,73 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { db, auth } from "@/firebaseConfig";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { Loader, Edit, PlusCircle, ChevronLeft, Eye } from "lucide-react";
 import Link from "next/link";
+import {
+  Loader2, Edit, PlusCircle, ChevronLeft, Eye, ShieldCheck, FileText, BadgeCheck
+} from "lucide-react";
 
+/* ================= Helpers ================= */
 type Produto = {
   id: string;
   nome: string;
   descricao?: string;
-  status?: string;
-  imagem?: string;
+  status?: string;             // "ativo", "inativo", etc
+  imagens?: string[];          // << preferir esse campo
+  imagem?: string;             // legado (fallback)
+  preco?: number | string | null;
+  condicao?: string;           // "Novo com garantia", "Reformado...", etc
+  hasWarranty?: boolean | null;
+  warrantyMonths?: number | null;
+  pdfUrl?: string | null;
   createdAt?: any;
+  expiraEm?: any;
+  categoria?: string;
 };
 
+function getDateFromTs(ts?: any): Date | null {
+  if (!ts) return null;
+  if (typeof ts?.toDate === "function") return ts.toDate();
+  if (typeof ts?.seconds === "number") return new Date(ts.seconds * 1000);
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? null : d;
+}
+function isExpired(createdAt?: any, expiraEm?: any) {
+  const now = Date.now();
+  const exp = getDateFromTs(expiraEm);
+  if (exp) return now > exp.getTime();
+  const c = getDateFromTs(createdAt);
+  if (!c) return false;
+  const plus45 = new Date(c);
+  plus45.setDate(plus45.getDate() + 45);
+  return now > plus45.getTime();
+}
+function currency(preco: any) {
+  const n = Number(preco);
+  if (!preco || isNaN(n) || n <= 0) return null;
+  return `R$ ${n.toLocaleString("pt-BR")}`;
+}
+function garantiaTexto(p: Produto) {
+  const cond = (p.condicao || "").toLowerCase();
+  const has = p.hasWarranty || /com garantia/.test(cond);
+  if (!has) return "Sem garantia";
+  const m = typeof p.warrantyMonths === "number" && p.warrantyMonths > 0 ? p.warrantyMonths : null;
+  return m ? `${m}m de garantia` : "Com garantia";
+}
+
+/* ================= Page ================= */
 export default function MeusProdutosPage() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
 
+  // auth
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      setUserId(user?.uid || null);
-    });
-    return () => unsubscribe();
+    const unsub = auth.onAuthStateChanged((user) => setUserId(user?.uid || null));
+    return () => unsub();
   }, []);
 
+  // fetch
   useEffect(() => {
     async function fetchProdutos() {
       if (!userId) return;
@@ -33,155 +75,178 @@ export default function MeusProdutosPage() {
       const q = query(collection(db, "produtos"), where("userId", "==", userId));
       const querySnapshot = await getDocs(q);
       const data: Produto[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as Produto);
-      });
+      querySnapshot.forEach((d) => data.push({ id: d.id, ...(d.data() as any) }));
+      // ordena aqui por createdAt desc
+      data.sort((a, b) => (getDateFromTs(b.createdAt)?.getTime() || 0) - (getDateFromTs(a.createdAt)?.getTime() || 0));
       setProdutos(data);
       setLoading(false);
     }
-    if (userId) fetchProdutos();
+    fetchProdutos();
   }, [userId]);
 
+  const totalAtivos = useMemo(
+    () => produtos.filter((p) => !isExpired(p.createdAt, p.expiraEm)).length,
+    [produtos]
+  );
+
   return (
-    <section style={{ maxWidth: 1200, margin: "0 auto", padding: "42px 4vw 60px 4vw" }}>
-      <Link href="/painel" style={{
-        display: "flex", alignItems: "center", marginBottom: 24,
-        color: "#2563eb", fontWeight: 700, fontSize: 16
-      }}>
-        <ChevronLeft size={19} /> Voltar ao Painel
+    <section style={{ maxWidth: 1200, margin: "0 auto", padding: "42px 4vw 60px 4vw", background: "#f7fafc" }}>
+      {/* voltar */}
+      <Link
+        href="/painel"
+        style={{ display: "flex", alignItems: "center", marginBottom: 16, color: "#2563eb", fontWeight: 800, fontSize: 14, gap: 6 }}
+      >
+        <ChevronLeft size={18} /> Voltar ao Painel
       </Link>
-      <div style={{
-        display: "flex", justifyContent: "space-between",
-        alignItems: "flex-end", gap: 12, marginBottom: 34, flexWrap: "wrap"
-      }}>
-        <h1 style={{
-          fontSize: "2.2rem", fontWeight: 900, color: "#023047", letterSpacing: "-1.1px",
-          display: "flex", alignItems: "center", gap: 12
-        }}>
-          <span style={{
-            display: "inline-block", padding: "7px 30px", background: "#f3f6fa",
-            color: "#023047", borderRadius: "12px", boxShadow: "0 2px 12px #0001",
-            fontWeight: 800, fontSize: "2rem"
-          }}>
+
+      {/* header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <h1 style={{ fontSize: "2rem", fontWeight: 900, color: "#023047", letterSpacing: "-.5px", margin: 0 }}>
             Meus Produtos
+          </h1>
+          <span style={{
+            background: "#e7f0ff", color: "#1e40af", border: "1px solid #dbeafe", padding: "4px 10px",
+            borderRadius: 999, fontWeight: 800, fontSize: 12
+          }}>
+            {totalAtivos} ativos
           </span>
-        </h1>
+        </div>
+
         <Link
           href="/create-produto"
           style={{
-            display: "inline-flex", alignItems: "center", background: "#FB8500",
-            color: "#fff", fontWeight: 800, fontSize: 18, borderRadius: 14,
-            padding: "12px 28px", boxShadow: "0 2px 12px #0001", gap: 10,
-            textDecoration: "none", transition: "background .18s"
+            display: "inline-flex", alignItems: "center", background: "linear-gradient(90deg,#fb8500,#219ebc)",
+            color: "#fff", fontWeight: 800, fontSize: 16, borderRadius: 12, padding: "10px 18px",
+            boxShadow: "0 6px 22px rgba(33,158,188,0.20)", gap: 8, textDecoration: "none"
           }}
         >
-          <PlusCircle size={21} /> Novo Produto
+          <PlusCircle size={20} /> Novo Produto
         </Link>
       </div>
 
+      {/* listagem */}
       {loading ? (
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "center", padding: "64px 0"
-        }}>
-          <Loader className="animate-spin mr-2" size={26} color="#219EBC" />
-          <span style={{ fontSize: 20, fontWeight: 700, color: "#219EBC" }}>Carregando produtos...</span>
-        </div>
+  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 18, marginTop: 14 }}>
+    {Array.from({ length: 6 }).map((_, i) => (
+      <div key={i} style={{ borderRadius: 16, background: "#fff", border: "1.5px solid #eef2f6", padding: 16 }}>
+        <div className="skel-banner" />
+        <div style={{ height: 12 }} />
+        <div className="skel-line w70" />
+        <div style={{ height: 8 }} />
+        <div className="skel-line w45" />
+      </div>
+    ))}
+  </div>
       ) : produtos.length === 0 ? (
-        <div style={{
-          display: "flex", flexDirection: "column", alignItems: "center", padding: "60px 0"
-        }}>
-          <img
-            src="https://cdn-icons-png.flaticon.com/512/1170/1170576.png"
-            alt="Sem produtos"
-            style={{ width: 80, opacity: .70, marginBottom: 18 }}
-          />
-          <p style={{ color: "#5B6476", fontSize: 20, fontWeight: 700, marginBottom: 4 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "56px 0", background: "#fff", borderRadius: 16, border: "1.5px solid #eef2f6" }}>
+          <img src="/images/no-image.png" alt="Sem produtos" style={{ width: 80, height: 80, objectFit: "contain", opacity: .6, marginBottom: 12 }} />
+          <p style={{ color: "#475569", fontSize: 18, fontWeight: 800, marginBottom: 8, textAlign: "center" }}>
             Você ainda não cadastrou produtos.
           </p>
           <Link
             href="/create-produto"
             style={{
-              marginTop: 7, padding: "12px 32px", borderRadius: "11px", background: "#219ebc",
-              color: "#fff", fontWeight: 800, fontSize: 17, boxShadow: "0 2px 10px #0001", transition: "background .2s"
+              marginTop: 6, padding: "10px 22px", borderRadius: 10, background: "#219ebc",
+              color: "#fff", fontWeight: 800, fontSize: 15, textDecoration: "none"
             }}
           >
             Adicionar Produto
           </Link>
         </div>
       ) : (
-        <div style={{
-          display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 32
-        }}>
-          {produtos
-            .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
-            .map((prod) => (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 18 }}>
+          {produtos.map((p) => {
+            const capa = (p.imagens && p.imagens[0]) || p.imagem || "/images/no-image.png";
+            const expired = isExpired(p.createdAt, p.expiraEm);
+            const preco = currency(p.preco);
+            const garantia = garantiaTexto(p);
+            const status = p.status || (expired ? "expirado" : "ativo");
+
+            return (
               <div
-                key={prod.id}
+                key={p.id}
                 style={{
-                  borderRadius: 16, boxShadow: "0 2px 20px #0001", background: "#fff",
-                  border: "1.6px solid #f2f3f7", padding: "26px 22px 20px 22px",
-                  marginBottom: 2, display: "flex", flexDirection: "column", gap: 12,
-                  minHeight: 160, position: "relative",
+                  borderRadius: 16, background: "#fff", border: "1.5px solid #eef2f6",
+                  boxShadow: "0 4px 22px rgba(2,48,71,0.05)", overflow: "hidden", display: "flex", flexDirection: "column"
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 13, marginBottom: 5 }}>
-                  {prod.imagem ? (
-                    <img
-                      src={prod.imagem}
-                      alt={prod.nome}
-                      style={{
-                        width: 52, height: 52, objectFit: "cover", borderRadius: 12,
-                        border: "1.2px solid #f2f3f7"
-                      }}
-                    />
-                  ) : (
-                    <div style={{
-                      width: 52, height: 52, background: "#f3f3f7", borderRadius: 12,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 30, fontWeight: 800, color: "#FB8500", border: "1.2px solid #f2f3f7"
-                    }}>
-                      📦
-                    </div>
-                  )}
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: "1.17rem", color: "#023047" }}>{prod.nome}</div>
-                    <div style={{ color: "#219ebc", fontWeight: 600, fontSize: 15, marginTop: 2 }}>{prod.status}</div>
+                {/* capa */}
+                <div style={{ position: "relative", width: "100%", height: 180, background: "#f3f6fa" }}>
+                  <img
+                    src={capa}
+                    alt={p.nome}
+                    onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  />
+                  {/* badges */}
+                  <div style={{ position: "absolute", top: 10, left: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {expired && <span className="chip chip-gray">EXPIRADO</span>}
+                    {!expired && <span className="chip chip-green">ATIVO</span>}
+                    {p.pdfUrl && <span className="chip chip-red"><FileText size={13} /> PDF</span>}
                   </div>
                 </div>
-                <div style={{
-                  color: "#525252", fontSize: "1rem", marginBottom: 3,
-                  minHeight: 44, maxHeight: 65, overflow: "hidden"
-                }}>
-                  {prod.descricao || <span style={{ color: "#A0A0A0" }}>Sem descrição.</span>}
-                </div>
-                <div style={{
-                  display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 13, marginTop: 7
-                }}>
-                  <Link
-                    href={`/edit-produto/${prod.id}`}
-                    style={{
-                      color: "#2563eb", fontWeight: 700, display: "flex",
-                      alignItems: "center", gap: 5, textDecoration: "none"
-                    }}
-                  >
-                    <Edit size={18} /> Editar
-                  </Link>
-                  <Link
-                    href={`/produtos/${prod.id}`}
-                    target="_blank"
-                    style={{
-                      color: "#FB8500", fontWeight: 700, display: "flex",
-                      alignItems: "center", gap: 5, textDecoration: "none"
-                    }}
-                  >
-                    <Eye size={18} /> Ver
-                  </Link>
-                  {/* Implementar botão excluir se quiser depois */}
+
+                {/* corpo */}
+                <div style={{ padding: "12px 14px 14px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ fontWeight: 900, color: "#023047", fontSize: "1.05rem", lineHeight: 1.2 }}>{p.nome}</div>
+                    {preco && <div style={{ color: "#fb8500", fontWeight: 900 }}>{preco}</div>}
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", color: "#334155", fontWeight: 700, fontSize: 13 }}>
+                    {p.categoria && <span className="pill">{p.categoria}</span>}
+                    {p.condicao && <span className="pill"><BadgeCheck size={13} /> {p.condicao}</span>}
+                    <span className="pill"><ShieldCheck size={13} /> {garantia}</span>
+                    <span className={`pill ${expired ? "pill-gray" : "pill-blue"}`}>{status}</span>
+                  </div>
+
+                  <div style={{ color: "#5b6476", fontSize: 14, maxHeight: 54, overflow: "hidden" }}>
+                    {p.descricao || <span style={{ color: "#9aa6b2" }}>Sem descrição.</span>}
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
+                    <Link
+                      href={`/edit-produto/${p.id}`}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#2563eb", fontWeight: 800, textDecoration: "none" }}
+                    >
+                      <Edit size={18} /> Editar
+                    </Link>
+                    <Link
+                      href={`/produtos/${p.id}`}
+                      target="_blank"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#fb8500", fontWeight: 800, textDecoration: "none" }}
+                    >
+                      <Eye size={18} /> Ver
+                    </Link>
+                  </div>
                 </div>
               </div>
-            ))}
+            );
+          })}
         </div>
       )}
+
+      {/* styles */}
+      <style jsx>{`
+        .chip {
+          display:inline-flex; align-items:center; gap:6px;
+          padding:4px 10px; border-radius:999px; font-size:12px; font-weight:900; letter-spacing:.2px;
+          border:1px solid #e5e7eb; background:#fff; color:#0f172a;
+          box-shadow:0 1px 6px rgba(0,0,0,.06)
+        }
+        .chip-green { background:#10b981; color:#fff; border-color:#10b981; }
+        .chip-gray { background:#9ca3af; color:#fff; border-color:#9ca3af; }
+        .chip-red { background:#ef4444; color:#fff; border-color:#ef4444; }
+
+        .pill {
+          display:inline-flex; align-items:center; gap:6px;
+          padding:4px 10px; border-radius:999px; font-size:12px; font-weight:800;
+          border:1px solid #e5e7eb; background:#f8fafc; color:#0f172a;
+        }
+        .pill-blue { background:#e8f3fb; color:#1e40af; border-color:#dbeafe; }
+        .pill-gray { background:#eef2f7; color:#475569; border-color:#e5e7eb; }
+      `}</style>
     </section>
   );
 }

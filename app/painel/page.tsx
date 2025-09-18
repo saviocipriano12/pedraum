@@ -436,8 +436,8 @@ export default function PainelUnificado() {
 
           {/* Grid de Cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 28 }}>
-            <Tile href="/dashboard/oportunidades" color="#2563eb" bg="#f3f7ff" icon={<Target size={36} />} title="Oportunidades" desc="Novas demandas enviadas para você. Desbloqueie e atenda!" badge={loadingMetrics ? undefined : metrics.oportunidades} />
-            <Tile href="/minhas-demandas" color="#219ebc" bg="#e0f7fa" icon={<ClipboardList size={36} />} title="Minhas Necessidades" desc="Gerencie suas Necessidades publicadas." badge={loadingMetrics ? undefined : metrics.demandas} />
+            <Tile href="/dashboard/oportunidades" color="#2563eb" bg="#f3f7ff" icon={<Target size={36} />} title="Demandas" desc="Novas demandas enviadas para você. Desbloqueie e atenda!" badge={loadingMetrics ? undefined : metrics.oportunidades} />
+            <Tile href="/minhas-demandas" color="#219ebc" bg="#e0f7fa" icon={<ClipboardList size={36} />} title="Minhas Demandas" desc="Gerencie suas Demandas publicadas." badge={loadingMetrics ? undefined : metrics.demandas} />
             <Tile href="/meus-produtos" color="#FB8500" bg="#fff7ed" icon={<Layers size={36} />} title="Meus Produtos/Máquinas" desc="Gerencie seus produtos e máquinas." badge={loadingMetrics ? undefined : metrics.produtos + metrics.maquinas} />
             <Tile href="/meus-servicos" color="#219ebc" bg="#e0f7fa" icon={<Briefcase size={36} />} title="Meus Serviços" desc="Gerencie serviços e soluções oferecidas." badge={loadingMetrics ? undefined : metrics.servicos} />
             <Tile href="/meus-leads" color="#FB8500" bg="#fff7ed" icon={<Inbox size={36} />} title="Contatos Interessados" desc="Veja clientes interessados nas suas ofertas." badge={loadingMetrics ? undefined : metrics.leads} />

@@ -208,7 +208,7 @@ export default function OportunidadesPage() {
       >
         <header style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
           <Target size={24} color="#2563eb" />
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#023047" }}>Oportunidades</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#023047" }}>Demandas Enviadas Para Você</h1>
         </header>
 
         {/* Filtros */}
@@ -279,7 +279,7 @@ export default function OportunidadesPage() {
         )}
 
         {/* Novas */}
-        <SectionTitle icon={<Eye size={18} />} title="Novas oportunidades" hint="Envios recentes para você" />
+        <SectionTitle icon={<Eye size={18} />} title="Novas Demandas" hint="Envios recentes para você" />
         {loading ? (
           <LoadingRow />
         ) : novasFiltradas.length === 0 ? (

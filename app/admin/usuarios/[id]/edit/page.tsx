@@ -1,38 +1,79 @@
+// app/admin/usuarios/[id]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { db, auth } from "@/firebaseConfig";
-import { doc, getDoc, updateDoc, serverTimestamp, addDoc, collection } from "firebase/firestore";
+import {
+  doc, getDoc, updateDoc, serverTimestamp, addDoc, collection
+} from "firebase/firestore";
 import { sendPasswordResetEmail } from "firebase/auth";
 import ImageUploader from "@/components/ImageUploader";
 import {
-  ChevronLeft, Save, Mail, Key, CheckCircle, Shield, DollarSign, MapPin, Tag
+  ChevronLeft, Save, Mail, Key, CheckCircle, Shield, Tag, CheckSquare, Square, LinkIcon,
+  Eye, Download, Trash2, FileText, Upload
 } from "lucide-react";
+
+/** ==== PDF (SSR off para evitar erro no Next) ==== */
+const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
+const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
+
+/** =========================
+ *  Taxonomia (Categoria → Subcategorias)
+ *  ========================= */
+const TAXONOMIA: Record<string, string[]> = {
+  "Equipamentos de Perfuração e Demolição": [
+    "Perfuratrizes","Rompedores/Martelos","Bits/Brocas","Carretas de Perfuração","Compressores","Ferramentas de Demolição",
+  ],
+  "Equipamentos de Carregamento e Transporte": [
+    "Pás-Carregadeiras","Escavadeiras","Retroescavadeiras","Caminhões Fora-de-Estrada","Tratores de Esteiras","Motoniveladoras",
+  ],
+  "Britagem e Classificação": [
+    "Britador de Mandíbulas","Britador Cônico","Britador de Impacto","Peneiras Vibratórias","Alimentadores","Correias Transportadoras",
+  ],
+  "Beneficiamento e Processamento Mineral": [
+    "Moinhos (Bolas/Rolos)","Ciclones","Classificadores Espirais","Espessadores","Flotação","Bombas de Polpa",
+  ],
+  "Peças e Componentes Industriais": [
+    "Motores","Transmissões/Redutores","Sistemas Hidráulicos","Sistemas Elétricos","Filtros e Filtração","Mangueiras/Conexões",
+  ],
+  "Desgaste e Revestimento": [
+    "Revestimento de Britadores","Chapas AR","Dentes/Lâminas","Placas Cerâmicas","Revestimentos de Borracha",
+  ],
+  "Automação, Elétrica e Controle": [
+    "CLPs/Controladores","Sensores/Instrumentação","Inversores/Soft-Starters","Painéis/Quadros","SCADA/Supervisório",
+  ],
+  "Lubrificação e Produtos Químicos": [
+    "Óleos e Graxas","Sistemas Centralizados","Aditivos","Reagentes de Flotação","Desincrustantes/Limpeza",
+  ],
+  "Equipamentos Auxiliares e Ferramentas": [
+    "Geradores","Soldagem/Corte","Bombas","Ferramentas de Torque","Compressores Auxiliares",
+  ],
+  "EPIs (Equipamentos de Proteção Individual)": [
+    "Capacetes","Luvas","Óculos/Face Shield","Respiradores","Protetores Auriculares","Botas",
+  ],
+  "Instrumentos de Medição e Controle": [
+    "Vibração/Análise","Alinhamento a Laser","Balanças/Pesagem","Medidores de Espessura","Termografia",
+  ],
+  "Manutenção e Serviços Industriais": [
+    "Mecânica Pesada","Caldeiraria/Solda","Usinagem","Alinhamento/Balanceamento","Inspeções/NR","Elétrica/Automação",
+  ],
+  "Veículos e Pneus": [
+    "Pickups/Utilitários","Caminhões 3/4","Empilhadeiras","Pneus OTR","Recapagem/Serviços",
+  ],
+  "Outros": ["Diversos"],
+};
+
+const CATEGORIAS = Object.keys(TAXONOMIA);
+const MAX_CATEGORIAS = 5;
 
 /* ========= Constantes ========= */
 const estados = [
   "BRASIL",
   "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
   "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"
-];
-
-const categoriasBase = [
-  "Equipamentos de Perfuração e Demolição",
-  "Equipamentos de Carregamento e Transporte",
-  "Britagem e Classificação",
-  "Beneficiamento e Processamento Mineral",
-  "Peças e Componentes Industriais",
-  "Desgaste e Revestimento",
-  "Automação, Elétrica e Controle",
-  "Lubrificação e Produtos Químicos",
-  "Equipamentos Auxiliares e Ferramentas",
-  "EPIs (Equipamentos de Proteção Individual)",
-  "Instrumentos de Medição e Controle",
-  "Manutenção e Serviços Industriais",
-  "Veículos e Pneus",
-  "Outros",
 ];
 
 const diasSemana = [
@@ -46,13 +87,16 @@ const diasSemana = [
 ];
 
 type AgendaDia = { ativo: boolean; das: string; ate: string };
+type CategoriaPair = { categoria: string; subcategoria: string };
 
 type PerfilForm = {
   id: string;
-    // ===== Patrocinador =====
+
+  // ===== Patrocinador =====
   isPatrocinador?: boolean;
-  patrocinadorDesde?: any; // Timestamp | string | null
-  patrocinadorAte?: any;   // Timestamp | string | null
+  patrocinadorDesde?: any;
+  patrocinadorAte?: any;
+
   nome: string;
   email: string;
   telefone?: string;
@@ -62,20 +106,35 @@ type PerfilForm = {
   bio?: string;
   avatar?: string;
   tipo?: string;
+
   prestaServicos: boolean;
   vendeProdutos: boolean;
+
+  // Pares (fonte da verdade)
+  categoriasAtuacaoPairs: CategoriaPair[];
+
+  // Legado/compat
   categoriasAtuacao: string[];
+
   atendeBrasil: boolean;
   ufsAtendidas: string[];
+
   agenda: Record<string, AgendaDia>;
   portfolioImagens: string[];
+
+  // Portfólio PDFs (UI trabalha com lista; salvamos também campo único para compat)
+  portfolioPDFs?: string[];
+  portfolioPdfUrl?: string | null;
+
   portfolioVideos: string[];
+
   leadPreferencias: {
     categorias: string[];
     ufs: string[];
     ticketMin?: number | null;
     ticketMax?: number | null;
   };
+
   mpConnected?: boolean;
   mpStatus?: string;
 
@@ -87,17 +146,15 @@ type PerfilForm = {
     plano?: string;
     situacao?: "pago" | "pendente";
     valor?: number | null;
-    proxRenovacao?: any; // Timestamp | string
+    proxRenovacao?: any;
   };
   limites?: {
     leadsDia?: number | null;
-    prioridade?: number | null; // 0-3
+    prioridade?: number | null;
     bloquearUFs?: string[];
     bloquearCategorias?: string[];
   };
   observacoesInternas?: string;
-
-  // força troca no próximo login
   requirePasswordChange?: boolean;
 };
 
@@ -110,21 +167,49 @@ export default function AdminEditarUsuarioPage() {
 
   const [form, setForm] = useState<PerfilForm | null>(null);
 
-  // auxiliares UI
-  const [catInput, setCatInput] = useState("");
-  const [leadCatInput, setLeadCatInput] = useState("");
-  const [leadUfInput, setLeadUfInput] = useState("");
-  const [novoVideo, setNovoVideo] = useState("");
+  // ====== UI: seleção de pares (categoria + várias subcategorias) ======
+  const [selCategoria, setSelCategoria] = useState("");
+  const [selSubcats, setSelSubcats] = useState<string[]>([]);
+  const subcatsDaSelecionada = selCategoria ? (TAXONOMIA[selCategoria] || []) : [];
 
-  // modal senha
+  // Vídeos/PDFs (inputs)
+  const [novoVideo, setNovoVideo] = useState("");
+  const [pdfExpandido, setPdfExpandido] = useState<string | null>(null);
+
+  // modal de senha
   const [showPwdModal, setShowPwdModal] = useState(false);
   const [pwd1, setPwd1] = useState("");
   const [pwd2, setPwd2] = useState("");
   const [pwdVisible, setPwdVisible] = useState(false);
   const [pwdSaving, setPwdSaving] = useState(false);
+  const senhaForca = pwd1.length >= 12 ? "Alta" : pwd1.length >= 8 ? "Média" : "Baixa";
 
   // avatar como lista pro ImageUploader
   const avatarLista = useMemo(() => (form?.avatar ? [form.avatar] : []), [form?.avatar]);
+
+  // ===== Helpers =====
+  const norm = (s: string = "") =>
+    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+  function dedupPairs(pairs: CategoriaPair[]) {
+    const m = new Map<string, CategoriaPair>();
+    for (const p of pairs) m.set(`${norm(p.categoria)}::${norm(p.subcategoria)}`, p);
+    return Array.from(m.values());
+  }
+  const buildCategoriesAll = (pairs: CategoriaPair[], legacy: string[] = []) => {
+    const set = new Set<string>((legacy || []).filter(Boolean));
+    for (const p of pairs) set.add(p.categoria);
+    return Array.from(set);
+  };
+  const buildPairsSearch = (pairs: CategoriaPair[] = []) =>
+    pairs
+      .filter((p) => p.categoria && p.subcategoria)
+      .map((p) => `${norm(p.categoria)}::${norm(p.subcategoria)}`);
+  const buildUfsSearch = (atendeBrasil: boolean, ufsAtendidas: string[] = []) => {
+    const arr = (ufsAtendidas || []).map((u) => String(u).trim().toUpperCase());
+    if (atendeBrasil && !arr.includes("BRASIL")) arr.push("BRASIL");
+    return Array.from(new Set(arr));
+  };
 
   useEffect(() => {
     (async () => {
@@ -141,13 +226,23 @@ export default function AdminEditarUsuarioPage() {
           diasSemana.map(d => [d.key, { ativo: d.key !== "dom", das: "08:00", ate: "18:00" }])
         ) as Record<string, AgendaDia>;
 
+        const categoriasAtuacaoPairs: CategoriaPair[] = Array.isArray(data.categoriasAtuacaoPairs)
+          ? data.categoriasAtuacaoPairs
+          : [];
+
+        // Normaliza PDFs: aceita tanto string única (portfolioPdfUrl) quanto array (portfolioPDFs)
+        const pdfs: string[] = Array.isArray(data.portfolioPDFs) ? data.portfolioPDFs
+          : (data.portfolioPdfUrl ? [data.portfolioPdfUrl] : []);
+
         setForm({
           id,
           nome: data.nome || "",
-                    // ===== patrocinador =====
+
+          // Patrocinador
           isPatrocinador: !!data.isPatrocinador,
           patrocinadorDesde: data.patrocinadorDesde || null,
           patrocinadorAte: data.patrocinadorAte || null,
+
           email: data.email || "",
           telefone: data.telefone || data.whatsapp || "",
           cidade: data.cidade || "",
@@ -156,22 +251,32 @@ export default function AdminEditarUsuarioPage() {
           bio: data.bio || "",
           avatar: data.avatar || "",
           tipo: data.tipo || "Usuário",
+
           prestaServicos: !!data.prestaServicos,
           vendeProdutos: !!data.vendeProdutos,
-          categoriasAtuacao: data.categoriasAtuacao || [],
+
+          categoriasAtuacaoPairs,
+          categoriasAtuacao: Array.isArray(data.categoriasAtuacao) ? data.categoriasAtuacao : [],
+
           atendeBrasil: !!data.atendeBrasil,
           ufsAtendidas: data.ufsAtendidas || [],
+
           agenda: data.agenda || baseAgenda,
           portfolioImagens: data.portfolioImagens || [],
           portfolioVideos: data.portfolioVideos || [],
+          portfolioPDFs: pdfs,
+          portfolioPdfUrl: data.portfolioPdfUrl || null,
+
           leadPreferencias: {
             categorias: data.leadPreferencias?.categorias || [],
             ufs: data.leadPreferencias?.ufs || [],
             ticketMin: data.leadPreferencias?.ticketMin ?? null,
             ticketMax: data.leadPreferencias?.ticketMax ?? null,
           },
+
           mpConnected: !!data.mpConnected,
           mpStatus: data.mpStatus || "desconectado",
+
           // extras admin
           status: (data.status as any) || "ativo",
           verificado: !!data.verificado,
@@ -204,6 +309,7 @@ export default function AdminEditarUsuarioPage() {
     setForm({ ...form, [key]: value });
   }
 
+  // === salvar SINCRONIZANDO com os campos que o /perfil usa ===
   async function salvar(e?: React.FormEvent) {
     e?.preventDefault();
     if (!form) return;
@@ -211,7 +317,38 @@ export default function AdminEditarUsuarioPage() {
     setMsg("");
 
     try {
+      // Validar pares
+      const paresDedup = dedupPairs(form.categoriasAtuacaoPairs || []);
+      const categoriasDistintas = Array.from(new Set(paresDedup.map(p => p.categoria)));
+      if (categoriasDistintas.length > MAX_CATEGORIAS) {
+        setMsg(`Máximo de ${MAX_CATEGORIAS} categorias distintas.`);
+        setSaving(false);
+        return;
+      }
+      const algumSemSub = paresDedup.some((p) => !p.subcategoria?.trim());
+      if (algumSemSub) {
+        setMsg("Todos os pares precisam ter subcategoria selecionada.");
+        setSaving(false);
+        return;
+      }
+
+      // UFs
+      const atendeBrasil = !!form.atendeBrasil;
+      const ufsAtendidas = atendeBrasil
+        ? ["BRASIL"]
+        : Array.from(new Set((form.ufsAtendidas || []).map(u => String(u).trim().toUpperCase())));
+      const ufsSearch = buildUfsSearch(atendeBrasil, ufsAtendidas);
+
+      // Materializações
+      const categoriesAll = buildCategoriesAll(paresDedup, form.categoriasAtuacao);
+      const pairsSearch = buildPairsSearch(paresDedup);
+
+      // PDFs (compat c/ página de perfil)
+      const pdfList = form.portfolioPDFs || [];
+      const firstPdf = pdfList[0] || null;
+
       await updateDoc(doc(db, "usuarios", form.id), {
+        // Identidade
         nome: form.nome,
         email: form.email,
         telefone: form.telefone || "",
@@ -221,28 +358,43 @@ export default function AdminEditarUsuarioPage() {
         bio: form.bio || "",
         avatar: form.avatar || "",
         tipo: form.tipo || "Usuário",
+
+        // Atuação
         prestaServicos: form.prestaServicos,
         vendeProdutos: form.vendeProdutos,
-        categoriasAtuacao: form.categoriasAtuacao || [],
-        atendeBrasil: form.atendeBrasil,
-        ufsAtendidas: form.atendeBrasil ? ["BRASIL"] : (form.ufsAtendidas || []),
-        agenda: form.agenda || {},
-                // patrocinador (mantém como está; alternância é feita pelo botão dedicado)
-        isPatrocinador: !!form.isPatrocinador,
-        patrocinadorDesde: form.patrocinadorDesde || null,
-        patrocinadorAte: form.patrocinadorAte || null,
+
+        // ===== Fonte da verdade + compatibilidade =====
+        categoriasAtuacaoPairs: paresDedup,
+        categoriasAtuacao: categoriasDistintas,
+
+        // ===== Campos materializados p/ filtros =====
+        categoriesAll,
+        pairsSearch,
+        ufsSearch,
+
+        // Cobertura
+        atendeBrasil,
+        ufsAtendidas,
+
+        // Portfólio (imagens + PDFs)
         portfolioImagens: form.portfolioImagens || [],
         portfolioVideos: form.portfolioVideos || [],
+        portfolioPDFs: pdfList,               // lista completa
+        portfolioPdfUrl: firstPdf,            // compat com /perfil (PDF único)
+
+        // Preferências de lead
         leadPreferencias: {
           categorias: form.leadPreferencias?.categorias || [],
           ufs: form.leadPreferencias?.ufs || [],
           ticketMin: form.leadPreferencias?.ticketMin ?? null,
           ticketMax: form.leadPreferencias?.ticketMax ?? null,
         },
+
+        // MP
         mpConnected: !!form.mpConnected,
         mpStatus: form.mpStatus || "desconectado",
 
-        // extras admin
+        // Extras admin
         status: form.status || "ativo",
         verificado: !!form.verificado,
         role: form.role || "user",
@@ -260,6 +412,7 @@ export default function AdminEditarUsuarioPage() {
         },
         observacoesInternas: form.observacoesInternas || "",
         requirePasswordChange: !!form.requirePasswordChange,
+
         atualizadoEm: serverTimestamp(),
       });
 
@@ -326,6 +479,71 @@ export default function AdminEditarUsuarioPage() {
     }
   }
 
+  // ======= Subcategorias — UI helpers =======
+  const selectedCategoriasSet = useMemo(
+    () => new Set((form?.categoriasAtuacaoPairs || []).map((p) => p.categoria)),
+    [form?.categoriasAtuacaoPairs]
+  );
+  const selectedCategorias = useMemo(() => Array.from(selectedCategoriasSet), [selectedCategoriasSet]);
+
+  function toggleSubcat(sc: string) {
+    setSelSubcats((curr) => curr.includes(sc) ? curr.filter((s) => s !== sc) : [...curr, sc]);
+  }
+  function marcarTodas() { setSelSubcats(subcatsDaSelecionada); }
+  function limparSelecao() { setSelSubcats([]); }
+
+  function addParesSelecionados() {
+    if (!form) return;
+    if (!selCategoria) { setMsg("Selecione uma categoria."); return; }
+    if (!selSubcats.length) { setMsg("Marque uma ou mais subcategorias."); return; }
+
+    // respeitar limite de 5 categorias
+    const isCategoriaNova = !selectedCategoriasSet.has(selCategoria);
+    if (isCategoriaNova && selectedCategoriasSet.size >= MAX_CATEGORIAS) {
+      setMsg(`Você já tem ${MAX_CATEGORIAS}/${MAX_CATEGORIAS} categorias. Remova uma para adicionar outra.`);
+      return;
+    }
+
+    const novos = selSubcats.map((s) => ({ categoria: selCategoria, subcategoria: s }));
+    const futuros = dedupPairs([...(form.categoriasAtuacaoPairs || []), ...novos]);
+    const categoriasDistintas = Array.from(new Set(futuros.map(p => p.categoria)));
+    if (categoriasDistintas.length > MAX_CATEGORIAS) {
+      setMsg(`Máximo de ${MAX_CATEGORIAS} categorias distintas.`);
+      return;
+    }
+    setForm({ ...form, categoriasAtuacaoPairs: futuros, categoriasAtuacao: categoriasDistintas });
+    setSelCategoria("");
+    setSelSubcats([]);
+  }
+
+  function removeParCategoria(par: CategoriaPair) {
+    if (!form) return;
+    const futuros = (form.categoriasAtuacaoPairs || []).filter(
+      (p) => !(p.categoria === par.categoria && p.subcategoria === par.subcategoria)
+    );
+    const categoriasDistintas = Array.from(new Set(futuros.map(p => p.categoria)));
+    setForm({ ...form, categoriasAtuacaoPairs: futuros, categoriasAtuacao: categoriasDistintas });
+  }
+
+  // ======= PDFs =======
+  function addPDF(url: string) {
+    if (!form) return;
+    const v = (url || "").trim();
+    if (!v) return;
+    setForm({ ...form, portfolioPDFs: Array.from(new Set([ ...(form.portfolioPDFs || []), v ])) });
+  }
+  function removePDF(url: string) {
+    if (!form) return;
+    setForm({ ...form, portfolioPDFs: (form.portfolioPDFs || []).filter(u => u !== url) });
+    if (pdfExpandido === url) setPdfExpandido(null);
+  }
+
+  // ======= Imagens: remover, abrir, baixar (além do ImageUploader) =======
+  function removeImagem(url: string) {
+    if (!form) return;
+    setForm({ ...form, portfolioImagens: (form.portfolioImagens || []).filter(u => u !== url) });
+  }
+
   if (loading) {
     return (
       <section style={{ maxWidth: 980, margin: "0 auto", padding: "50px 2vw 70px 2vw" }}>
@@ -345,60 +563,6 @@ export default function AdminEditarUsuarioPage() {
   }
 
   const cidadesDesabilitadas = !form.estado || form.estado === "BRASIL";
-  const senhaForca = pwd1.length >= 12 ? "Alta" : pwd1.length >= 8 ? "Média" : "Baixa";
-  async function togglePatrocinador(ativar: boolean) {
-    if (!form) return;
-    const ok = window.confirm(`${ativar ? "Ativar" : "Desativar"} patrocínio para ${form.email || form.nome || form.id}?`);
-    if (!ok) return;
-
-    try {
-      setSaving(true);
-      const patch: any = { isPatrocinador: ativar };
-
-      if (ativar) {
-        patch.patrocinadorDesde = form.patrocinadorDesde || serverTimestamp();
-        patch.patrocinadorAte = null;
-      } else {
-        patch.patrocinadorAte = serverTimestamp();
-      }
-
-      // atualiza o usuário
-      await updateDoc(doc(db, "usuarios", form.id), patch);
-
-      // registra histórico simples
-      await addDoc(collection(db, "patrocinadores"), {
-        userId: form.id,
-        status: ativar ? "ativo" : "cancelado",
-        plano: "mensal",
-        dataInicio: ativar ? serverTimestamp() : (form.patrocinadorDesde || serverTimestamp()),
-        dataFim: ativar ? null : serverTimestamp(),
-        renovacao: true,
-        gateway: "manual-admin",
-        gatewayRef: "",
-        updatedAt: serverTimestamp(),
-      });
-// 3) **NOTIFICAÇÃO IN‑APP** para o usuário
-    await addDoc(collection(db, "notificacoes"), {
-      userId: form.id,
-      tipo: "patrocinio",
-      titulo: ativar ? "Patrocínio ativado! 🎉" : "Patrocínio desativado",
-      mensagem: ativar
-        ? "Você agora é patrocinador e tem acesso aos contatos completos das demandas."
-        : "Seu status de patrocinador foi removido. Você não verá mais os contatos completos.",
-      lido: false,
-      createdAt: serverTimestamp(),
-      readAt: null,
-    });
-      setForm(f => f ? { ...f, ...patch } : f);
-      setMsg(ativar ? "Patrocínio ativado." : "Patrocínio desativado.");
-    } catch (e) {
-      console.error(e);
-      setMsg("Falha ao alternar patrocínio.");
-    } finally {
-      setSaving(false);
-      setTimeout(() => setMsg(""), 4000);
-    }
-  }
 
   return (
     <section style={{ maxWidth: 980, margin: "0 auto", padding: "40px 2vw 70px 2vw" }}>
@@ -464,7 +628,7 @@ export default function AdminEditarUsuarioPage() {
           </div>
         </div>
 
-        {/* Atuação */}
+        {/* Atuação (categorias + SUBCATEGORIAS) */}
         <div className="card">
           <div className="card-title">Atuação</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
@@ -477,38 +641,87 @@ export default function AdminEditarUsuarioPage() {
                 <input type="checkbox" checked={form.vendeProdutos} onChange={(e) => setField("vendeProdutos", e.target.checked)} />
                 <span>Vende produtos</span>
               </label>
+              <div style={{ marginTop: 8, fontSize: 12, color: "#334155" }}>
+                Categorias selecionadas: <b>{new Set((form.categoriasAtuacaoPairs||[]).map(p=>p.categoria)).size}/{MAX_CATEGORIAS}</b>
+              </div>
             </div>
 
             <div>
-              <div className="label">Categorias (até 5)</div>
-              <div className="flex gap-2 items-center">
-                <select className="input" value={catInput} onChange={(e) => setCatInput(e.target.value)}>
-                  <option value="">Selecionar categoria...</option>
-                  {categoriasBase.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <button
-                  type="button" className="btn-sec"
-                  onClick={() => {
-                    if (!catInput) return;
-                    if (form.categoriasAtuacao.includes(catInput)) return;
-                    if (form.categoriasAtuacao.length >= 5) { setMsg("Até 5 categorias de atuação."); return; }
-                    setField("categoriasAtuacao", [...form.categoriasAtuacao, catInput]);
-                    setCatInput("");
-                  }}
-                >+ Adicionar</button>
-              </div>
-              {form.categoriasAtuacao.length > 0 && (
-                <div className="chips">
-                  {form.categoriasAtuacao.map((c) => (
-                    <span key={c} className="chip">
-                      <Tag size={14} /> {c}
-                      <button type="button" onClick={() => setField("categoriasAtuacao", form.categoriasAtuacao.filter(x => x !== c))}>×</button>
-                    </span>
-                  ))}
+              <div className="label">Categoria (até {MAX_CATEGORIAS})</div>
+              <select
+                className="input"
+                value={selCategoria}
+                onChange={(e) => { setSelCategoria(e.target.value); setSelSubcats([]); }}
+              >
+                <option value="">Selecionar categoria...</option>
+                {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+
+              {/* Subcategorias multi-seleção */}
+              <div style={{ marginTop: 8 }}>
+                <div className="label" style={{ marginBottom: 8 }}>Subcategorias da categoria selecionada</div>
+                <div className="flex items-center gap-8" style={{ marginBottom: 8 }}>
+                  <button type="button" className="btn-sec" disabled={!selCategoria} onClick={marcarTodas}>Marcar tudo</button>
+                  <button type="button" className="btn-sec" disabled={!selCategoria} onClick={limparSelecao}>Limpar seleção</button>
+                  <button type="button" className="btn-sec" disabled={!selCategoria || !selSubcats.length} onClick={addParesSelecionados}>+ Adicionar selecionadas</button>
                 </div>
-              )}
+
+                <div className="subcat-grid">
+                  {selCategoria ? (
+                    subcatsDaSelecionada.map((s) => {
+                      const checked = selSubcats.includes(s);
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          className="subcat-pill"
+                          onClick={() => toggleSubcat(s)}
+                          aria-pressed={checked}
+                          title={checked ? "Clique para desmarcar" : "Clique para marcar"}
+                          style={{
+                            background: checked ? "#ecfdf5" : "#f7f9fc",
+                            borderColor: checked ? "#baf3cd" : "#e0ecff",
+                            color: checked ? "#059669" : "#2563eb",
+                          }}
+                        >
+                          {checked ? <CheckSquare size={16}/> : <Square size={16}/>} {s}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div style={{ color: "#64748b", fontSize: 14 }}>Selecione uma categoria para listar as subcategorias.</div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
+
+          {/* Agrupamento por categoria com chips das subcategorias já salvas */}
+          {selectedCategorias.length > 0 && (
+            <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+              {selectedCategorias.map((cat) => {
+                const paresDaCat = (form.categoriasAtuacaoPairs || []).filter(p => p.categoria === cat);
+                return (
+                  <div key={cat} style={{ border: "1px solid #e6edf6", borderRadius: 12, padding: 10, background: "#f8fbff" }}>
+                    <div style={{ fontWeight: 900, color: "#023047", marginBottom: 6 }}>
+                      {cat}{" "}
+                      <span style={{ color: "#2563eb", fontWeight: 800 }}>
+                        ({paresDaCat.length})
+                      </span>
+                    </div>
+                    <div className="chips">
+                      {paresDaCat.map((p, idx) => (
+                        <span key={`${p.categoria}__${p.subcategoria}__${idx}`} className="chip">
+                          <Tag size={14} /> {p.subcategoria}
+                          <button type="button" onClick={() => removeParCategoria(p)} title="Remover">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Cobertura */}
@@ -553,55 +766,12 @@ export default function AdminEditarUsuarioPage() {
           )}
         </div>
 
-        {/* Agenda */}
-        <div className="card">
-          <div className="card-title">Disponibilidade / Agenda</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {diasSemana.map((d) => {
-              const dia = form.agenda[d.key] || { ativo: false, das: "08:00", ate: "18:00" };
-              return (
-                <div key={d.key} className="agenda-row">
-                  <label className="checkbox">
-                    <input
-                      type="checkbox"
-                      checked={dia.ativo}
-                      onChange={(e) => setForm(f => ({
-                        ...f!, agenda: { ...f!.agenda, [d.key]: { ...dia, ativo: e.target.checked } }
-                      }))}
-                    />
-                    <span>{d.label}</span>
-                  </label>
-                  <div className="flex gap-3 items-center">
-                    <input
-                      type="time"
-                      className="input"
-                      value={dia.das}
-                      disabled={!dia.ativo}
-                      onChange={(e) => setForm(f => ({
-                        ...f!, agenda: { ...f!.agenda, [d.key]: { ...dia, das: e.target.value } }
-                      }))}
-                    />
-                    <span>às</span>
-                    <input
-                      type="time"
-                      className="input"
-                      value={dia.ate}
-                      disabled={!dia.ativo}
-                      onChange={(e) => setForm(f => ({
-                        ...f!, agenda: { ...f!.agenda, [d.key]: { ...dia, ate: e.target.value } }
-                      }))}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Portfólio */}
+        {/* Portfólio (Imagens + PDFs + Vídeos) */}
         <div className="card">
           <div className="card-title">Portfólio</div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+            {/* Imagens (uploader + grade com visualizar/baixar/remover) */}
             <div>
               <div className="label">Imagens (até 12)</div>
               <ImageUploader
@@ -609,11 +779,137 @@ export default function AdminEditarUsuarioPage() {
                 setImagens={(arr: string[]) => setField("portfolioImagens", arr)}
                 max={12}
               />
+
+              {/* Grade de thumbnails com ações */}
+              {form.portfolioImagens?.length ? (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 10, marginTop: 12 }}>
+                  {form.portfolioImagens.map((img) => (
+                    <div key={img} style={{ border: "1px solid #e6edf6", borderRadius: 10, overflow: "hidden", background: "#f8fafc" }}>
+                      <div style={{ aspectRatio: "1/1", overflow: "hidden", background: "#fff" }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={img} alt="Imagem do portfólio" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, padding: 8 }}>
+                        <a href={img} target="_blank" rel="noopener noreferrer" className="btn-sec" title="Abrir em nova aba" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                          <Eye size={14}/> Ver
+                        </a>
+                        <a href={img} download className="btn-sec" title="Baixar imagem" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                          <Download size={14}/> Baixar
+                        </a>
+                        <button type="button" className="btn-sec" title="Remover" onClick={() => removeImagem(img)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                          <Trash2 size={14}/> Remover
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: "#64748b", marginTop: 8 }}>Nenhuma imagem enviada.</div>
+              )}
             </div>
+
+            {/* PDFs (uploader + lista com preview/baixar/remover) */}
             <div>
-              <div className="label">Vídeos (URLs)</div>
+              <div className="label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <FileText size={16}/> PDFs do portfólio
+              </div>
+
+              {/* Uploader de PDF para adicionar na lista */}
+              <div className="rounded-lg border border-dashed p-3" style={{ borderColor: "#e6ebf2", background: "#fff" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontWeight: 800, color: "#0f172a" }}>
+                  <Upload size={16}/> Enviar novo PDF
+                </div>
+                <PDFUploader
+                  onUploaded={(url: string) => addPDF(url)}
+                />
+                <div style={{ color: "#64748b", fontSize: 12, marginTop: 6 }}>
+                  Dica: você também pode colar URLs (Drive/Dropbox/S3) diretamente na lista abaixo.
+                </div>
+              </div>
+
+              {/* Lista de PDFs com ações */}
+              {form.portfolioPDFs?.length ? (
+                <ul style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                  {form.portfolioPDFs.map((pdf) => (
+                    <li key={pdf} style={{ border: "1px solid #e6edf6", borderRadius: 12, padding: 10, background: "#f7fafc" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", alignItems: "center", gap: 8 }}>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                          <LinkIcon size={16} />
+                          <a href={pdf} target="_blank" rel="noopener noreferrer" className="a" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {pdf}
+                          </a>
+                        </div>
+
+                        <button type="button" className="btn-sec" onClick={() => setPdfExpandido(pdfExpandido === pdf ? null : pdf)} title="Visualizar">
+                          <Eye size={14}/> {pdfExpandido === pdf ? "Ocultar" : "Visualizar"}
+                        </button>
+                        <a href={pdf} download className="btn-sec" title="Baixar PDF">
+                          <Download size={14}/> Baixar
+                        </a>
+                        <button type="button" className="btn-sec" onClick={() => removePDF(pdf)} title="Remover">
+                          <Trash2 size={14}/> Remover
+                        </button>
+                      </div>
+
+                      {pdfExpandido === pdf && (
+                        <div className="rounded-lg border overflow-hidden" style={{ height: 320, marginTop: 10, background: "#fff" }}>
+                          <DrivePDFViewer
+                            fileUrl={`/api/pdf-proxy?file=${encodeURIComponent(pdf)}`}
+                            height={320}
+                          />
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div style={{ fontSize: 13, color: "#64748b", marginTop: 8 }}>
+                  Nenhum PDF. Use o botão acima ou cole uma URL aqui:
+                  <div className="flex gap-2" style={{ marginTop: 8 }}>
+                    <input
+                      className="input"
+                      placeholder="https://... .pdf"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const v = (e.target as HTMLInputElement).value.trim();
+                          if (v) { addPDF(v); (e.target as HTMLInputElement).value = ""; }
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn-sec"
+                      onClick={() => {
+                        const el = document.querySelector<HTMLInputElement>('input[placeholder="https://... .pdf"]');
+                        if (el?.value.trim()) { addPDF(el.value.trim()); el.value = ""; }
+                      }}
+                    >+ Adicionar</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Vídeos */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10" style={{ marginTop: 18 }}>
+            <div>
+              <div className="label">Vídeos (URLs YouTube/Vimeo)</div>
               <div className="flex gap-2">
-                <input className="input" placeholder="https://..." value={novoVideo} onChange={(e) => setNovoVideo(e.target.value)} />
+                <input
+                  className="input"
+                  placeholder="https://..."
+                  value={novoVideo}
+                  onChange={(e)=>setNovoVideo(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (!novoVideo.trim()) return;
+                      setField("portfolioVideos", [...form.portfolioVideos, novoVideo.trim()]);
+                      setNovoVideo("");
+                    }
+                  }}
+                />
                 <button
                   type="button"
                   className="btn-sec"
@@ -638,151 +934,97 @@ export default function AdminEditarUsuarioPage() {
           </div>
         </div>
 
-        {/* Preferências de Lead */}
-        <div className="card">
-          <div className="card-title">Preferências de Lead</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-            <div>
-              <div className="label">Categorias preferidas</div>
-              <div className="flex gap-2 items-center">
-                <select className="input" value={leadCatInput} onChange={(e) => setLeadCatInput(e.target.value)}>
-                  <option value="">Selecionar...</option>
-                  {categoriasBase.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <button
-                  type="button"
-                  className="btn-sec"
-                  onClick={()=>{
-                    if (!leadCatInput) return;
-                    if (!form.leadPreferencias.categorias.includes(leadCatInput)) {
-                      setField("leadPreferencias", {
-                        ...form.leadPreferencias,
-                        categorias: [...form.leadPreferencias.categorias, leadCatInput]
-                      });
-                    }
-                    setLeadCatInput("");
-                  }}
-                >+ Adicionar</button>
-              </div>
-              {form.leadPreferencias.categorias.length > 0 && (
-                <div className="chips">
-                  {form.leadPreferencias.categorias.map((c) => (
-                    <span key={c} className="chip">
-                      <Tag size={14} /> {c}
-                      <button
-                        type="button"
-                        onClick={() => setField("leadPreferencias", {
-                          ...form.leadPreferencias,
-                          categorias: form.leadPreferencias.categorias.filter(x => x !== c)
-                        })}
-                      >×</button>
-                    </span>
-                  ))}
-                </div>
-              )}
+        {/* ======= BLOCO EXCLUSIVO DO ADMIN ======= */}
+        <div className="card admin-panel">
+          <div className="admin-panel__header">
+            <div className="admin-panel__title">
+              Controles do Admin
+              <span
+                className={`badge ${form.status === "ativo" ? "badge-success" :
+                  form.status === "suspenso" ? "badge-warn" : "badge-danger"}`}
+                title="Status da conta"
+              >
+                {form.status === "ativo" ? "ATIVO" : form.status === "suspenso" ? "SUSPENSO" : "BANIDO"}
+              </span>
+              {form.verificado && <span className="badge badge-info" title="Fornecedor verificado">Fornecedor</span>}
             </div>
-            <div>
-              <div className="label">UFs preferidas</div>
-              <div className="flex gap-2 items-center">
-                <select className="input" value={leadUfInput} onChange={(e) => setLeadUfInput(e.target.value)}>
-                  <option value="">Selecionar UF...</option>
-                  {estados.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
-                </select>
-                <button
-                  type="button"
-                  className="btn-sec"
-                  onClick={()=>{
-                    if (!leadUfInput) return;
-                    if (!form.leadPreferencias.ufs.includes(leadUfInput)) {
-                      setField("leadPreferencias", {
-                        ...form.leadPreferencias,
-                        ufs: [...form.leadPreferencias.ufs, leadUfInput]
-                      });
-                    }
-                    setLeadUfInput("");
-                  }}
-                >+ Adicionar</button>
-              </div>
-              {form.leadPreferencias.ufs.length > 0 && (
-                <div className="chips">
-                  {form.leadPreferencias.ufs.map((u) => (
-                    <span key={u} className="chip">
-                      <MapPin size={14} /> {u}
-                      <button
-                        type="button"
-                        onClick={() => setField("leadPreferencias", {
-                          ...form.leadPreferencias,
-                          ufs: form.leadPreferencias.ufs.filter(x => x !== u)
-                        })}
-                      >×</button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3" style={{ marginTop: 10 }}>
-                <div>
-                  <div className="label">Ticket mínimo (R$)</div>
-                  <input
-                    type="number"
-                    className="input"
-                    value={form.leadPreferencias.ticketMin ?? ""}
-                    onChange={(e) => setField("leadPreferencias", { ...form.leadPreferencias, ticketMin: e.target.value ? Number(e.target.value) : null })}
-                    min={0}
-                  />
-                </div>
-                <div>
-                  <div className="label">Ticket máximo (R$)</div>
-                  <input
-                    type="number"
-                    className="input"
-                    value={form.leadPreferencias.ticketMax ?? ""}
-                    onChange={(e) => setField("leadPreferencias", { ...form.leadPreferencias, ticketMax: e.target.value ? Number(e.target.value) : null })}
-                    min={0}
-                  />
-                </div>
-              </div>
+
+            <div className="admin-panel__toolbar">
+              <button
+                type="button"
+                className={`btn-chip ${form.verificado ? "chip-on" : ""}`}
+                onClick={() => setField("verificado", !form.verificado)}
+                title={form.verificado ? "Remover verificação" : "Marcar como Fornecedor"}
+              >
+                <CheckCircle size={14} />
+                {form.verificado ? "Fornecedor" : "Marcar como Fornecedor"}
+              </button>
             </div>
           </div>
-        </div>
-
-        {/* ======= BLOCO EXCLUSIVO DO ADMIN ======= */}
-        <div className="card">
-          <div className="card-title">Controles do Admin</div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-            <div className="grid gap-4">
+            {/* Coluna 1 — Conta */}
+            <div className="panel-section">
+              <div className="section-title">Conta</div>
+
               <label className="label">Status da conta</label>
-              <select className="input" value={form.status || "ativo"} onChange={(e)=>setField("status", e.target.value as any)}>
+              <select
+                className="input"
+                value={form.status || "ativo"}
+                onChange={(e)=>setField("status", e.target.value as any)}
+              >
                 <option value="ativo">Ativo</option>
                 <option value="suspenso">Suspenso</option>
                 <option value="banido">Banido</option>
               </select>
 
-              <label className="label">Verificação</label>
-              <button
-                type="button"
-                className="btn-sec"
-                onClick={() => setField("verificado", !form.verificado)}
-                style={{ background: form.verificado ? "#ecfeff" : "#f7f9fc", color: form.verificado ? "#0ea5e9" : "#2563eb" }}
-              >
-                <CheckCircle size={16} /> {form.verificado ? "Usuário verificado" : "Marcar como verificado"}
-              </button>
-
-              <label className="label">Role</label>
-              <select className="input" value={form.role || "user"} onChange={(e)=>setField("role", e.target.value as any)}>
-                <option value="user">User</option>
-                <option value="seller">Seller</option>
-                <option value="admin">Admin</option>
-              </select>
+              <div className="divider" />
 
               <label className="label">Observações internas</label>
-              <textarea className="input" rows={3} value={form.observacoesInternas || ""} onChange={(e)=>setField("observacoesInternas", e.target.value)} />
+              <textarea
+                className="input"
+                rows={3}
+                value={form.observacoesInternas || ""}
+                onChange={(e)=>setField("observacoesInternas", e.target.value)}
+                placeholder="Notas visíveis apenas ao time interno…"
+              />
+
+              <div className="divider" />
+
+              <div className="section-subtitle">Segurança</div>
+              <div className="btn-row">
+                <button type="button" className="btn-sec btn-outline" onClick={()=>setShowPwdModal(true)}>
+                  <Key size={16}/> Redefinir senha (definir nova)
+                </button>
+                <button type="button" className="btn-sec btn-outline" onClick={enviarResetSenha}>
+                  <Mail size={16}/> Enviar link de redefinição
+                </button>
+                <button type="button" className="btn-sec btn-outline" onClick={revogarSessoes}>
+                  <Shield size={16}/> Encerrar sessões
+                </button>
+              </div>
+
+              <label className="checkbox" style={{ marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={!!form.requirePasswordChange}
+                  onChange={(e)=>setField("requirePasswordChange", e.target.checked)}
+                />
+                <span>Exigir troca de senha no próximo login</span>
+              </label>
             </div>
 
-            <div className="grid gap-4">
-              <label className="label">Financeiro</label>
+            {/* Coluna 2 — Financeiro + Patrocínio */}
+            <div className="panel-section">
+              <div className="section-title">Financeiro</div>
+
               <div className="grid grid-cols-2 gap-3">
-                <input className="input" placeholder="Plano" value={form.financeiro?.plano || ""} onChange={(e)=>setField("financeiro", { ...(form.financeiro||{}), plano: e.target.value })} />
+                <input
+                  className="input"
+                  placeholder="Plano"
+                  value={form.financeiro?.plano || ""}
+                  onChange={(e)=>setField("financeiro", { ...(form.financeiro||{}), plano: e.target.value })}
+                />
                 <select
                   className="input"
                   value={form.financeiro?.situacao || "pendente"}
@@ -792,6 +1034,7 @@ export default function AdminEditarUsuarioPage() {
                   <option value="pendente">Pendente</option>
                 </select>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <input
                   type="number"
@@ -804,115 +1047,108 @@ export default function AdminEditarUsuarioPage() {
                 <input
                   className="input"
                   placeholder="Próx. renovação (YYYY-MM-DD)"
-                  value={form.financeiro?.proxRenovacao?.toDate ? form.financeiro.proxRenovacao.toDate().toISOString().slice(0,10) : (form.financeiro?.proxRenovacao || "")}
+                  value={form.financeiro?.proxRenovacao?.toDate
+                    ? form.financeiro.proxRenovacao.toDate().toISOString().slice(0,10)
+                    : (form.financeiro?.proxRenovacao || "")
+                  }
                   onChange={(e)=>setField("financeiro", { ...(form.financeiro||{}), proxRenovacao: e.target.value })}
                 />
               </div>
 
-              <label className="label">Limites de lead</label>
-              <div className="grid grid-cols-3 gap-3">
-                <input
-                  type="number"
-                  className="input"
-                  placeholder="Leads/dia"
-                  value={form.limites?.leadsDia ?? ""}
-                  onChange={(e)=>setField("limites", { ...(form.limites||{}), leadsDia: e.target.value ? Number(e.target.value) : null })}
-                />
-                <input
-                  type="number"
-                  className="input"
-                  placeholder="Prioridade (0-3)"
-                  value={form.limites?.prioridade ?? ""}
-                  onChange={(e)=>setField("limites", { ...(form.limites||{}), prioridade: e.target.value ? Number(e.target.value) : null })}
-                />
-                <input
-                  className="input"
-                  placeholder="Bloquear UFs (ex: SP,RJ)"
-                  value={(form.limites?.bloquearUFs || []).join(",")}
-                  onChange={(e)=>setField("limites", { ...(form.limites||{}), bloquearUFs: e.target.value.split(",").map(s=>s.trim().toUpperCase()).filter(Boolean) })}
-                />
-              </div>
-              <input
-                className="input"
-                placeholder="Bloquear categorias (separe por vírgula)"
-                value={(form.limites?.bloquearCategorias || []).join(", ")}
-                onChange={(e)=>setField("limites", { ...(form.limites||{}), bloquearCategorias: e.target.value.split(",").map(s=>s.trim()).filter(Boolean) })}
-              />
+              <div className="divider" />
 
-              <label className="label">Ações rápidas</label>
-              <div className="flex gap-2 flex-wrap">
-                <button type="button" className="btn-sec" onClick={()=>setShowPwdModal(true)}><Key size={16}/> Redefinir senha (definir nova)</button>
-                <button type="button" className="btn-sec" onClick={enviarResetSenha}><Mail size={16}/> Enviar link de redefinição</button>
-                <button type="button" className="btn-sec" onClick={revogarSessoes}><Shield size={16}/> Encerrar sessões</button>
-              </div>
-              {/* ===== Patrocinador ===== */}
-              <div className="grid gap-2" style={{ marginTop: 6 }}>
-                <label className="label">Patrocinador</label>
+              <div className="section-title inline">Patrocínio</div>
+              <div className="sponsor-card">
+                <span
+                  className={`badge ${form.isPatrocinador ? "badge-success" : "badge-danger"}`}
+                  title="Status de patrocínio"
+                >
+                  {form.isPatrocinador ? "ATIVO" : "INATIVO"}
+                </span>
 
-                <div className="flex items-center gap-8 flex-wrap">
-                  <div
-                    className="inline-flex items-center gap-8"
-                    style={{ background: "#f7f9fc", border: "1px solid #e6edf6", borderRadius: 12, padding: "10px 12px" }}
-                  >
-                    <span
-                      className="inline-flex items-center gap-6"
-                      style={{
-                        background: form.isPatrocinador ? "#e7faec" : "#ffecec",
-                        color: form.isPatrocinador ? "#059669" : "#D90429",
-                        border: `1px solid ${form.isPatrocinador ? "#baf3cd" : "#ffd5d5"}`,
-                        padding: "6px 12px",
-                        borderRadius: 10,
-                        fontWeight: 800
-                      }}
-                    >
-                      {form.isPatrocinador ? "ATIVO" : "INATIVO"}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() => togglePatrocinador(!form.isPatrocinador)}
-                      className="btn-sec"
-                      style={{
-                        background: form.isPatrocinador ? "#fff0f0" : "#ecfdf5",
-                        color: form.isPatrocinador ? "#D90429" : "#059669",
-                        borderColor: form.isPatrocinador ? "#ffdada" : "#baf3cd"
-                      }}
-                      title={form.isPatrocinador ? "Desativar patrocínio" : "Ativar patrocínio"}
-                    >
-                      {form.isPatrocinador ? "Desativar patrocínio" : "Ativar patrocínio"}
-                    </button>
+                <div className="sponsor-meta">
+                  <div>
+                    Desde:&nbsp;
+                    <b>
+                      {form.patrocinadorDesde?.toDate
+                        ? form.patrocinadorDesde.toDate().toLocaleDateString("pt-BR")
+                        : form.patrocinadorDesde ? String(form.patrocinadorDesde) : "—"}
+                    </b>
                   </div>
-
-                  <div className="text-sm" style={{ color: "#6b7280" }}>
-                    {form.patrocinadorDesde?.toDate
-                      ? <>Desde: <b>{form.patrocinadorDesde.toDate().toLocaleDateString("pt-BR")}</b></>
-                      : form.patrocinadorDesde
-                        ? <>Desde: <b>{String(form.patrocinadorDesde)}</b></>
-                        : <>Desde: —</>
-                    }
-                    {`  `}
-                    {form.patrocinadorAte?.toDate
-                      ? <> | Até: <b>{form.patrocinadorAte.toDate().toLocaleDateString("pt-BR")}</b></>
-                      : form.patrocinadorAte
-                        ? <> | Até: <b>{String(form.patrocinadorAte)}</b></>
-                        : null
-                    }
-                  </div>
+                  {form.patrocinadorAte ? (
+                    <div>
+                      &nbsp;|&nbsp; Até:&nbsp;
+                      <b>
+                        {form.patrocinadorAte?.toDate
+                          ? form.patrocinadorAte.toDate().toLocaleDateString("pt-BR")
+                          : String(form.patrocinadorAte)}
+                      </b>
+                    </div>
+                  ) : null}
                 </div>
 
-                <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                  * Patrocinadores enxergam contatos completos das demandas (subcoleção <code>/privado</code>).
-                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ativar = !form.isPatrocinador;
+                    const ok = window.confirm(`${ativar ? "Ativar" : "Desativar"} patrocínio para ${form.email || form.nome || form.id}?`);
+                    if (!ok) return;
+
+                    try {
+                      const patch: any = { isPatrocinador: ativar };
+
+                      if (ativar) {
+                        patch.patrocinadorDesde = form.patrocinadorDesde || serverTimestamp();
+                        patch.patrocinadorAte = null;
+                      } else {
+                        patch.patrocinadorAte = serverTimestamp();
+                      }
+
+                      await updateDoc(doc(db, "usuarios", form.id), patch);
+
+                      await addDoc(collection(db, "patrocinadores"), {
+                        userId: form.id,
+                        status: ativar ? "ativo" : "cancelado",
+                        plano: "mensal",
+                        dataInicio: ativar ? serverTimestamp() : (form.patrocinadorDesde || serverTimestamp()),
+                        dataFim: ativar ? null : serverTimestamp(),
+                        renovacao: true,
+                        gateway: "manual-admin",
+                        gatewayRef: "",
+                        updatedAt: serverTimestamp(),
+                      });
+
+                      await addDoc(collection(db, "notificacoes"), {
+                        userId: form.id,
+                        tipo: "patrocinio",
+                        titulo: ativar ? "Patrocínio ativado! 🎉" : "Patrocínio desativado",
+                        mensagem: ativar
+                          ? "Você agora é patrocinador e tem acesso aos contatos completos das demandas."
+                          : "Seu status de patrocinador foi removido. Você não verá mais os contatos completos.",
+                        lido: false,
+                        createdAt: serverTimestamp(),
+                        readAt: null,
+                      });
+
+                      setForm(f => f ? { ...f, ...patch } : f);
+                      setMsg(ativar ? "Patrocínio ativado." : "Patrocínio desativado.");
+                    } catch (e) {
+                      console.error(e);
+                      setMsg("Falha ao alternar patrocínio.");
+                    } finally {
+                      setTimeout(() => setMsg(""), 4000);
+                    }
+                  }}
+                  className={`btn-chip ${form.isPatrocinador ? "chip-off" : "chip-on"}`}
+                  title={form.isPatrocinador ? "Desativar patrocínio" : "Ativar patrocínio"}
+                >
+                  {form.isPatrocinador ? "Desativar patrocínio" : "Ativar patrocínio"}
+                </button>
               </div>
 
-              <label className="checkbox" style={{ marginTop: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={!!form.requirePasswordChange}
-                  onChange={(e)=>setField("requirePasswordChange", e.target.checked)}
-                />
-                <span>Exigir troca de senha no próximo login</span>
-              </label>
+              <div className="hint">
+                * Patrocinadores enxergam contatos completos das demandas (subcoleção <code>/privado</code>).
+              </div>
             </div>
           </div>
         </div>
@@ -1002,7 +1238,7 @@ export default function AdminEditarUsuarioPage() {
         </div>
       )}
 
-      {/* CSS utilitário */}
+      {/* CSS utilitário + admin-panel */}
       <style jsx>{`
         .card { background: #fff; border-radius: 20px; box-shadow: 0 4px 28px #0001; padding: 24px 22px; }
         .card-title { font-weight: 900; color: #023047; font-size: 1.2rem; margin-bottom: 14px; }
@@ -1013,13 +1249,52 @@ export default function AdminEditarUsuarioPage() {
         .chip { display: inline-flex; align-items: center; gap: 6px; background: #f3f7ff; color: #2563eb; border: 1px solid #e0ecff; padding: 6px 10px; border-radius: 10px; font-weight: 800; font-size: 0.95rem; }
         .chip button { background: none; border: none; color: #999; font-weight: 900; cursor: pointer; }
         .pill { border: 1px solid #e6e9ef; border-radius: 999px; padding: 6px 10px; font-weight: 800; font-size: 0.95rem; }
-        .agenda-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; border: 1px dashed #e8eaf0; border-radius: 12px; padding: 12px; background: #f9fafb; }
-        .btn-sec { background: #f7f9fc; color: #2563eb; border: 1px solid #e0ecff; font-weight: 800; border-radius: 10px; padding: 10px 14px; }
+        .btn-sec { background: #f7f9fc; color: #2563eb; border: 1px solid #e0ecff; font-weight: 800; border-radius: 10px; padding: 8px 12px; }
         .btn-gradient { background: linear-gradient(90deg,#fb8500,#fb8500); color: #fff; font-weight: 900; border: none; border-radius: 14px; padding: 14px 26px; font-size: 1.08rem; box-shadow: 0 4px 18px #fb850033; }
         .video-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; background: #f7fafc; border: 1px solid #e6edf6; border-radius: 10px; padding: 8px 10px; }
         .video-row .a { color: #2563eb; text-decoration: none; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .video-row button { background: none; border: none; color: #999; font-weight: 900; cursor: pointer; }
-        @media (max-width: 650px) { .card { padding: 18px 14px; border-radius: 14px; } }
+
+        /* Subcategorias */
+        .subcat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .subcat-pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid; border-radius: 10px; padding: 8px 10px; font-weight: 800; }
+        @media (max-width: 650px) {
+          .card { padding: 18px 14px; border-radius: 14px; }
+          .subcat-grid { grid-template-columns: 1fr; }
+        }
+
+        /* ===== admin-panel ===== */
+        .admin-panel { padding: 20px 20px 22px; }
+        .admin-panel__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+        .admin-panel__title { display: flex; align-items: center; gap: 10px; font-weight: 900; color: #023047; font-size: 1.1rem; }
+        .admin-panel__toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .section-title { font-weight: 900; color: #0f172a; margin-bottom: 8px; font-size: 1rem; }
+        .section-title.inline { display: inline-flex; align-items: center; gap: 8px; }
+        .section-subtitle { font-weight: 800; color: #334155; margin-bottom: 6px; }
+
+        .panel-section { display: grid; gap: 10px; }
+        .divider { height: 1px; background: linear-gradient(90deg, #0000, #e9eef9, #0000); margin: 6px 0 4px 0; }
+
+        .badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-weight: 900; font-size: 12px;
+                 border: 1px solid #e6edf6; background: #f3f7ff; color: #2563eb; }
+        .badge-success { background:#ecfdf5; border-color:#baf3cd; color:#059669; }
+        .badge-warn    { background:#fff7ed; border-color:#ffedd5; color:#9a3412; }
+        .badge-danger  { background:#fff1f2; border-color:#ffe0e6; color:#be123c; }
+        .badge-info    { background:#ecfeff; border-color:#bae6fd; color:#0ea5e9; }
+
+        .btn-chip { display:inline-flex; align-items:center; gap:8px; border:1px solid #e6edf6; border-radius:999px; padding:8px 12px;
+                    background:#f7f9fc; color:#2563eb; font-weight:800; }
+        .btn-chip:hover { filter: brightness(0.98); }
+        .btn-chip.chip-on  { background:#ecfdf5; border-color:#baf3cd; color:#059669; }
+        .btn-chip.chip-off { background:#fff0f0; border-color:#ffdada; color:#D90429; }
+
+        .btn-outline { background: #fff; border-style: dashed; border-color: #dbe7ff !important; }
+        .btn-row { display:flex; gap:8px; flex-wrap:wrap; }
+
+        .sponsor-card { display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#f7f9fc; border:1px solid #e6edf6; padding:10px 12px; border-radius:12px; }
+        .sponsor-meta { display:flex; align-items:center; gap:2px; color:#6b7280; font-size: .9rem; }
+        .hint { margin-top:6px; font-size: 12px; color:#94a3b8; }
       `}</style>
     </section>
   );

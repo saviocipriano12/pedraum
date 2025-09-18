@@ -1,3 +1,4 @@
+// app/create-produto/page.tsx
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -6,14 +7,26 @@ import { useRouter } from "next/navigation";
 import { db, auth } from "@/firebaseConfig";
 import { collection, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import ImageUploader from "@/components/ImageUploader";
-import dynamic from "next/dynamic"; // <-- IMPORTANTE
+import dynamic from "next/dynamic";
 
-// ✅ Usa dynamic para evitar DOMMatrix no build
 const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
 const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
 
 import {
-  Loader2, Save, Tag, DollarSign, Layers, Calendar, MapPin, BookOpen, Package, List, FileText, Upload, Image as ImageIcon
+  Loader2,
+  Save,
+  Tag,
+  DollarSign,
+  Calendar,
+  MapPin,
+  BookOpen,
+  Package,
+  List,
+  FileText,
+  Upload,
+  Image as ImageIcon,
+  ArrowLeft,
+  ShieldCheck,
 } from "lucide-react";
 
 /* ===================== Taxonomias ===================== */
@@ -80,7 +93,15 @@ const categorias = [
   ]},
   { nome: "Outros", subcategorias: ["Outros equipamentos","Produtos diversos","Serviços diversos"] }
 ];
-const condicoes = ["Nova", "Seminova", "Usada"];
+
+const condicoes = [
+  "Novo com garantia",
+  "Novo sem garantia",
+  "Reformado com garantia",
+  "Reformado",
+  "No estado que se encontra",
+];
+
 const estados = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 
 /* ===================== Page Wrapper ===================== */
@@ -103,7 +124,7 @@ function CreateProdutoForm() {
   // form
   const [form, setForm] = useState({
     nome: "",
-    tipo: "produto",
+    // 🔒 tipo removido do UI — sempre será "produto"
     categoria: "",
     subcategoria: "",
     preco: "",
@@ -111,7 +132,9 @@ function CreateProdutoForm() {
     cidade: "",
     ano: "",
     condicao: "",
-    descricao: ""
+    descricao: "",
+    hasWarranty: false,
+    warrantyMonths: "", // string para input fácil; convertemos no submit
   });
 
   // cidades por UF (IBGE)
@@ -125,7 +148,25 @@ function CreateProdutoForm() {
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target as any;
+
+    if (name === "hasWarranty") {
+      setForm((f) => ({ ...f, hasWarranty: checked, warrantyMonths: checked ? f.warrantyMonths : "" }));
+      return;
+    }
+
+    // Ajuste automático (opcional) com base na condição
+    if (name === "condicao") {
+      const v = value as string;
+      const autoHas = v.includes("com garantia")
+        ? true
+        : v.includes("sem garantia")
+        ? false
+        : form.hasWarranty; // mantém se for "Reformado" ou "No estado..."
+      setForm((f) => ({ ...f, condicao: v, hasWarranty: autoHas }));
+      return;
+    }
+
     setForm((f) => ({
       ...f,
       [name]: value,
@@ -135,31 +176,44 @@ function CreateProdutoForm() {
   }
 
   // carrega cidades ao escolher UF (IBGE)
-  useEffect(() => {
-    let abort = false;
-    async function fetchCidades(uf: string) {
-      if (!uf) {
-        setCidades([]);
-        return;
-      }
-      setCarregandoCidades(true);
-      try {
-        const res = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/distritos`, { cache: "no-store" });
-        const data = (await res.json()) as Array<{ nome: string }>;
-        if (abort) return;
-        const nomes = Array.from(new Set(data.map((d) => d.nome))).sort((a, b) =>
-          a.localeCompare(b, "pt-BR")
-        );
-        setCidades(nomes);
-      } catch {
-        if (!abort) setCidades([]);
-      } finally {
-        if (!abort) setCarregandoCidades(false);
-      }
+ // 👇 troque TODO o seu useEffect atual por este
+useEffect(() => {
+  let abort = false;
+
+  async function fetchCidades(uf: string) {
+    if (!uf) {
+      setCidades([]);
+      return;
     }
-    fetchCidades(form.estado);
-    return () => { abort = true; };
-  }, [form.estado]);
+    setCarregandoCidades(true);
+    try {
+      // ✅ use MUNICÍPIOS (cidades), não DISTRITOS
+      const res = await fetch(
+        `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`,
+        { cache: "no-store" }
+      );
+      const data = (await res.json()) as Array<{ nome: string }>;
+      if (abort) return;
+
+      // Ordena com acentos corretamente
+      const nomes = data
+        .map((m) => m.nome)
+        .sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+      setCidades(nomes);
+    } catch {
+      if (!abort) setCidades([]);
+    } finally {
+      if (!abort) setCarregandoCidades(false);
+    }
+  }
+
+  fetchCidades(form.estado);
+  return () => {
+    abort = true;
+  };
+}, [form.estado]);
+
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -177,7 +231,6 @@ function CreateProdutoForm() {
     // validações
     if (
       !form.nome ||
-      !form.tipo ||
       !form.estado ||
       !form.cidade ||
       !form.descricao ||
@@ -197,16 +250,37 @@ function CreateProdutoForm() {
       return;
     }
 
+    if (form.hasWarranty) {
+      const months = Number(form.warrantyMonths);
+      if (!months || months <= 0) {
+        setError("Informe um prazo de garantia válido (em meses).");
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       const now = new Date();
       const expiresAt = new Date(now);
       expiresAt.setDate(now.getDate() + 45); // 45 dias
 
       await addDoc(collection(db, "produtos"), {
-        ...form,
+        // 🔒 força tipo como "produto"
+        tipo: "produto",
+        nome: form.nome,
+        categoria: form.categoria,
+        subcategoria: form.subcategoria,
         preco: form.preco ? parseFloat(form.preco) : null,
+        estado: form.estado,
+        cidade: form.cidade,
+        ano: form.ano ? Number(form.ano) : null,
+        condicao: form.condicao,
+        descricao: form.descricao,
         imagens,
-        pdfUrl: pdfUrl || null, // salva a URL do PDF (Firebase Storage ou externa)
+        pdfUrl: pdfUrl || null,
+        hasWarranty: !!form.hasWarranty,
+        warrantyMonths: form.hasWarranty ? Number(form.warrantyMonths) : null,
+
         userId: user.uid,
         createdAt: serverTimestamp(),
         expiraEm: Timestamp.fromDate(expiresAt),
@@ -218,7 +292,6 @@ function CreateProdutoForm() {
       setSuccess("Produto cadastrado com sucesso!");
       setForm({
         nome: "",
-        tipo: "produto",
         categoria: "",
         subcategoria: "",
         preco: "",
@@ -226,11 +299,13 @@ function CreateProdutoForm() {
         cidade: "",
         ano: "",
         condicao: "",
-        descricao: ""
+        descricao: "",
+        hasWarranty: false,
+        warrantyMonths: "",
       });
       setImagens([]);
       setPdfUrl(null);
-      setTimeout(() => router.push("/vitrine"), 1000);
+      setTimeout(() => router.push("/vitrine"), 900);
     } catch (err) {
       setError("Erro ao cadastrar. Tente novamente.");
       console.error(err);
@@ -244,6 +319,24 @@ function CreateProdutoForm() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#f7f9fb] via-white to-[#e0e7ef] flex flex-col items-center py-8 px-2 sm:px-4">
+      {/* 🔙 Botão Voltar estilizado */}
+<div className="w-full max-w-5xl px-2 mb-3 flex">
+  <button
+    type="button"
+    onClick={() => router.back()}
+    className="inline-flex items-center gap-2 rounded-xl px-4 py-2 font-semibold text-sm shadow-sm transition-all hover:shadow-md hover:scale-[1.02]"
+    style={{
+      background: "linear-gradient(90deg,#e0e7ef,#f8fafc)",
+      border: "1.5px solid #cfd8e3",
+      color: "#023047",
+    }}
+  >
+    <ArrowLeft className="w-4 h-4 text-orange-500" />
+    Voltar
+  </button>
+</div>
+
+
       <section
         style={{
           maxWidth: 960,
@@ -271,9 +364,22 @@ function CreateProdutoForm() {
             <Package className="w-9 h-9 text-orange-500" />
             Cadastrar Produto
           </h1>
-          <div className="hidden sm:flex text-sm text-slate-500 font-semibold">
-            Campos marcados com * são obrigatórios
-          </div>
+
+          {/* 🔙 Voltar */}
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="hidden sm:inline-flex items-center gap-2 text-sm font-bold rounded-xl px-3 py-2"
+            style={{
+              background: "#eef2f7",
+              color: "#0f172a",
+              border: "1px solid #e3e8ef",
+            }}
+            aria-label="Voltar"
+            title="Voltar"
+          >
+            <ArrowLeft className="w-4 h-4" /> Voltar
+          </button>
         </div>
 
         {/* Gate de autenticação */}
@@ -333,22 +439,21 @@ function CreateProdutoForm() {
                 </div>
                 <div className="px-4 pb-4 space-y-3">
                   <div className="rounded-lg border border-dashed p-3">
-                    {/* O PDFUploader deve retornar a URL final do arquivo (ex.: Firebase Storage) */}
                     <PDFUploader onUploaded={setPdfUrl} />
                   </div>
 
                   {pdfUrl ? (
-  <div className="rounded-lg border overflow-hidden" style={{ height: 300 }}>
-    <DrivePDFViewer
-  fileUrl={`/api/pdf-proxy?file=${encodeURIComponent(pdfUrl || "")}`}
-  height={300}
-/>
-  </div>
-) : (
-  <p className="text-xs text-slate-500">
-    Anexe manuais, especificações ou ficha técnica (até 8MB).
-  </p>
-)}
+                    <div className="rounded-lg border overflow-hidden" style={{ height: 300 }}>
+                      <DrivePDFViewer
+                        fileUrl={`/api/pdf-proxy?file=${encodeURIComponent(pdfUrl || "")}`}
+                        height={300}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Anexe manuais, especificações ou ficha técnica (até 8MB).
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -366,20 +471,6 @@ function CreateProdutoForm() {
                 placeholder="Ex: Pá carregadeira, motor, filtro, etc."
                 required
               />
-            </FormField>
-
-            {/* Tipo */}
-            <FormField label="Tipo *" icon={<Layers size={15} />}>
-              <select
-                name="tipo"
-                value={form.tipo}
-                onChange={handleChange}
-                style={inputStyle}
-                required
-              >
-                <option value="produto">Produto</option>
-                <option value="máquina">Máquina</option>
-              </select>
             </FormField>
 
             {/* Categoria */}
@@ -458,7 +549,9 @@ function CreateProdutoForm() {
               >
                 <option value="">Selecione</option>
                 {condicoes.map((c) => (
-                  <option key={c}>{c}</option>
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
                 ))}
               </select>
             </FormField>
@@ -474,7 +567,9 @@ function CreateProdutoForm() {
               >
                 <option value="">Selecione</option>
                 {estados.map((e) => (
-                  <option key={e}>{e}</option>
+                  <option key={e} value={e}>
+                    {e}
+                  </option>
                 ))}
               </select>
             </FormField>
@@ -518,6 +613,46 @@ function CreateProdutoForm() {
             />
           </FormField>
 
+          {/* Garantia */}
+          <div
+            className="rounded-xl border p-4"
+            style={{ borderColor: "#e6ebf2", background: "#f8fafc" }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-700" />
+              <strong className="text-slate-800">Garantia</strong>
+            </div>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <input
+                  type="checkbox"
+                  name="hasWarranty"
+                  checked={form.hasWarranty}
+                  onChange={handleChange}
+                />
+                Existe garantia?
+              </label>
+
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-700">Tempo de garantia</span>
+                <input
+                  type="number"
+                  name="warrantyMonths"
+                  min={1}
+                  placeholder="ex: 12"
+                  value={form.warrantyMonths}
+                  onChange={handleChange}
+                  disabled={!form.hasWarranty}
+                  style={{ ...inputStyle, width: 120, marginBottom: 0 }}
+                />
+                <span className="text-sm text-slate-700">meses</span>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              Dica: se escolher “com garantia” na condição, a opção acima é marcada automaticamente.
+            </p>
+          </div>
+
           {/* Alerts */}
           {error && (
             <div
@@ -553,29 +688,32 @@ function CreateProdutoForm() {
           )}
 
           {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              background: "linear-gradient(90deg,#fb8500,#219ebc)",
-              color: "#fff",
-              border: "none",
-              borderRadius: 13,
-              padding: "16px 0",
-              fontWeight: 800,
-              fontSize: 20,
-              boxShadow: "0 8px 40px rgba(251,133,0,0.25)",
-              cursor: loading ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 10,
-              marginTop: 4,
-            }}
-          >
-            {loading ? <Loader2 className="animate-spin w-6 h-6" /> : <Save className="w-5 h-5" />}
-            {loading ? "Salvando..." : "Cadastrar Produto"}
-          </button>
+          <div className="flex flex-col sm:flex-row-reverse gap-3">
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                background: "linear-gradient(90deg,#fb8500,#219ebc)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 13,
+                padding: "16px 0",
+                fontWeight: 800,
+                fontSize: 20,
+                boxShadow: "0 8px 40px rgba(251,133,0,0.25)",
+                cursor: loading ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+              }}
+            >
+              {loading ? <Loader2 className="animate-spin w-6 h-6" /> : <Save className="w-5 h-5" />}
+              {loading ? "Salvando..." : "Cadastrar Produto"}
+            </button>
+
+           
+          </div>
         </form>
       </section>
     </main>

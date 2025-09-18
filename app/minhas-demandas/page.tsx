@@ -134,7 +134,7 @@ export default function MinhasDemandasPage() {
             gap: 7,
           }}
         >
-          + Cadastrar Necessidade
+          + Cadastrar Demanda
         </Link>
       </div>
 
@@ -146,7 +146,7 @@ export default function MinhasDemandasPage() {
           <p style={{
             color: "#FB8500", fontWeight: 700, fontSize: 22, marginBottom: 20
           }}>
-            Faça login para ver suas necessidades.
+            Faça login para ver suas Demandas.
           </p>
           <Link
             href="/auth/login"

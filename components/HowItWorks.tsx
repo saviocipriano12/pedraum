@@ -55,7 +55,7 @@ export default function HowItWorks() {
         {/* CTA (padrão do Header) */}
       
         <div className="cta">
-          <Link href="/demandas" className="btn-cta">
+          <Link href="/create-demanda" className="btn-cta">
             Cadastrar Demanda
           </Link>
           <p className="cta-hint">É grátis e leva menos de 2 minutos.</p>

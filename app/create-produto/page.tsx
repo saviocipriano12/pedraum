@@ -8,6 +8,7 @@ import { db, auth } from "@/firebaseConfig";
 import { collection, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import ImageUploader from "@/components/ImageUploader";
 import dynamic from "next/dynamic";
+import RequireAuth from "@/components/RequireAuth";
 
 const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
 const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
@@ -104,6 +105,13 @@ const condicoes = [
 
 const estados = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 
+export  function ProdutoIdLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <RequireAuth title="Produto" description="Faça login para visualizar os detalhes do produto.">
+      {children}
+    </RequireAuth>
+  );
+}
 /* ===================== Page Wrapper ===================== */
 export default function CreateProdutoPage() {
   return (

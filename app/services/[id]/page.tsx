@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import RequireAuth from "@/components/RequireAuth";
 import { db, auth } from "@/firebaseConfig";
 import {
   doc,
@@ -258,9 +259,15 @@ function ModalContato({
     </AnimatePresence>
   );
 }
-
+export default function ServiceIdLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <RequireAuth title="Serviço" description="Área restrita a usuários logados.">
+      {children}
+    </RequireAuth>
+  );
+}
 /* ======================= Página ======================= */
-export default function ServiceDetailPage() {
+export  function ServiceDetailPage() {
   const { id } = useParams();
   const [service, setService] = useState<ServiceDoc | null>(null);
   const [usuarioLogado, setUsuarioLogado] = useState<any>(null);

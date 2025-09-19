@@ -125,7 +125,7 @@ export default function Hero() {
             justifyContent: "flex-start",
           }}
         >
-          <Link href="/demandas" passHref legacyBehavior>
+          <Link href="/create-demanda" passHref legacyBehavior>
             <a
               style={{
                 background: "#FB8500",

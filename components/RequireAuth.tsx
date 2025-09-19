@@ -1,119 +1,141 @@
+// components/RequireAuth.tsx
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
-import { onAuthStateChanged, User } from "firebase/auth";
+import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { auth } from "@/firebaseConfig";
-import { motion, AnimatePresence } from "framer-motion";
-import Link from "next/link";
-import { Lock, X } from "lucide-react";
 
-/**
- * Envolva o conteúdo da página com <RequireAuth> ... </RequireAuth>
- * Se não houver usuário logado, abre um modal bloqueando a interação.
- *
- * Props:
- * - children: conteúdo da página
- * - title?: título do modal
- * - description?: texto do modal
- * - allowClose?: se true, mostra um X para fechar o modal (libera leitura sem ação)
- */
-export default function RequireAuth({
-  children,
-  title = "Faça login para continuar",
-  description = "Para acessar esta página, é necessário estar autenticado.",
-  allowClose = false,
-}: {
-  children: ReactNode;
+type Props = {
+  children: React.ReactNode;
+  /** rota de login (padrão: /auth/login) */
+  redirectTo?: string;
+  /** título/descrição opcionais para telas que usam o guard como wrapper de página */
   title?: string;
   description?: string;
-  allowClose?: boolean;
-}) {
-  const [user, setUser] = useState<User | null | undefined>(undefined);
-  const [showModal, setShowModal] = useState(false);
+  /** se true, mantém o conteúdo montado e apenas bloqueia a renderização até autenticar */
+  keepMounted?: boolean;
+};
+
+export default function RequireAuth({
+  children,
+  redirectTo = "/auth/login",
+  title,
+  description,
+  keepMounted = false,
+}: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const [checking, setChecking] = useState(true);
+  const [userExists, setUserExists] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setShowModal(!u); // mostra modal quando não há usuário
+    const unsub = auth.onAuthStateChanged((u) => {
+      if (u) {
+        setUserExists(true);
+        setChecking(false);
+      } else {
+        setUserExists(false);
+        setChecking(false);
+        // preserva a rota que o usuário tentou acessar (para redirecionar após login)
+        const next = encodeURIComponent(pathname || "/");
+        router.replace(`${redirectTo}?next=${next}`);
+      }
     });
     return () => unsub();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [redirectTo, pathname]);
 
-  // Enquanto carrega o estado de auth, evita flicker
-  if (user === undefined) {
+  if (checking) {
+    // skeleton/loading amigável
     return (
-      <div className="min-h-[40vh] grid place-items-center">
-        <div className="animate-pulse text-sm text-muted-foreground">
-          Carregando…
+      <main
+        style={{
+          minHeight: "60vh",
+          display: "grid",
+          placeItems: "center",
+          background:
+            "linear-gradient(180deg,#f7fafc 0%, #f6f9fa 60%, #f1f5f9 100%)",
+          padding: 24,
+        }}
+      >
+        <div
+          style={{
+            background: "#fff",
+            border: "1px solid #e5e7eb",
+            borderRadius: 16,
+            padding: "28px 26px",
+            width: "min(680px, 92vw)",
+            boxShadow: "0 10px 28px #00000014",
+            textAlign: "center",
+          }}
+        >
+          <div
+            className="animate-spin"
+            style={{
+              width: 30,
+              height: 30,
+              border: "3px solid #e5e7eb",
+              borderTopColor: "#2563eb",
+              borderRadius: "50%",
+              margin: "0 auto 12px",
+            }}
+          />
+          <div style={{ fontWeight: 800, color: "#023047", fontSize: 18 }}>
+            Verificando acesso…
+          </div>
+          <div style={{ color: "#64748b", marginTop: 6, fontSize: 14.5 }}>
+            Aguarde um instante.
+          </div>
         </div>
-      </div>
+      </main>
     );
   }
 
+  if (!userExists) {
+    // enquanto redireciona, não renderiza children (ou mantém montado se preferir)
+    return keepMounted ? <>{children}</> : null;
+  }
+
+  // autenticado
+  if (!title && !description) return <>{children}</>;
+
+  // opcional: envelope com header simples quando usado como “página”
   return (
-    <div className="relative">
-      {/* Conteúdo da página (embaçado quando modal aberto) */}
-      <div className={showModal ? "blur-sm pointer-events-none select-none" : ""}>
-        {children}
-      </div>
-
-      {/* Modal de login obrigatório */}
-      <AnimatePresence>
-        {showModal && (
-          <motion.div
-            className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm grid place-items-center p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <motion.div
-              className="relative w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 shadow-2xl border border-zinc-200/60 dark:border-zinc-800 p-6"
-              initial={{ y: 24, opacity: 0, scale: 0.98 }}
-              animate={{ y: 0, opacity: 1, scale: 1 }}
-              exit={{ y: 24, opacity: 0, scale: 0.98 }}
-              transition={{ type: "spring", stiffness: 260, damping: 22 }}
-            >
-              {allowClose && (
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="absolute right-3 top-3 p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                  aria-label="Fechar"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              )}
-
-              <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-xl bg-blue-50 dark:bg-blue-950">
-                <Lock className="h-6 w-6 text-blue-600 dark:text-blue-300" />
-              </div>
-
-              <h2 className="text-xl font-semibold">{title}</h2>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                {description}
-              </p>
-
-              <div className="mt-6 flex flex-col sm:flex-row gap-3">
-                <Link
-                  href="/auth/login"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-300 dark:border-zinc-700 px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800"
-                >
-                  Entrar
-                </Link>
-                <Link
-                  href="/auth/register"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 text-sm font-semibold"
-                >
-                  Cadastrar
-                </Link>
-              </div>
-
-              <p className="mt-4 text-xs text-zinc-500">
-                Dica: se você já tem conta, entre com o mesmo e-mail usado no cadastro.
-              </p>
-            </motion.div>
-          </motion.div>
+    <main style={{ minHeight: "100vh", background: "#f7fafc", padding: 16 }}>
+      <section
+        style={{
+          margin: "0 auto",
+          width: "min(1200px, 96vw)",
+          background: "#fff",
+          border: "1px solid #e5e7eb",
+          borderRadius: 20,
+          padding: "24px 18px",
+          boxShadow: "0 10px 28px #0000000d",
+        }}
+      >
+        {(title || description) && (
+          <header style={{ marginBottom: 14 }}>
+            {title && (
+              <h1
+                style={{
+                  fontWeight: 900,
+                  letterSpacing: 0.2,
+                  color: "#023047",
+                  fontSize: 22,
+                  marginBottom: 6,
+                }}
+              >
+                {title}
+              </h1>
+            )}
+            {description && (
+              <p style={{ color: "#64748b", fontSize: 15.5 }}>{description}</p>
+            )}
+          </header>
         )}
-      </AnimatePresence>
-    </div>
+        {children}
+      </section>
+    </main>
   );
 }

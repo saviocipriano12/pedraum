@@ -1,3 +1,4 @@
+// components/Header.tsx
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
@@ -28,6 +29,7 @@ export default function Header() {
   const [painelHref, setPainelHref] = useState("/auth/login");
   const [isAuthed, setIsAuthed] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false); // evita flash no desktop
 
   // ESC fecha o menu
   const onKeydown = useCallback((e: KeyboardEvent) => {
@@ -45,6 +47,7 @@ export default function Header() {
         setIsAuthed(false);
         setIsAdmin(false);
         setPainelHref("/auth/login");
+        setAuthChecked(true);
         return;
       }
       setIsAuthed(true);
@@ -56,6 +59,8 @@ export default function Header() {
       } catch {
         setIsAdmin(false);
         setPainelHref("/painel");
+      } finally {
+        setAuthChecked(true);
       }
     });
     return () => off();
@@ -70,16 +75,11 @@ export default function Header() {
     },
     {
       href: "/demandas",
-      label: "Oportunidades",
+      label: "Demandas",
       desc: "Veja pedidos de compradores e feche negócios.",
       icon: <ClipboardList size={16} />,
     },
-    {
-      href: "/blog",
-      label: "Blog",
-      desc: "Conteúdo, novidades e dicas do mercado.",
-      icon: <FileText size={16} />,
-    },
+   
     {
       href: painelHref,
       label: "Painel",
@@ -182,30 +182,28 @@ export default function Header() {
               </Link>
             )}
 
-            {/* Botão Cadastrar (desktop) */}
-            <Link href="/auth/register" className="btn-register-desktop no-underline">
-              <span
-                style={{
-                  background: "#FB8500",
-                  color: "#fff",
-                  fontWeight: 700,
-                  fontSize: "1.01rem",
-                  borderRadius: "15px",
-                  padding: "10px 22px",
-                  boxShadow: "0 4px 14px #0001",
-                  display: "inline-block",
-                }}
-              >
-                Cadastrar
-              </span>
-            </Link>
+            {/* Botão Cadastrar (desktop) — só para não logados */}
+            {authChecked && !isAuthed && (
+              <Link href="/auth/register" className="btn-register-desktop no-underline">
+                <span
+                  style={{
+                    background: "#FB8500",
+                    color: "#fff",
+                    fontWeight: 700,
+                    fontSize: "1.01rem",
+                    borderRadius: "15px",
+                    padding: "10px 22px",
+                    boxShadow: "0 4px 14px #0001",
+                    display: "inline-block",
+                  }}
+                >
+                  Cadastrar
+                </span>
+              </Link>
+            )}
 
             {/* Hambúrguer */}
-            <button
-              className="hamburger"
-              onClick={() => setOpen(true)}
-              aria-label="Abrir menu"
-            >
+            <button className="hamburger" onClick={() => setOpen(true)} aria-label="Abrir menu">
               <Menu size={30} />
             </button>
           </div>
@@ -267,12 +265,18 @@ export default function Header() {
             {/* Ações rápidas no mobile */}
             {!isAuthed ? (
               <li className="quick-actions">
-                <Link href="/auth/login" onClick={() => setOpen(false)} className="btn-ghost">Entrar</Link>
-                <Link href="/auth/register" onClick={() => setOpen(false)} className="btn-cta">Cadastrar</Link>
+                <Link href="/auth/login" onClick={() => setOpen(false)} className="btn-ghost">
+                  Entrar
+                </Link>
+                <Link href="/auth/register" onClick={() => setOpen(false)} className="btn-cta">
+                  Cadastrar
+                </Link>
               </li>
             ) : (
               <li className="quick-actions">
-                <Link href={painelHref} onClick={() => setOpen(false)} className="btn-cta">Ir para o Painel</Link>
+                <Link href={painelHref} onClick={() => setOpen(false)} className="btn-cta">
+                  Ir para o Painel
+                </Link>
               </li>
             )}
           </ul>

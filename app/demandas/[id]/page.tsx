@@ -1,6 +1,7 @@
 // app/demandas/[id]/page.tsx
 "use client";
 import AuthGateRedirect from "@/components/AuthGateRedirect";
+import RequireAuth from "@/components/RequireAuth";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import RelatedDemandsCarousel from "@/components/RelatedDemandsCarousel";
@@ -576,14 +577,15 @@ setPdfThumbWidth(Math.max(220, Math.min(560, Math.floor(w - 16))));
   }, [pdfSrc]);
 
   /* ======================= Guards ======================= */
-  if (!uid) {
-    return (
-      <section className="op-wrap">
-        <div className="op-card p">Faça login para ver esta oportunidade.</div>
-        <style jsx>{baseCss}</style>
-      </section>
-    );
-  }
+ return (
+  <RequireAuth>
+    <section className="op-wrap">
+      {/* todo o SEU layout original aqui, sem cartões extras */}
+      {/* ... */}
+      <style jsx>{baseCss}</style>
+    </section>
+  </RequireAuth>
+);
 
   if (loading) {
     return (

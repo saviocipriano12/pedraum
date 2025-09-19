@@ -105,13 +105,7 @@ const condicoes = [
 
 const estados = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 
-export  function ProdutoIdLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <RequireAuth title="Produto" description="Faça login para visualizar os detalhes do produto.">
-      {children}
-    </RequireAuth>
-  );
-}
+
 /* ===================== Page Wrapper ===================== */
 export default function CreateProdutoPage() {
   return (

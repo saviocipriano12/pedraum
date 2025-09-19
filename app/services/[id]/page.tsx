@@ -259,7 +259,7 @@ function ModalContato({
     </AnimatePresence>
   );
 }
-export default function ServiceIdLayout({ children }: { children: React.ReactNode }) {
+export function ServiceIdLayout({ children }: { children: React.ReactNode }) {
   return (
     <RequireAuth title="Serviço" description="Área restrita a usuários logados.">
       {children}
@@ -267,7 +267,7 @@ export default function ServiceIdLayout({ children }: { children: React.ReactNod
   );
 }
 /* ======================= Página ======================= */
-export  function ServiceDetailPage() {
+export default function ServiceDetailPage() {
   const { id } = useParams();
   const [service, setService] = useState<ServiceDoc | null>(null);
   const [usuarioLogado, setUsuarioLogado] = useState<any>(null);

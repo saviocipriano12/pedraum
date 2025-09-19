@@ -321,7 +321,7 @@ function CreateDemandaContent() {
       await addDoc(collection(db, "demandas"), payload);
       localStorage.removeItem(RASCUNHO_KEY);
       setSuccess("Demanda cadastrada com sucesso!");
-      setTimeout(() => router.push("/oportunidades"), 900);
+      setTimeout(() => router.push("/demandas"), 900);
     } catch (err) {
       console.error(err);
       setError("Erro ao cadastrar. Tente novamente.");

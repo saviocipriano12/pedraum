@@ -259,13 +259,7 @@ function ModalContato({
     </AnimatePresence>
   );
 }
-export function ServiceIdLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <RequireAuth title="Serviço" description="Área restrita a usuários logados.">
-      {children}
-    </RequireAuth>
-  );
-}
+
 /* ======================= Página ======================= */
 export default function ServiceDetailPage() {
   const { id } = useParams();

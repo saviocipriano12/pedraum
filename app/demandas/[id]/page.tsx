@@ -1,5 +1,6 @@
 // app/demandas/[id]/page.tsx
 "use client";
+
 import AuthGateRedirect from "@/components/AuthGateRedirect";
 import RequireAuth from "@/components/RequireAuth";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -97,7 +98,7 @@ type DemandFire = {
   viewCount?: number;
   lastViewedAt?: any;
 
-  // >>> Campo do PDF (ajuste o nome se o seu Firestore usar outro)
+  // >>> Campo de PDF (ajuste se o nome no Firestore for diferente)
   pdfUrl?: string;
 };
 
@@ -538,7 +539,7 @@ export default function DemandaDetalhePage() {
   }
 
   // ====== PDF (igual ao produto) ======
-  const pdfUrl: string | undefined = (demanda as any)?.pdfUrl || undefined; // << ajuste se seu campo tiver outro nome
+  const pdfUrl: string | undefined = (demanda as any)?.pdfUrl || undefined; // ajuste o nome se seu campo for diferente
   const pdfSrc = pdfUrl ? `/api/pdf-proxy?file=${encodeURIComponent(pdfUrl)}` : undefined;
 
   const [pdfOpen, setPdfOpen] = useState(false);
@@ -562,11 +563,10 @@ export default function DemandaDetalhePage() {
     );
     io.observe(el);
 
+    // ResizeObserver - só no client
     const ro = new ResizeObserver((entries) => {
       const w = entries[0].contentRect.width;
-      // ✅ correto
-setPdfThumbWidth(Math.max(220, Math.min(560, Math.floor(w - 16))));
-
+      setPdfThumbWidth(Math.max(220, Math.min(560, Math.floor(w - 16))));
     });
     ro.observe(el);
 
@@ -576,396 +576,394 @@ setPdfThumbWidth(Math.max(220, Math.min(560, Math.floor(w - 16))));
     };
   }, [pdfSrc]);
 
-  /* ======================= Guards ======================= */
- return (
-  <RequireAuth>
-    <section className="op-wrap">
-      {/* todo o SEU layout original aqui, sem cartões extras */}
-      {/* ... */}
-      <style jsx>{baseCss}</style>
-    </section>
-  </RequireAuth>
-);
+  /* ======================= RENDER ======================= */
 
   if (loading) {
     return (
-      <section className="op-wrap">
-        <div className="op-skel" />
-        <style jsx>{baseCss}</style>
-      </section>
+      <RequireAuth>
+        <section className="op-wrap">
+          <div className="op-skel" />
+          <style jsx>{baseCss}</style>
+        </section>
+      </RequireAuth>
     );
   }
 
   if (!demanda) {
     return (
-      <section className="op-wrap">
-        <div className="op-header">
-          <Link href="/demandas" className="op-link-voltar">
-            &lt; Voltar
-          </Link>
-        </div>
-        <div className="op-card p">Oportunidade não encontrada.</div>
-        <style jsx>{baseCss}</style>
-      </section>
+      <RequireAuth>
+        <section className="op-wrap">
+          <div className="op-header">
+            <Link href="/demandas" className="op-link-voltar">
+              &lt; Voltar
+            </Link>
+          </div>
+          <div className="op-card p">Oportunidade não encontrada.</div>
+          <style jsx>{baseCss}</style>
+        </section>
+      </RequireAuth>
     );
   }
 
-  /* ======================= UI ======================= */
   return (
-    <section className="op-wrap">
-      {/* Topo */}
-      <div className="op-header">
-        <button onClick={() => router.back()} className="op-link-voltar">
-          &lt; Voltar
-        </button>
-        <div className="op-actions">
-          <button className="op-share" onClick={share}>
-            <Share2 size={16} /> Compartilhar
+    <RequireAuth>
+      <section className="op-wrap">
+        {/* Topo */}
+        <div className="op-header">
+          <button onClick={() => router.back()} className="op-link-voltar">
+            &lt; Voltar
           </button>
-          {msg && <span className="op-msg">{msg}</span>}
+          <div className="op-actions">
+            <button className="op-share" onClick={share}>
+              <Share2 size={16} /> Compartilhar
+            </button>
+            {msg && <span className="op-msg">{msg}</span>}
+          </div>
         </div>
-      </div>
 
-      {/* Header */}
-      <div className="op-headbar">
-        <h1 className="op-title">{title}</h1>
-        <div className="op-headbar-right">
-          <span className="op-badge" style={{ borderColor: statusInfo.color, color: statusInfo.color }}>
-            <ShieldCheck size={14} /> {statusInfo.label}
-          </span>
-          <span className="op-views">
-            <Eye size={16} /> {viewCount} visualizações
-          </span>
-          {expShown && (
-            <span className="op-countdown">
-              <Hourglass size={16} />
-              <b>{timeLeft?.d}d</b> {timeLeft?.h}h {timeLeft?.m}m {timeLeft?.s}s
+        {/* Header */}
+        <div className="op-headbar">
+          <h1 className="op-title">{title}</h1>
+          <div className="op-headbar-right">
+            <span className="op-badge" style={{ borderColor: statusInfo.color, color: statusInfo.color }}>
+              <ShieldCheck size={14} /> {statusInfo.label}
             </span>
-          )}
+            <span className="op-views">
+              <Eye size={16} /> {viewCount} visualizações
+            </span>
+            {expShown && (
+              <span className="op-countdown">
+                <Hourglass size={16} />
+                <b>{timeLeft?.d}d</b> {timeLeft?.h}h {timeLeft?.m}m {timeLeft?.s}s
+              </span>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Grid principal */}
-      <div className="op-grid">
-        {/* ===== MÍDIA (coluna esquerda) ===== */}
-        <div className="op-media">
-          {/* Imagem principal com Lightbox */}
-          {imagens.length > 0 && imgOk ? (
-            <>
-              <div
-                className="op-img-wrap"
-                role="button"
-                tabIndex={0}
-                title="Clique para ampliar"
-                onClick={() => setLightboxOpen(true)}
-                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setLightboxOpen(true)}
-              >
-                <img
-                  src={imgPrincipal}
-                  alt={title}
-                  className="op-img"
-                  onLoad={() => setImgOk(true)}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = "/images/no-image.png";
-                    setImgOk(false);
-                  }}
-                />
-                <span className="op-zoom-hint">Clique para ampliar</span>
-              </div>
-
-              {imagens.length > 1 && (
-                <div className="op-thumbs op-thumbs-scroll">
-                  {imagens.map((img, idx) => (
-                    <img
-                      key={idx}
-                      src={img || "/images/no-image.png"}
-                      alt={`Imagem ${idx + 1}`}
-                      className={`op-thumb ${idx === imgIdx ? "op-thumb--active" : ""}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setImgIdx(idx);
-                        setLightboxOpen(true);
-                      }}
-                      onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
-                    />
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="op-noimg">
-              <div className="op-noimg-badge">
-                <ImageIcon size={18} /> Sem fotos
-              </div>
-              <div className="op-noimg-avatar">{initials(title)}</div>
-              <div className="op-noimg-title" title={title}>
-                {title}
-              </div>
-              <div className="op-noimg-meta">
-                <span>
-                  <Tag size={16} /> {category}
-                  {subcat ? ` • ${subcat}` : ""}
-                </span>
-                <span>
-                  <MapPin size={16} /> {city}, {uf}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* ===== THUMB DO PDF (se houver) ===== */}
-          {pdfSrc && (
-            <div
-              className="op-pdf-thumb"
-              role="button"
-              tabIndex={0}
-              title="Abrir anexo (PDF)"
-              onClick={() => setPdfOpen(true)}
-              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setPdfOpen(true)}
-            >
-              <div className="op-pdf-thumb-cover" ref={pdfThumbCoverRef}>
-                <span className="pdf-badge">PDF</span>
-                {pdfThumbReady ? <PDFThumb src={pdfSrc} width={pdfThumbWidth} /> : <div className="pdf-thumb-skeleton" />}
-              </div>
-              <div className="op-pdf-thumb-meta">
-                <div className="titulo">Documento em PDF desta demanda</div>
-                <div className="cta">Clique para abrir</div>
-              </div>
-            </div>
-          )}
-
-          {/* ===== CTA (abaixo da mídia) ===== */}
-          <div className="op-cta">
-            {!unlocked ? (
+        {/* Grid principal */}
+        <div className="op-grid">
+          {/* ===== MÍDIA (coluna esquerda) ===== */}
+          <div className="op-media">
+            {/* Imagem principal com Lightbox */}
+            {imagens.length > 0 && imgOk ? (
               <>
-                <div className="op-cta-highlight">
-                  <h3 className="op-cta-title">
-                    <Zap size={18} /> Desbloqueie o contato e fale direto com o cliente
-                  </h3>
-
-                  <ul className="op-benefits">
-                    <li>⚡ Acesso imediato ao WhatsApp e E-mail</li>
-                    <li>💼 Oportunidade ativa procurando solução</li>
-                  </ul>
-
-                  <button
-                    onClick={atender}
-                    disabled={paying || false}
-                    className="op-btn-laranja op-btn-big"
-                    aria-disabled={paying || false}
-                    style={{
-                      background: paying ? "#d1d5db" : "#FB8500",
-                      cursor: paying ? "not-allowed" : "pointer",
+                <div
+                  className="op-img-wrap"
+                  role="button"
+                  tabIndex={0}
+                  title="Clique para ampliar"
+                  onClick={() => setLightboxOpen(true)}
+                  onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setLightboxOpen(true)}
+                >
+                  <img
+                    src={imgPrincipal}
+                    alt={title}
+                    className="op-img"
+                    onLoad={() => setImgOk(true)}
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = "/images/no-image.png";
+                      setImgOk(false);
                     }}
-                  >
-                    {paying ? "Abrindo pagamento…" : "Atender agora"}
-                  </button>
-
-                  <div className="op-cta-note">
-                    Após o pagamento aprovado, o contato é liberado automaticamente nesta página.
-                  </div>
+                  />
+                  <span className="op-zoom-hint">Clique para ampliar</span>
                 </div>
+
+                {imagens.length > 1 && (
+                  <div className="op-thumbs op-thumbs-scroll">
+                    {imagens.map((img, idx) => (
+                      <img
+                        key={idx}
+                        src={img || "/images/no-image.png"}
+                        alt={`Imagem ${idx + 1}`}
+                        className={`op-thumb ${idx === imgIdx ? "op-thumb--active" : ""}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setImgIdx(idx);
+                          setLightboxOpen(true);
+                        }}
+                        onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
+                      />
+                    ))}
+                  </div>
+                )}
               </>
             ) : (
-              <div className="op-contact">
-                <div className="op-contact-title">
-                  <CheckCircle2 size={18} /> Contato liberado
+              <div className="op-noimg">
+                <div className="op-noimg-badge">
+                  <ImageIcon size={18} /> Sem fotos
                 </div>
+                <div className="op-noimg-avatar">{initials(title)}</div>
+                <div className="op-noimg-title" title={title}>
+                  {title}
+                </div>
+                <div className="op-noimg-meta">
+                  <span>
+                    <Tag size={16} /> {category}
+                    {subcat ? ` • ${subcat}` : ""}
+                  </span>
+                  <span>
+                    <MapPin size={16} /> {city}, {uf}
+                  </span>
+                </div>
+              </div>
+            )}
 
-                <div className="op-contact-grid">
-                  <div>
-                    <div className="op-contact-label">Nome</div>
-                    <div className="op-contact-value">{contatoNome || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="op-contact-label">E-mail</div>
-                    <div className="op-contact-value">{contatoEmail || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="op-contact-label">WhatsApp / Telefone</div>
-                    <div className="op-contact-wpp">
-                      <span className="op-contact-value">{contatoWpp || "—"}</span>
-                      {contatoWpp && (
-                        <button onClick={() => copy(String(contatoWpp))} className="op-copy" title="Copiar">
-                          <Copy size={14} />
-                        </button>
-                      )}
+            {/* ===== THUMB DO PDF (se houver) ===== */}
+            {pdfSrc && (
+              <div
+                className="op-pdf-thumb"
+                role="button"
+                tabIndex={0}
+                title="Abrir anexo (PDF)"
+                onClick={() => setPdfOpen(true)}
+                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setPdfOpen(true)}
+              >
+                <div className="op-pdf-thumb-cover" ref={pdfThumbCoverRef}>
+                  <span className="pdf-badge">PDF</span>
+                  {pdfThumbReady ? <PDFThumb src={pdfSrc} width={pdfThumbWidth} /> : <div className="pdf-thumb-skeleton" />}
+                </div>
+                <div className="op-pdf-thumb-meta">
+                  <div className="titulo">Documento em PDF desta demanda</div>
+                  <div className="cta">Clique para abrir</div>
+                </div>
+              </div>
+            )}
+
+            {/* ===== CTA (abaixo da mídia) ===== */}
+            <div className="op-cta">
+              {!unlocked ? (
+                <>
+                  <div className="op-cta-highlight">
+                    <h3 className="op-cta-title">
+                      <Zap size={18} /> Desbloqueie o contato e fale direto com o cliente
+                    </h3>
+
+                    <ul className="op-benefits">
+                      <li>⚡ Acesso imediato ao WhatsApp e E-mail</li>
+                      <li>💼 Oportunidade ativa procurando solução</li>
+                    </ul>
+
+                    <button
+                      onClick={atender}
+                      disabled={paying || false}
+                      className="op-btn-laranja op-btn-big"
+                      aria-disabled={paying || false}
+                      style={{
+                        background: paying ? "#d1d5db" : "#FB8500",
+                        cursor: paying ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {paying ? "Abrindo pagamento…" : "Atender agora"}
+                    </button>
+
+                    <div className="op-cta-note">
+                      Após o pagamento aprovado, o contato é liberado automaticamente nesta página.
                     </div>
                   </div>
-                </div>
+                </>
+              ) : (
+                <div className="op-contact">
+                  <div className="op-contact-title">
+                    <CheckCircle2 size={18} /> Contato liberado
+                  </div>
 
-                {wppDigits && (
-                  <a
-                    target="_blank"
-                    href={`https://wa.me/${wppDigits}?text=${encodeURIComponent(
-                      `Olá! Vi sua demanda "${title}" no Pedraum e posso te atender.`
-                    )}`}
-                    className="op-btn-azul"
-                  >
-                    <PhoneCall size={16} /> Abrir WhatsApp
-                  </a>
-                )}
+                  <div className="op-contact-grid">
+                    <div>
+                      <div className="op-contact-label">Nome</div>
+                      <div className="op-contact-value">{contatoNome || "—"}</div>
+                    </div>
+                    <div>
+                      <div className="op-contact-label">E-mail</div>
+                      <div className="op-contact-value">{contatoEmail || "—"}</div>
+                    </div>
+                    <div>
+                      <div className="op-contact-label">WhatsApp / Telefone</div>
+                      <div className="op-contact-wpp">
+                        <span className="op-contact-value">{contatoWpp || "—"}</span>
+                        {contatoWpp && (
+                          <button onClick={() => copy(String(contatoWpp))} className="op-copy" title="Copiar">
+                            <Copy size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {wppDigits && (
+                    <a
+                      target="_blank"
+                      href={`https://wa.me/${wppDigits}?text=${encodeURIComponent(
+                        `Olá! Vi sua demanda "${title}" no Pedraum e posso te atender.`
+                      )}`}
+                      className="op-btn-azul"
+                    >
+                      <PhoneCall size={16} /> Abrir WhatsApp
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ===== INFOS (coluna direita) ===== */}
+          <div className="op-info">
+            {/* Meta list */}
+            <div className="op-meta-list">
+              <span>
+                <Tag size={18} /> {category}
+                {subcat ? ` • ${subcat}` : ""}
+              </span>
+              <span>
+                <MapPin size={18} /> {city}, {uf}
+              </span>
+              <span>
+                <Calendar size={18} /> Prazo: {prazoStr || "—"}
+              </span>
+              <span>
+                <BadgeCheck size={18} /> Orçamento: {orcamento}
+              </span>
+            </div>
+
+            {/* Descrição */}
+            {description && (
+              <div className="op-desc-card">
+                <div className="op-desc-header">
+                  <span className="op-desc-badge">Descrição</span>
+                </div>
+                <div className="op-desc-body">{description}</div>
+              </div>
+            )}
+
+            {/* Upsell patrocinador */}
+            {!patrocinioAtivo && (
+              <div className="op-upsell">
+                <div className="op-upsell-left">
+                  <strong>Seja Patrocinador</strong> e veja contatos sem pagar por demanda nas suas categorias.
+                </div>
+                <a href={WPP_SPONSOR_URL} target="_blank" rel="noopener noreferrer" className="op-upsell-btn">
+                  Conhecer planos <ChevronRight size={16} />
+                </a>
               </div>
             )}
           </div>
         </div>
 
-        {/* ===== INFOS (coluna direita) ===== */}
-        <div className="op-info">
-          {/* Meta list */}
-          <div className="op-meta-list">
-            <span>
-              <Tag size={18} /> {category}
-              {subcat ? ` • ${subcat}` : ""}
-            </span>
-            <span>
-              <MapPin size={18} /> {city}, {uf}
-            </span>
-            <span>
-              <Calendar size={18} /> Prazo: {prazoStr || "—"}
-            </span>
-            <span>
-              <BadgeCheck size={18} /> Orçamento: {orcamento}
-            </span>
-          </div>
-
-          {/* Descrição */}
-          {description && (
-            <div className="op-desc-card">
-              <div className="op-desc-header">
-                <span className="op-desc-badge">Descrição</span>
-              </div>
-              <div className="op-desc-body">{description}</div>
+        {/* Relacionadas */}
+        {relacionadas.length > 0 && (
+          <div className="op-recomenda">
+            <h3>Você também pode querer atender</h3>
+            <div className="op-carousel">
+              {relacionadas.map((d) => (
+                <Link key={d.id} href={`/demandas/${d.id}`} className="op-card-mini">
+                  <div className="op-card-mini-title" title={d.titulo || "Demanda"}>
+                    {d.titulo || "Demanda"}
+                  </div>
+                  <div className="op-card-mini-meta">
+                    {d.categoria || "—"} • {d.cidade || "—"}
+                    {d.estado ? `, ${d.estado}` : ""}
+                  </div>
+                </Link>
+              ))}
             </div>
-          )}
-
-          {/* Upsell patrocinador */}
-          {!patrocinioAtivo && (
-            <div className="op-upsell">
-              <div className="op-upsell-left">
-                <strong>Seja Patrocinador</strong> e veja contatos sem pagar por demanda nas suas categorias.
-              </div>
-              <a href={WPP_SPONSOR_URL} target="_blank" rel="noopener noreferrer" className="op-upsell-btn">
-                Conhecer planos <ChevronRight size={16} />
-              </a>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Relacionadas */}
-      {relacionadas.length > 0 && (
-        <div className="op-recomenda">
-          <h3>Você também pode querer atender</h3>
-          <div className="op-carousel">
-            {relacionadas.map((d) => (
-              <Link key={d.id} href={`/demandas/${d.id}`} className="op-card-mini">
-                <div className="op-card-mini-title" title={d.titulo || "Demanda"}>
-                  {d.titulo || "Demanda"}
-                </div>
-                <div className="op-card-mini-meta">
-                  {d.categoria || "—"} • {d.cidade || "—"}
-                  {d.estado ? `, ${d.estado}` : ""}
-                </div>
-              </Link>
-            ))}
           </div>
-        </div>
-      )}
-
-      {/* ===== Lightbox Imagens ===== */}
-      <AnimatePresence>
-        {lightboxOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="lb-overlay"
-            onClick={() => setLightboxOpen(false)}
-          >
-            <motion.img
-              key={imgIdx}
-              initial={{ scale: 0.96, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.96, opacity: 0 }}
-              transition={{ type: "spring", duration: 0.25 }}
-              src={imagens[imgIdx] || "/images/no-image.png"}
-              alt={title}
-              className="lb-img"
-              onClick={(e) => e.stopPropagation()}
-              onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
-            />
-
-            {imagens.length > 1 && (
-              <>
-                <button
-                  aria-label="Anterior"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setImgIdx((i) => (i - 1 + imagens.length) % imagens.length);
-                  }}
-                  className="lb-nav lb-left"
-                >
-                  ‹
-                </button>
-                <button
-                  aria-label="Próxima"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setImgIdx((i) => (i + 1) % imagens.length);
-                  }}
-                  className="lb-nav lb-right"
-                >
-                  ›
-                </button>
-              </>
-            )}
-
-            <button
-              aria-label="Fechar"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLightboxOpen(false);
-              }}
-              className="lb-close"
-            >
-              ×
-            </button>
-          </motion.div>
         )}
-      </AnimatePresence>
 
-      {/* ===== Modal PDF ===== */}
-      <AnimatePresence>
-        {pdfOpen && pdfSrc && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="pdf-overlay"
-            onClick={() => setPdfOpen(false)}
-          >
+        {/* ===== Lightbox Imagens ===== */}
+        <AnimatePresence>
+          {lightboxOpen && (
             <motion.div
-              initial={{ scale: 0.96, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.96, opacity: 0 }}
-              transition={{ type: "spring", duration: 0.25 }}
-              className="pdf-modal"
-              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="lb-overlay"
+              onClick={() => setLightboxOpen(false)}
             >
-              <button aria-label="Fechar" onClick={() => setPdfOpen(false)} className="pdf-close">×</button>
-              <div className="pdf-container">
-                <DrivePDFViewer fileUrl={pdfSrc} height={undefined as any} />
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <motion.img
+                key={imgIdx}
+                initial={{ scale: 0.96, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.96, opacity: 0 }}
+                transition={{ type: "spring", duration: 0.25 }}
+                src={imagens[imgIdx] || "/images/no-image.png"}
+                alt={title}
+                className="lb-img"
+                onClick={(e) => e.stopPropagation()}
+                onError={(e) => ((e.currentTarget as HTMLImageElement).src = "/images/no-image.png")}
+              />
 
-      {/* CSS */}
-      <style jsx>{baseCss}</style>
-      <AuthGateRedirect />
-    </section>
+              {imagens.length > 1 && (
+                <>
+                  <button
+                    aria-label="Anterior"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImgIdx((i) => (i - 1 + imagens.length) % imagens.length);
+                    }}
+                    className="lb-nav lb-left"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    aria-label="Próxima"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImgIdx((i) => (i + 1) % imagens.length);
+                    }}
+                    className="lb-nav lb-right"
+                  >
+                    ›
+                  </button>
+                </>
+              )}
+
+              <button
+                aria-label="Fechar"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxOpen(false);
+                }}
+                className="lb-close"
+              >
+                ×
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ===== Modal PDF ===== */}
+        <AnimatePresence>
+          {pdfOpen && pdfSrc && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="pdf-overlay"
+              onClick={() => setPdfOpen(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.96, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.96, opacity: 0 }}
+                transition={{ type: "spring", duration: 0.25 }}
+                className="pdf-modal"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button aria-label="Fechar" onClick={() => setPdfOpen(false)} className="pdf-close">
+                  ×
+                </button>
+                <div className="pdf-container">
+                  <DrivePDFViewer fileUrl={pdfSrc} height={undefined as any} />
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* CSS */}
+        <style jsx>{baseCss}</style>
+        <AuthGateRedirect />
+      </section>
+    </RequireAuth>
   );
 }
 
@@ -1045,7 +1043,7 @@ const baseCss = `
 .op-cta-note{font-size:.86rem;color:#9a6c00}
 
 /* upsell */
-.op-upsell{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#f1f59;border:1.5px solid #e2e8f0;border-radius:14px;padding:10px 12px}
+.op-upsell{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#f1f5f9;border:1.5px solid #e2e8f0;border-radius:14px;padding:10px 12px}
 .op-upsell-left{color:#0f172a;font-weight:800}
 .op-upsell-btn{display:inline-flex;align-items:center;gap:6px;background:#219ebc;color:#fff;border-radius:10px;padding:8px 12px;text-decoration:none;font-weight:800}
 .op-upsell-btn:hover{background:#176684}
@@ -1092,33 +1090,88 @@ const baseCss = `
 .op-card-mini-meta{font-size:.9rem;color:#555;margin-bottom:2px}
 
 /* skeleton */
-.op-skel{height:420px;border-radius:22px;background:linear-gradient(90deg,#eef5fb 25%,#f5faff 37%,#eef5fb 63%);background-size:400% 100%;animation:opShimmer 1.3s infinite;box-shadow:0 2px 16px #0001}
-@keyframes opShimmer{0%{background-position:100% 0}100%{background-position:0 0} }
+.op-skel{
+  height:420px;
+  border-radius:22px;
+  background:linear-gradient(90deg,#eef5fb 25%,#f5faff 37%,#eef5fb 63%);
+  background-size:400% 100%;
+  animation:opShimmer 1.3s infinite;
+  box-shadow:0 2px 16px #0001
+}
+@keyframes opShimmer{
+  0%{background-position:100% 0}
+  100%{background-position:0 0}
+}
 
 /* ===== Lightbox ===== */
-.lb-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1100;display:flex;align-items:center;justify-content:center}
-.lb-img{max-width:92vw;max-height:88vh;object-fit:contain;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.45)}
-.lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:999px;border:1px solid #ffffff44;background:#00000055;color:#fff;font-size:30px;display:grid;place-items:center;cursor:pointer;z-index:1101}
+.lb-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.85);
+  z-index:1100;display:flex;align-items:center;justify-content:center
+}
+.lb-img{
+  max-width:92vw;max-height:88vh;object-fit:contain;
+  border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.45)
+}
+.lb-nav{
+  position:fixed;top:50%;transform:translateY(-50%);
+  width:46px;height:46px;border-radius:999px;border:1px solid #ffffff44;
+  background:#00000055;color:#fff;font-size:30px;display:grid;place-items:center;
+  cursor:pointer;z-index:1101
+}
 .lb-left{left:24px}
 .lb-right{right:24px}
-.lb-close{position:fixed;top:18px;right:22px;width:40px;height:40px;border-radius:999px;border:1px solid #ffffff44;background:#00000055;color:#fff;font-size:26px;display:grid;place-items:center;cursor:pointer;z-index:1101}
+.lb-close{
+  position:fixed;top:18px;right:22px;width:40px;height:40px;border-radius:999px;
+  border:1px solid #ffffff44;background:#00000055;color:#fff;font-size:26px;
+  display:grid;place-items:center;cursor:pointer;z-index:1101
+}
 
 /* ===== PDF Thumb + Modal ===== */
-.op-pdf-thumb{width:100%;max-width:560px;border:1.5px solid #eef2f6;border-radius:16px;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,0.06);overflow:hidden;cursor:zoom-in;margin-top:8px;transition:transform .12s, box-shadow .12s}
+.op-pdf-thumb{
+  width:100%;max-width:560px;border:1.5px solid #eef2f6;border-radius:16px;
+  background:#fff;box-shadow:0 2px 14px rgba(0,0,0,0.06);overflow:hidden;
+  cursor:zoom-in;margin-top:8px;transition:transform .12s, box-shadow .12s
+}
 .op-pdf-thumb:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(0,0,0,0.08)}
-.op-pdf-thumb-cover{position:relative;padding:8px;display:grid;place-items:center;min-height:140px;background:linear-gradient(180deg,#f8fbff,#ffffff)}
-.pdf-badge{position:absolute;top:10px;left:10px;background:#ef4444;color:#fff;font-weight:900;font-size:12px;padding:4px 8px;border-radius:999px;letter-spacing:.4px}
-.pdf-thumb-skeleton{width:100%;height:160px;border-radius:8px;background:linear-gradient(90deg,#f2f6fb 25%,#e9eef5 37%,#f2f6fb 63%);background-size:400% 100%;animation:pdfShimmer 1.2s infinite}
-@keyframes pdfShimmer{0%{background-position:100% 0}100%{background-position:0 0}}
-.op-pdf-thumb-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-top:1px solid #eef2f6}
+.op-pdf-thumb-cover{
+  position:relative;padding:8px;display:grid;place-items:center;min-height:140px;
+  background:linear-gradient(180deg,#f8fbff,#ffffff)
+}
+.pdf-badge{
+  position:absolute;top:10px;left:10px;background:#ef4444;color:#fff;font-weight:900;
+  font-size:12px;padding:4px 8px;border-radius:999px;letter-spacing:.4px
+}
+.pdf-thumb-skeleton{
+  width:100%;height:160px;border-radius:8px;
+  background:linear-gradient(90deg,#f2f6fb 25%,#e9eef5 37%,#f2f6fb 63%);
+  background-size:400% 100%;animation:pdfShimmer 1.2s infinite
+}
+@keyframes pdfShimmer{
+  0%{background-position:100% 0}
+  100%{background-position:0 0}
+}
+.op-pdf-thumb-meta{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:10px 12px;border-top:1px solid #eef2f6
+}
 .op-pdf-thumb-meta .titulo{color:#023047;font-weight:900}
 .op-pdf-thumb-meta .cta{color:#219ebc;font-weight:800;font-size:.92rem}
 
-.pdf-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:1100;display:flex;align-items:center;justify-content:center;padding:4vw}
-.pdf-modal{background:#fff;border-radius:14px;width:min(1100px,96vw);height:min(85vh,900px);overflow:hidden;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.35)}
-.pdf-close{position:absolute;top:10px;right:10px;width:36px;height:36px;border-radius:999px;border:1px solid #e5e7eb;background:#fff;font-size:22px;font-weight:900;cursor:pointer;z-index:1}
+.pdf-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.75);
+  z-index:1100;display:flex;align-items:center;justify-content:center;padding:4vw
+}
+.pdf-modal{
+  background:#fff;border-radius:14px;width:min(1100px,96vw);height:min(85vh,900px);
+  overflow:hidden;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.35)
+}
+.pdf-close{
+  position:absolute;top:10px;right:10px;width:36px;height:36px;border-radius:999px;
+  border:1px solid #e5e7eb;background:#fff;font-size:22px;font-weight:900;cursor:pointer;z-index:1
+}
 .pdf-container{width:100%;height:100%}
 
+/* ===== Responsivo ===== */
 @media (max-width: 1024px){
   .op-grid{grid-template-columns:1fr;gap:22px}
   .op-wrap{padding:16px 2vw 48px 2vw}

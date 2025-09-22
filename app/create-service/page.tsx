@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import AuthGateRedirect from "@/components/AuthGateRedirect";
 import ImageUploader from "@/components/ImageUploader";
 import { db, auth } from "@/firebaseConfig";
@@ -26,8 +27,13 @@ import {
   Upload,
   Info,
   Sparkles,
+  FileText,
+  Image as ImageIcon,
 } from "lucide-react";
 
+// 🔁 carregamento dinâmico dos componentes de PDF (client-only)
+const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
+const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
 
 /* ================== Constantes ================== */
 const categorias = [
@@ -63,7 +69,7 @@ const disponibilidades = [
   "Sob consulta",
 ];
 
-const RASCUNHO_KEY = "pedraum:create-service:draft_v2";
+const RASCUNHO_KEY = "pedraum:create-service:draft_v3";
 
 /* ================== Tipos ================== */
 type FormState = {
@@ -74,7 +80,6 @@ type FormState = {
   estado: string;
   abrangencia: string;
   disponibilidade: string;
-  // autor (autofill + editável)
   prestadorNome: string;
   prestadorEmail: string;
   prestadorWhatsapp: string;
@@ -83,7 +88,10 @@ type FormState = {
 export default function CreateServicePage() {
   const router = useRouter();
 
+  // mídia
   const [imagens, setImagens] = useState<string[]>([]);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+
   const [form, setForm] = useState<FormState>({
     titulo: "",
     descricao: "",
@@ -110,19 +118,20 @@ export default function CreateServicePage() {
         const p = JSON.parse(raw);
         if (p?.form) setForm((prev) => ({ ...prev, ...p.form }));
         if (Array.isArray(p?.imagens)) setImagens(p.imagens);
+        if (typeof p?.pdfUrl === "string" || p?.pdfUrl === null) setPdfUrl(p.pdfUrl);
       } catch {}
     }
   }, []);
 
   useEffect(() => {
-    const draft = { form, imagens };
+    const draft = { form, imagens, pdfUrl };
     setSavingDraft(true);
     const id = setTimeout(() => {
       localStorage.setItem(RASCUNHO_KEY, JSON.stringify(draft));
       setSavingDraft(false);
     }, 500);
     return () => clearTimeout(id);
-  }, [form, imagens]);
+  }, [form, imagens, pdfUrl]);
 
   /* ---------- Autofill do autor ---------- */
   useEffect(() => {
@@ -134,11 +143,9 @@ export default function CreateServicePage() {
         const prof = usnap.exists() ? (usnap.data() as any) : {};
         setForm((prev) => ({
           ...prev,
-          prestadorNome:
-            prev.prestadorNome || prof?.nome || user.displayName || "",
+          prestadorNome: prev.prestadorNome || prof?.nome || user.displayName || "",
           prestadorEmail: prev.prestadorEmail || prof?.email || user.email || "",
-          prestadorWhatsapp:
-            prev.prestadorWhatsapp || prof?.whatsapp || prof?.telefone || "",
+          prestadorWhatsapp: prev.prestadorWhatsapp || prof?.whatsapp || prof?.telefone || "",
         }));
       } catch {
         setForm((prev) => ({
@@ -201,6 +208,11 @@ export default function CreateServicePage() {
       return;
     }
 
+    if (imagens.length === 0) {
+      setError("Envie pelo menos uma imagem do serviço.");
+      setLoading(false);
+      return;
+    }
 
     try {
       // preço: número ou "Sob consulta"
@@ -243,6 +255,7 @@ export default function CreateServicePage() {
         // mídia
         imagens,
         imagesCount: imagens.length,
+        pdfUrl: pdfUrl || null, // ✅ PDF incluído
 
         // autor / vendedor
         vendedorId: user.uid,
@@ -276,14 +289,16 @@ export default function CreateServicePage() {
 
   /* ---------- UI ---------- */
   return (
-    <Suspense fallback={
-      <main className="min-h-screen flex items-center justify-center p-8">
-        <div className="flex items-center gap-3 text-slate-600">
-          <Loader2 className="animate-spin w-5 h-5" />
-          <span>Carregando...</span>
-        </div>
-      </main>
-    }>
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center p-8">
+          <div className="flex items-center gap-3 text-slate-600">
+            <Loader2 className="animate-spin w-5 h-5" />
+            <span>Carregando...</span>
+          </div>
+        </main>
+      }
+    >
       <main
         className="min-h-screen flex flex-col items-center py-10 px-2 sm:px-4"
         style={{
@@ -292,13 +307,14 @@ export default function CreateServicePage() {
       >
         <section
           style={{
-            maxWidth: 760,
+            maxWidth: 960,
             width: "100%",
             background: "#fff",
             borderRadius: 22,
             boxShadow: "0 4px 32px #0001",
             padding: "48px 2vw 55px 2vw",
             marginTop: 18,
+            border: "1px solid #eef2f7",
           }}
         >
           <h1
@@ -328,23 +344,82 @@ export default function CreateServicePage() {
 
           <AuthGateRedirect />
 
-          <form
-            onSubmit={handleSubmit}
-            style={{ display: "flex", flexDirection: "column", gap: 22 }}
-          >
-            {/* Imagens */}
-            <div style={sectionCardStyle}>
-              <h3 style={sectionTitleStyle}>
-                <Upload className="w-5 h-5 text-orange-500" /> Imagens do Serviço *
-              </h3>
-              <ImageUploader imagens={imagens} setImagens={setImagens} max={2} />
-              <p style={{ fontSize: 13, color: "#64748b", marginTop: 7 }}>
-                Adicione 1 ou 2 imagens reais ou de referência do serviço
-                prestado.
-              </p>
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+            {/* ================= Uploads (Imagens + PDF) ================= */}
+            <div
+              className="rounded-2xl border"
+              style={{
+                background: "linear-gradient(180deg,#f8fbff, #ffffff)",
+                borderColor: "#e6ebf2",
+                padding: "18px",
+              }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Upload className="w-4 h-4 text-slate-700" />
+                <h3 className="text-slate-800 font-black tracking-tight">Arquivos do anúncio</h3>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Card Imagens */}
+                <div
+                  className="rounded-xl border overflow-hidden"
+                  style={{
+                    borderColor: "#e6ebf2",
+                    background:
+                      "radial-gradient(1200px 300px at -200px -200px, #eef6ff 0%, transparent 60%), #ffffff",
+                  }}
+                >
+                  <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-sky-700" />
+                    <strong className="text-[#0f172a]">Imagens do Serviço *</strong>
+                  </div>
+                  <div className="px-4 pb-4">
+                    <div className="rounded-lg border border-dashed p-3">
+                      {/* você pode mudar o max, se quiser mais de 2 imagens */}
+                      <ImageUploader imagens={imagens} setImagens={setImagens} max={5} />
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2">
+                      Envie até 5 imagens (JPG/PNG). Dica: use fotos nítidas e com boa iluminação.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Card PDF */}
+                <div
+                  className="rounded-xl border overflow-hidden"
+                  style={{
+                    borderColor: "#e6ebf2",
+                    background:
+                      "radial-gradient(1200px 300px at -200px -200px, #fff1e6 0%, transparent 60%), #ffffff",
+                  }}
+                >
+                  <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-orange-600" />
+                    <strong className="text-[#0f172a]">Documento (PDF) — opcional</strong>
+                  </div>
+                  <div className="px-4 pb-4 space-y-3">
+                    <div className="rounded-lg border border-dashed p-3">
+                      <PDFUploader onUploaded={setPdfUrl} />
+                    </div>
+
+                    {pdfUrl ? (
+                      <div className="rounded-lg border overflow-hidden" style={{ height: 300 }}>
+                        <DrivePDFViewer
+                          fileUrl={`/api/pdf-proxy?file=${encodeURIComponent(pdfUrl || "")}`}
+                          height={300}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">
+                        Anexe um portfólio, escopo, certificado ou ficha técnica (até ~8MB).
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Principais */}
+            {/* ================= Principais ================= */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <label style={labelStyle}>
@@ -378,9 +453,7 @@ export default function CreateServicePage() {
                   placeholder="Ex: 1200 (opcional)"
                   autoComplete="off"
                 />
-                <div style={smallInfoStyle}>
-                  Pré-visualização: {precoPreview}
-                </div>
+                <div style={smallInfoStyle}>Pré-visualização: {precoPreview}</div>
               </div>
 
               <div>
@@ -558,7 +631,7 @@ export default function CreateServicePage() {
               type="submit"
               disabled={loading}
               style={{
-                background: "#fb8500",
+                background: "linear-gradient(90deg,#fb8500,#219ebc)",
                 color: "#fff",
                 border: "none",
                 borderRadius: 13,
@@ -574,12 +647,8 @@ export default function CreateServicePage() {
                 marginTop: 2,
                 transition: "filter .2s, transform .02s",
               }}
-              onMouseDown={(e) =>
-                (e.currentTarget.style.transform = "translateY(1px)")
-              }
-              onMouseUp={(e) =>
-                (e.currentTarget.style.transform = "translateY(0)")
-              }
+              onMouseDown={(e) => (e.currentTarget.style.transform = "translateY(1px)")}
+              onMouseUp={(e) => (e.currentTarget.style.transform = "translateY(0)")}
               onMouseEnter={(e) => (e.currentTarget.style.filter = "brightness(0.98)")}
               onMouseLeave={(e) => (e.currentTarget.style.filter = "none")}
             >

@@ -28,7 +28,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { onAuthStateChanged } from "firebase/auth";
 import dynamic from "next/dynamic";
-import RequireAuth from "@/components/RequireAuth";
+import AuthGateRedirect from "@/components/AuthGateRedirect"; // ✅ proteção sem card
 
 // carrega só no cliente (evita SSR do react-pdf)
 const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
@@ -45,7 +45,7 @@ type ProdutoDoc = {
   descricao?: string;
   preco?: number | string | null;
   ano?: number | string;
-  condicao?: string; // agora: "Novo com garantia", "Novo sem garantia", etc.
+  condicao?: string;
   cidade?: string;
   estado?: string;
   tipo?: string;
@@ -311,7 +311,7 @@ export default function ProdutoDetalhePage() {
   const [relacionados, setRelacionados] = useState<any[]>([]);
   const carrosselRef = useRef<HTMLDivElement>(null);
 
-  // auth (mantém para preencher dados do usuário na Modal)
+  // auth (apenas para preencher dados do usuário na Modal; proteção é feita pelo AuthGateRedirect)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -415,9 +415,7 @@ export default function ProdutoDetalhePage() {
       const snap = await getDocs(qy);
       const lista: any[] = [];
       snap.forEach((d) => {
-        if (d.id !== produto.id) {
-          lista.push({ id: d.id, ...d.data() });
-        }
+        if (d.id !== produto.id) lista.push({ id: d.id, ...d.data() });
       });
       const ativos = lista
         .filter((x) => !isExpired(x.createdAt, x.expiraEm))
@@ -613,7 +611,8 @@ export default function ProdutoDetalhePage() {
             <div>
               <div className="produto-desc-item-title">Condições</div>
               <div className="produto-desc-item-text">
-                {(produto.condicoes || produto.condicao || "—") + (resolveGarantia(produto).has ? ` • ${resolveGarantia(produto).text}` : " • Sem garantia")}
+                {(produto.condicoes || produto.condicao || "—") +
+                  (resolveGarantia(produto).has ? ` • ${resolveGarantia(produto).text}` : " • Sem garantia")}
               </div>
             </div>
           </div>
@@ -883,12 +882,13 @@ export default function ProdutoDetalhePage() {
     );
   })();
 
-  // 🔒 Proteção bonita: envolve todo o conteúdo
+  // ✅ Proteção sem card: só redireciona se não logado e não envolve o layout
   return (
-    <RequireAuth title="Produto" description="Faça login para visualizar os detalhes do produto.">
+    <>
+      <AuthGateRedirect />
       {conteudo}
 
-      {/* Modais fora do conteudo para não perder foco/overlay */}
+      {/* Modais fora do conteúdo para manter overlay correto */}
       {produto && (
         <ModalContato
           open={modalOpen}
@@ -898,6 +898,9 @@ export default function ProdutoDetalhePage() {
           vendedorEmail={vendedorEmail}
         />
       )}
-    </RequireAuth>
+
+      {/* PDF modal */}
+      {/* o modal do PDF é controlado dentro do conteúdo */}
+    </>
   );
 }

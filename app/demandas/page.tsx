@@ -31,6 +31,9 @@ import {
   Mail,
   User2,
   Crown,
+  Compass,
+  ArrowLeft,
+  Info,
 } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
 
@@ -85,7 +88,7 @@ function detectPatrocinador(p: any): boolean {
   return false;
 }
 
-/* ================== Categorias oficiais (fixas) ================== */
+/* ================== Categorias oficiais (fallback/UX) ================== */
 const CATEGORIAS_DEMANDAS = [
   "Equipamentos de Perfuração e Demolição",
   "Equipamentos de Carregamento e Transporte",
@@ -112,35 +115,31 @@ export default function VitrineDemandas() {
   const [perfil, setPerfil] = useState<any>(null);
   const isPatrocinador = detectPatrocinador(perfil);
 
-  // Categorias do usuário (derivadas dos pares ou do legado)
-  // Categorias do usuário (derivadas dos pares ou do legado)
-const userCats: string[] = useMemo(() => {
-  if (!perfil) return [];
+  /* ===== Exploração ===== */
+  const [explorarOutras, setExplorarOutras] = useState(false);
 
-  type Par = { categoria?: string };
-  const pairs: Par[] = Array.isArray(perfil.categoriasAtuacaoPairs)
-    ? (perfil.categoriasAtuacaoPairs as Par[])
-    : [];
+  /* ===== Categorias do usuário ===== */
+  const userCats: string[] = useMemo(() => {
+    if (!perfil) return [];
+    type Par = { categoria?: string };
+    const pairs: Par[] = Array.isArray(perfil.categoriasAtuacaoPairs)
+      ? (perfil.categoriasAtuacaoPairs as Par[])
+      : [];
+    const legacy: unknown[] = Array.isArray(perfil.categoriasAtuacao)
+      ? (perfil.categoriasAtuacao as unknown[])
+      : [];
+    const notEmptyString = (v: unknown): v is string =>
+      typeof v === "string" && v.trim().length > 0;
 
-  const legacy: unknown[] = Array.isArray(perfil.categoriasAtuacao)
-    ? (perfil.categoriasAtuacao as unknown[])
-    : [];
+    if (pairs.length) {
+      const cats = pairs.map(p => p?.categoria ?? "").filter(notEmptyString);
+      return Array.from(new Set<string>(cats)).slice(0, 10);
+    }
+    const legacyCats = legacy.filter(notEmptyString);
+    return Array.from(new Set<string>(legacyCats)).slice(0, 10);
+  }, [perfil]);
 
-  // helper: mantém só strings não vazias
-  const notEmptyString = (v: unknown): v is string =>
-    typeof v === "string" && v.trim().length > 0;
-
-  if (pairs.length) {
-    const cats = pairs.map(p => p?.categoria ?? "").filter(notEmptyString);
-    return Array.from(new Set<string>(cats)).slice(0, 10);
-  }
-
-  const legacyCats = legacy.filter(notEmptyString);
-  return Array.from(new Set<string>(legacyCats)).slice(0, 10);
-}, [perfil]);
-
-
-  // Match de categoria da demanda com categorias do user
+  /* ===== Match e contato ===== */
   function demandaCategoryMatch(d: any, myCats: string[]) {
     if (!myCats?.length) return false;
     const cat = (d?.categoria || "").trim();
@@ -149,10 +148,8 @@ const userCats: string[] = useMemo(() => {
     const byArray = !!cats?.length && cats.some((c: string) => myCats.includes(String(c)));
     return byString || byArray;
   }
-
-  // Pode ver contatos?
   function canSeeContacts(d: any) {
-    if (isFechada(d)) return false; // nunca mostra contato de demanda fechada
+    if (isFechada(d)) return false;
     if (!isPatrocinador) return false;
     return demandaCategoryMatch(d, userCats);
   }
@@ -165,18 +162,11 @@ const userCats: string[] = useMemo(() => {
   const lastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
   const finishedRef = useRef<boolean>(false);
 
-  /* ===== Filtros ===== */
+  /* ===== Filtros UI ===== */
   const [categoria, setCategoria] = useState("");
   const [estado, setEstado] = useState("");
   const [cidade, setCidade] = useState("");
   const [somenteAbertas, setSomenteAbertas] = useState(true);
-
-  // começa mostrando as oficiais
-  const [categoriasDisponiveis, setCategoriasDisponiveis] = useState<string[]>(
-    [...CATEGORIAS_DEMANDAS]
-  );
-
-  /* ===== Ordenação ===== */
   const [sortKey, setSortKey] = useState<SortKey>("recentes");
 
   /* ===== Busca (debounce) ===== */
@@ -187,10 +177,6 @@ const userCats: string[] = useMemo(() => {
     return () => clearTimeout(t);
   }, [buscaRaw]);
 
-  /* ===== Selects dependentes ===== */
-  const [estadosDisponiveis, setEstadosDisponiveis] = useState<string[]>([]);
-  const [cidadesDisponiveis, setCidadesDisponiveis] = useState<string[]>([]);
-
   /* ================== Auth & Perfil ================== */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -200,22 +186,12 @@ const userCats: string[] = useMemo(() => {
           setPerfil(null);
           return;
         }
-
-        // tenta primeiro "usuarios/{uid}", depois "users/{uid}"
         const refUsuarios = doc(db, "usuarios", user.uid);
         const refUsers = doc(db, "users", user.uid);
-
         let snap = await getDoc(refUsuarios);
-        if (!snap.exists()) {
-          snap = await getDoc(refUsers);
-        }
-
-        if (snap.exists()) {
-          const p = { id: snap.id, ...snap.data() };
-          setPerfil(p);
-        } else {
-          setPerfil(null);
-        }
+        if (!snap.exists()) snap = await getDoc(refUsers);
+        if (snap.exists()) setPerfil({ id: snap.id, ...snap.data() });
+        else setPerfil(null);
       } catch (e) {
         console.error("Erro ao carregar perfil:", e);
         setPerfil(null);
@@ -249,22 +225,6 @@ const userCats: string[] = useMemo(() => {
       lastDocRef.current = last;
       if (!last || snap.empty) finishedRef.current = true;
 
-      // estados únicos
-      const estSet = new Set<string>();
-      list.forEach((x) => x.estado && estSet.add(x.estado));
-      setEstadosDisponiveis(Array.from(estSet).sort());
-
-      // categorias do banco + oficiais, sem duplicar
-      const categoriasBanco = new Set<string>();
-      list.forEach((d) => {
-        const cat = (d.categoria || "").trim();
-        if (cat) categoriasBanco.add(cat);
-      });
-      const categoriasMescladas = Array
-  .from(new Set<string>([...CATEGORIAS_DEMANDAS, ...Array.from(categoriasBanco)]))
-  .sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
-      setCategoriasDisponiveis(categoriasMescladas);
-
       setDemandas(list);
       setCarregandoLista(false);
     })();
@@ -294,48 +254,12 @@ const userCats: string[] = useMemo(() => {
     if (!last || snap.empty) finishedRef.current = true;
     lastDocRef.current = last;
 
-    // atualizar estados disponíveis
-    const estSet = new Set(estadosDisponiveis);
-    pageList.forEach((x) => x.estado && estSet.add(x.estado));
-    setEstadosDisponiveis(Array.from(estSet).sort());
-
-    // atualizar categorias disponíveis
-    const catSet = new Set(categoriasDisponiveis);
-    pageList.forEach((d) => {
-      const cat = (d.categoria || "").trim();
-      if (cat) catSet.add(cat);
-    });
-    setCategoriasDisponiveis(
-      Array.from(catSet).sort((a, b) =>
-        a.localeCompare(b, "pt-BR", { sensitivity: "base" })
-      )
-    );
-
     setDemandas((prev) => [...prev, ...pageList]);
     setCarregandoMais(false);
   }
 
-  /* ================== Cidades dependentes ================== */
-  useEffect(() => {
-    if (!estado) {
-      setCidadesDisponiveis([]);
-      setCidade("");
-      return;
-    }
-    const cidSet = new Set<string>();
-    demandas.forEach((x) => {
-      if (x.estado === estado && x.cidade) cidSet.add(x.cidade);
-    });
-    const cidades = Array.from(cidSet).sort((a, b) =>
-      a.localeCompare(b, "pt-BR")
-    );
-    setCidadesDisponiveis(cidades);
-    if (cidade && !cidades.includes(cidade)) setCidade("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estado, demandas]);
-
-  /* ================== Filtros + ordenação (client) ================== */
-  const demandasProcessadas = useMemo(() => {
+  /* ================== Base filtrada (UI) ================== */
+  const demandasFiltradasBase = useMemo(() => {
     let arr = demandas.filter((d) => {
       if (categoria && d.categoria !== categoria) return false;
       if (estado && d.estado !== estado) return false;
@@ -347,7 +271,11 @@ const userCats: string[] = useMemo(() => {
           " " +
           (d.descricao || "") +
           " " +
-          (d.categoria || "");
+          (d.categoria || "") +
+          " " +
+          (d.cidade || "") +
+          " " +
+          (d.estado || "");
         if (!alvo.toLowerCase().includes(busca)) return false;
       }
 
@@ -379,8 +307,75 @@ const userCats: string[] = useMemo(() => {
     return arr;
   }, [demandas, categoria, estado, cidade, busca, sortKey, somenteAbertas]);
 
-  // pode carregar mais?
-  const podeCarregarMais = useMemo(() => !finishedRef.current, [demandas]);
+  /* ================== Conjunto visível (filtro duro do patrocinador) ================== */
+  const demandasVisiveis = useMemo(() => {
+    if (isPatrocinador && !explorarOutras) {
+      return demandasFiltradasBase.filter((d) => canSeeContacts(d));
+    }
+    return demandasFiltradasBase;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demandasFiltradasBase, isPatrocinador, explorarOutras, perfil, userCats]);
+
+  /* ================== Opções de CATEGORIA ==================
+     - Usuário comum (ou explorar): TODAS as categorias oficiais + dinâmicas do que já carregou
+     - Patrocinador (padrão): SOMENTE categorias onde ele tem contato liberado (independente de outros filtros)
+  ========================================================== */
+  const categoriasTodasCarregadas = useMemo(() => {
+    const set = new Set<string>([...CATEGORIAS_DEMANDAS]);
+    for (const d of demandas) {
+      const cat = (d.categoria || "").trim();
+      if (cat) set.add(cat);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  }, [demandas]);
+
+  const categoriasLiberadasPatrocinador = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of demandas) {
+      if (canSeeContacts(d)) {
+        const cat = (d.categoria || "").trim();
+        if (cat) set.add(cat);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demandas, perfil, userCats, isPatrocinador]);
+
+  const categoriasDisponiveis = useMemo(() => {
+    if (isPatrocinador && !explorarOutras) return categoriasLiberadasPatrocinador;
+    return categoriasTodasCarregadas;
+  }, [isPatrocinador, explorarOutras, categoriasLiberadasPatrocinador, categoriasTodasCarregadas]);
+
+  // se a seleção atual ficar inválida após alternar modo/estado, limpa
+  useEffect(() => {
+    if (categoria && !categoriasDisponiveis.includes(categoria)) {
+      setCategoria("");
+    }
+  }, [categoriasDisponiveis, categoria]);
+
+  /* ================== Estados/Cidades (mantidos dinâmicos com base no visível) ================== */
+  const estadosDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of demandasVisiveis) {
+      if (d.estado) set.add(d.estado);
+    }
+    return Array.from(set).sort();
+  }, [demandasVisiveis]);
+
+  const cidadesDisponiveis = useMemo(() => {
+    if (!estado) return [];
+    const set = new Set<string>();
+    for (const d of demandasVisiveis) {
+      if (d.estado === estado && d.cidade) set.add(d.cidade);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [demandasVisiveis, estado]);
+
+  useEffect(() => {
+    if (cidade && !cidadesDisponiveis.includes(cidade)) {
+      setCidade("");
+    }
+  }, [cidadesDisponiveis, cidade]);
 
   /* ================== UI ================== */
   return (
@@ -419,6 +414,47 @@ const userCats: string[] = useMemo(() => {
         )}
       </h1>
 
+      {/* Banner de exploração */}
+      {isPatrocinador && explorarOutras && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "12px 16px",
+            background: "#eef6ff",
+            border: "1px solid #dbeafe",
+            borderRadius: 12,
+            marginBottom: 16,
+            color: "#1e3a8a",
+            fontWeight: 700,
+          }}
+        >
+          <Info size={18} />
+          Explorando outras categorias. Contatos fora da sua categoria permanecem bloqueados.
+          <button
+            type="button"
+            onClick={() => setExplorarOutras(false)}
+            className="hover:scale-[1.02]"
+            style={{
+              marginLeft: "auto",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid #bfdbfe",
+              background: "#fff",
+              color: "#1e40af",
+              fontWeight: 800,
+            }}
+          >
+            <ArrowLeft size={16} />
+            Voltar para minhas categorias
+          </button>
+        </div>
+      )}
+
       {/* Barra de ação / CTA topo */}
       <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
         <Link
@@ -443,7 +479,6 @@ const userCats: string[] = useMemo(() => {
           <Plus size={22} /> Postar uma Demanda
         </Link>
 
-        {/* CTA para virar patrocinador — só aparece para não patrocinador */}
         {!isPatrocinador && (
           <Link
             href="/planos"
@@ -597,12 +632,12 @@ const userCats: string[] = useMemo(() => {
             />
           ))}
         </div>
-      ) : demandasProcessadas.length === 0 ? (
+      ) : demandasVisiveis.length === 0 ? (
         <div
           style={{
             textAlign: "center",
-            color: "#adb0b6",
-            fontWeight: 700,
+            color: "#3b4555",
+            fontWeight: 800,
             fontSize: 19,
             padding: 66,
             background: "#fff",
@@ -611,14 +646,49 @@ const userCats: string[] = useMemo(() => {
             marginTop: 6,
           }}
         >
-          Nenhuma demanda encontrada.
-          <br />
-          <span style={{ fontWeight: 400, fontSize: 16 }}>Tente alterar os filtros ou pesquisar outro termo.</span>
+          {isPatrocinador && !explorarOutras ? (
+            <>
+              <div style={{ fontSize: 22, marginBottom: 8 }}>
+                Não há demandas com contato disponível nas suas categorias por enquanto.
+              </div>
+              <div style={{ fontWeight: 500, color: "#64748b", marginBottom: 18 }}>
+                Você pode explorar outras oportunidades sem liberar os contatos.
+              </div>
+              <button
+                type="button"
+                onClick={() => setExplorarOutras(true)}
+                className="hover:scale-[1.03]"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "12px 22px",
+                  borderRadius: 14,
+                  background: "#FFEDD5",
+                  color: "#9a3412",
+                  fontWeight: 900,
+                  fontSize: "1.02rem",
+                  border: "1px solid #fed7aa",
+                }}
+              >
+                <Compass size={18} />
+                Explorar outras categorias
+              </button>
+            </>
+          ) : (
+            <>
+              Nenhuma demanda encontrada.
+              <br />
+              <span style={{ fontWeight: 400, fontSize: 16 }}>
+                Tente alterar os filtros ou pesquisar outro termo.
+              </span>
+            </>
+          )}
         </div>
       ) : (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))", gap: "34px" }}>
-            {demandasProcessadas.map((item) => {
+            {demandasVisiveis.map((item) => {
               const fechada = isFechada(item);
               const contato = getContatoFromDemanda(item);
               const contatoLiberado = canSeeContacts(item);
@@ -641,7 +711,6 @@ const userCats: string[] = useMemo(() => {
                   }}
                   className="hover:shadow-xl group"
                 >
-                  {/* Badge FECHADA */}
                   {fechada && (
                     <span
                       style={{
@@ -662,7 +731,6 @@ const userCats: string[] = useMemo(() => {
                     </span>
                   )}
 
-                  {/* Badge status do contato para patrocinador */}
                   {isPatrocinador && (
                     <span
                       style={{
@@ -843,7 +911,6 @@ const userCats: string[] = useMemo(() => {
                       </button>
                     ) : isPatrocinador ? (
                       contatoLiberado ? (
-                        // Patrocinador + categoria compatível: ver detalhes e falar agora
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
                           <Link
                             href={`/demandas/${item.id}`}
@@ -902,7 +969,6 @@ const userCats: string[] = useMemo(() => {
                           )}
                         </div>
                       ) : (
-                        // Patrocinador, mas categoria fora da atuação: fluxo como público (sem contato)
                         <Link
                           href={`/demandas/${item.id}`}
                           className="group-hover:scale-[1.02] transition"
@@ -928,7 +994,6 @@ const userCats: string[] = useMemo(() => {
                         </Link>
                       )
                     ) : (
-                      // Usuário comum
                       <Link
                         href={`/demandas/${item.id}`}
                         className="group-hover:scale-[1.02] transition"
@@ -959,7 +1024,7 @@ const userCats: string[] = useMemo(() => {
           </div>
 
           {/* Carregar mais */}
-          {podeCarregarMais && (
+          {!finishedRef.current && (
             <div style={{ display: "flex", justifyContent: "center", marginTop: 28 }}>
               <button
                 onClick={carregarMais}

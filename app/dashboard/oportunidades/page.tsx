@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import MPCheckoutButton from "@/components/MPCheckoutButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/firebaseConfig";
@@ -22,7 +23,6 @@ import {
   Eye,
   LockOpen,
 } from "lucide-react";
-
 
 /* ----------------------------- Tipos ----------------------------- */
 
@@ -47,7 +47,6 @@ type Assignment = {
 function normalizeDemand(raw: any) {
   const title = raw?.title ?? raw?.titulo ?? "Demanda";
   const description = raw?.description ?? raw?.descricao ?? "";
-  const PEDRAUM_WPP_NUMBER = "5531990903613"; // +55 31 99090-3613
   const category = raw?.category ?? raw?.categoria ?? "";
   const uf = raw?.uf ?? raw?.estado ?? "";
   const city = raw?.city ?? raw?.cidade ?? "";
@@ -56,12 +55,6 @@ function normalizeDemand(raw: any) {
 
   return { title, description, category, uf, city, contact };
 }
-const PEDRAUM_WPP_NUMBER = "5531990903613"; // +55 31 99090-3613
-
-function waLinkToPedraum(text: string) {
-  return `https://wa.me/${PEDRAUM_WPP_NUMBER}?text=${encodeURIComponent(text)}`;
-}
-
 
 function sortByCreatedAtDesc(a: Assignment, b: Assignment) {
   const ta = a.createdAt?.seconds ?? a.createdAt?._seconds ?? 0;
@@ -165,32 +158,57 @@ export default function OportunidadesPage() {
     [atendimento, busca, fCategoria, fUF, fCidade]
   );
 
-  /* --------------------------- Ações --------------------------- */
-  // Usa sua rota atual (/api/mp/create-preference) que espera unit_price (em reais).
-  async function atender(a: Assignment) {
-  if (!uid) return;
-  setAbrindo(a.demandId);
+  /* --------------------------- Ação: pagar/desbloquear --------------------------- */
+  async function desbloquearLead(a: Assignment) {
+    if (!uid) {
+      alert("Faça login para desbloquear este contato.");
+      return;
+    }
+    setAbrindo(a.demandId);
 
-  try {
-    const n = normalizeDemand(a.demand || {});
-    const msg =
-      `Olá! Quero atender esta demanda no Pedraum.\n` +
-      `• Título: "${n.title || "Demanda"}"\n` +
-      `• Demanda ID: ${a.demandId}\n` +
-      `• Assignment ID: ${a.id}\n` +
-      (typeof a?.pricing?.amount === "number"
-        ? `• Preço exibido: R$ ${(a.pricing.amount / 100).toFixed(2)}\n`
-        : "");
+    try {
+      const n = normalizeDemand(a.demand || {});
+      // preço em centavos — se não vier no assignment, define um default
+      const unitPriceCents =
+        typeof a?.pricing?.amount === "number" && a.pricing.amount! > 0
+          ? Math.round(a.pricing.amount!)
+          : 1990; // R$ 19,90 (ajuste se quiser)
 
-    // abre o WhatsApp do Pedraum em nova aba
-    window.open(waLinkToPedraum(msg), "_blank");
-  } catch (e) {
-    alert("Não foi possível abrir o WhatsApp. Tente novamente.");
-  } finally {
-    setAbrindo(null);
+      const resp = await fetch("/api/mercadopago/create-preference", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "lead",
+          refId: a.demandId,
+          title: `Desbloqueio de contato — ${n.title || "Demanda"}`,
+          unitPriceCents,
+          quantity: 1,
+          userId: uid, // opcional
+          metadata: {
+            assignmentId: a.id,
+            supplierId: uid,
+          },
+        }),
+      });
+
+      if (!resp.ok) {
+        const j = await resp.json().catch(() => ({}));
+        throw new Error(j?.error || "Falha ao iniciar o pagamento.");
+      }
+
+      const data = await resp.json();
+      const url = data.init_point || data.sandbox_init_point;
+      if (!url) throw new Error("Não foi possível obter a URL de pagamento.");
+
+      // redireciona para o Checkout Pro
+      window.location.href = url;
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || "Não foi possível iniciar o checkout.");
+    } finally {
+      setAbrindo(null);
+    }
   }
-}
-
 
   /* ---------------------------- UI ---------------------------- */
 
@@ -208,7 +226,9 @@ export default function OportunidadesPage() {
       >
         <header style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
           <Target size={24} color="#2563eb" />
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#023047" }}>Demandas Enviadas Para Você</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#023047" }}>
+            Demandas Enviadas Para Você
+          </h1>
         </header>
 
         {/* Filtros */}
@@ -290,8 +310,8 @@ export default function OportunidadesPage() {
               <OportunidadeCard
                 key={it.id}
                 a={it}
-                onAtender={() => atender(it)} // envia o item inteiro (tem id, demandId e pricing)
-                atendendo={abrindo === it.demandId}
+                onDesbloquear={() => desbloquearLead(it)} // <-- AQUI: inicia checkout MP
+                desbloqueando={abrindo === it.demandId}
               />
             ))}
           </CardsGrid>
@@ -339,16 +359,25 @@ function filtra(list: Assignment[], busca: string, cat: string, uf: string, cida
 function OportunidadeCard({
   a,
   unlocked,
-  onAtender,
-  atendendo,
+  onDesbloquear,
+  desbloqueando,
 }: {
   a: Assignment;
   unlocked?: boolean;
-  onAtender?: () => void;
-  atendendo?: boolean;
+  onDesbloquear?: () => void;
+  desbloqueando?: boolean;
 }) {
   const norm = normalizeDemand(a.demand || {});
   const preview = (norm.description || "").slice(0, 160);
+
+  // valor para exibir no botão (se houver)
+  const valorBRL =
+    typeof a?.pricing?.amount === "number"
+      ? (a.pricing.amount / 100).toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        })
+      : undefined;
 
   return (
     <div
@@ -364,27 +393,26 @@ function OportunidadeCard({
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-  <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{norm.title}</div>
-  {unlocked && (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        background: "#ecfdf5",
-        color: "#065f46",
-        border: "1px solid #a7f3d0",
-        padding: "6px 10px",
-        borderRadius: 999,
-        fontWeight: 800,
-        fontSize: 13,
-      }}
-    >
-      <CheckCircle2 size={16} /> Em atendimento
-    </span>
-  )}
-</div>
-
+        <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{norm.title}</div>
+        {unlocked && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "#ecfdf5",
+              color: "#065f46",
+              border: "1px solid #a7f3d0",
+              padding: "6px 10px",
+              borderRadius: 999,
+              fontWeight: 800,
+              fontSize: 13,
+            }}
+          >
+            <CheckCircle2 size={16} /> Em atendimento
+          </span>
+        )}
+      </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#475569", fontSize: 13 }}>
         <MapPin size={16} />
@@ -408,16 +436,23 @@ function OportunidadeCard({
 
         {!unlocked ? (
           <button
-            onClick={onAtender}
-            disabled={!!atendendo}
+            onClick={onDesbloquear}
+            disabled={!!desbloqueando}
             style={{
               ...btnPrimary,
-              opacity: atendendo ? 0.8 : 1,
-              cursor: atendendo ? "not-allowed" : "pointer",
+              opacity: desbloqueando ? 0.8 : 1,
+              cursor: desbloqueando ? "not-allowed" : "pointer",
             }}
           >
-           {atendendo ? <Loader2 size={16} className="animate-spin" /> : "Falar no WhatsApp"}
-
+            {desbloqueando ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <Loader2 size={16} className="animate-spin" /> Processando…
+              </span>
+            ) : (
+              <span>
+                Desbloquear contato 
+              </span>
+            )}
           </button>
         ) : norm?.contact?.whatsapp ? (
           <a

@@ -438,15 +438,10 @@ export default function PainelUnificado() {
           <Tile href="/mensagens" color="#2563eb" bg="#f3f7ff" icon={<MessageCircle size={36} />} title="Mensagens" desc="Converse com clientes e negocie direto." badge={loadingMetrics ? undefined : metrics.mensagens} />
           <Tile href="/notificacoes" color="#FB8500" bg="#fff7ed" icon={<Bell size={36} />} title="Notificações" desc="Mostra não lidas primeiro; cai para total." badge={loadingMetrics ? undefined : metrics.notificacoes} />
           <Tile href="/minhas-propostas" color="#2563eb" bg="#f3f7ff" icon={<ClipboardList size={36} />} title="Minhas Propostas" desc="Acompanhe propostas enviadas e recebidas." badge={loadingMetrics ? undefined : metrics.propostas} />
-          <Tile href="/meus-pedidos" color="#6d28d9" bg="#f9fafb" icon={<Wallet2 size={36} />} title="Pedidos" desc="Pedidos/assinaturas realizados." badge={loadingMetrics ? undefined : metrics.pedidos} />
-          <Tile href="/favoritos" color="#FB8500" bg="#fff7ed" icon={<Heart size={36} />} title="Favoritos" desc="Acesse rapidamente seus favoritos." badge={loadingMetrics ? undefined : metrics.favoritos} />
-          <Tile href="/avaliacoes" color="#FB8500" bg="#fff7ed" icon={<Star size={36} />} title="Avaliações Recebidas" desc="Confira feedbacks e reputação." badge={loadingMetrics ? undefined : metrics.avaliacoes} />
           <Tile href="/sugestoes" color="#FB8500" bg="#fff7ed" icon={<Lightbulb size={36} />} title="Sugestões" desc="Envie ideias para melhorar a plataforma." badge={loadingMetrics ? undefined : metrics.sugestoes} />
 
           {/* informativos */}
           <Tile href="/perfil" color="#2563eb" bg="#f3f7ff" icon={<Users size={36} />} title="Meu Perfil" desc="Gerencie seus dados pessoais e de empresa." />
-          <Tile href="/parceiros" color="#FB8500" bg="#fff7ed" icon={<Users size={36} />} title="Parceiros" desc="Conheça empresas e parceiros." />
-          <Tile href="/blog" color="#FB8500" bg="#fff7ed" icon={<BookOpen size={36} />} title="Blog" desc="Conteúdos, notícias e dicas do setor." />
           <Tile href="/ajuda" color="#059669" bg="#ecfdf5" icon={<LifeBuoy size={36} />} title="Central de Ajuda" desc="FAQ, suporte e abertura de tickets." />
           <Tile href="/financeiro" color="#6d28d9" bg="#f9fafb" icon={<Wallet2 size={36} />} title="Financeiro" desc="Pagamentos e notas (em breve)." />
 

@@ -123,7 +123,7 @@ export default function AjudaPage() {
           <div>
             <div className="font-bold text-[#023047] text-lg">Suporte por E-mail</div>
             <div className="text-[#495668] mb-1">Envie suas dúvidas ou relatos para:</div>
-            <div className="text-[#2563eb] font-bold text-base">suporte@pedraum.com.br</div>
+            <div className="text-[#2563eb] font-bold text-base">contato@pedraum.com.br</div>
           </div>
         </div>
         <div style={{
@@ -141,7 +141,7 @@ export default function AjudaPage() {
           <div>
             <div className="font-bold text-[#023047] text-lg">WhatsApp e Telefone</div>
             <div className="text-[#495668] mb-1">Atendimento rápido via WhatsApp:</div>
-            <div className="text-[#FB8500] font-bold text-base">+55 31 99999-9999</div>
+            <div className="text-[#FB8500] font-bold text-base">+55 31 99090-3613</div>
           </div>
         </div>
       </div>

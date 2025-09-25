@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createUserWithEmailAndPassword } from "firebase/auth";
@@ -24,14 +24,77 @@ function onlyDigits(v: string) {
   return v.replace(/\D/g, "");
 }
 
-function formatWhatsapp(v: string) {
-  // Ex.: (31) 91234-5678  | aceita 10 ou 11 dígitos
-  const d = onlyDigits(v).slice(0, 11);
-  if (d.length <= 2) return d;
-  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
-  if (d.length <= 10)
-    return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
-  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+/** Mantém sempre o prefixo "+55 " no começo do input */
+function ensurePlus55Prefix(v: string) {
+  if (!v.startsWith("+55")) return `+55 ${v.replace(/^\+*/, "").trimStart()}`;
+  // se for exatamente "+55" sem espaço, adiciona espaço
+  if (v === "+55") return "+55 ";
+  if (v.startsWith("+55") && v.length === 3) return "+55 ";
+  return v;
+}
+
+/** Formata em máscara visual: +55 (DD) 9XXXX-XXXX ou +55 (DD) XXXX-XXXX */
+function formatWhatsappBRIntl(v: string) {
+  // Garante +55 no início (apenas para exibição)
+  v = ensurePlus55Prefix(v);
+
+  // Pega apenas dígitos depois do +55
+  const digits = onlyDigits(v); // ex: 55 31 999999999
+  // Mantém só até 13 dígitos (55 + 2 DDD + 8/9 núm)
+  const d = digits.slice(0, 13);
+
+  // Se não começar com 55, força
+  let rest = d.startsWith("55") ? d.slice(2) : d; // remove "55"
+  // rest: DDD + número
+
+  const ddd = rest.slice(0, 2);
+  const num = rest.slice(2); // 8 ou 9 dígitos
+
+  // Monta a máscara
+  let masked = "+55";
+  masked += " ";
+  if (ddd.length > 0) {
+    masked += `(${ddd}`;
+    if (ddd.length === 2) masked += ")";
+    masked += ddd.length === 2 ? " " : "";
+  }
+
+  if (num.length > 0) {
+    if (num.length <= 4) {
+      masked += num;
+    } else if (num.length <= 8) {
+      // 8 dígitos: XXXX-XXXX
+      masked += `${num.slice(0, 4)}-${num.slice(4)}`;
+    } else {
+      // 9 dígitos: 9XXXX-XXXX
+      masked += `${num.slice(0, 5)}-${num.slice(5)}`;
+    }
+  }
+
+  return masked;
+}
+
+/** Validação: precisa ter 55 + DDD(2) + número(8-9) = 12 ou 13 dígitos */
+function isValidBRWhatsappDigits(digitsWith55: string) {
+  if (!digitsWith55.startsWith("55")) return false;
+  const total = digitsWith55.length;
+  if (total !== 12 && total !== 13) return false; // 55 + 2 + 8 = 12  | 55 + 2 + 9 = 13
+  const ddd = digitsWith55.slice(2, 4);
+  if (ddd.length !== 2) return false;
+  const num = digitsWith55.slice(4);
+  return num.length === 8 || num.length === 9;
+}
+
+/** Extrai a versão só dígitos SEM sinal de + (começando por 55) a partir do input exibido */
+function extractWhatsappDigits55(v: string) {
+  const d = onlyDigits(v);
+  // se o usuário tentar apagar 55, força de volta
+  return d.startsWith("55") ? d : `55${d}`;
+}
+
+/** Versão E.164: +55DDDN... */
+function toE164(digits55: string) {
+  return `+${digits55}`;
 }
 
 function isValidEmail(email: string) {
@@ -47,22 +110,34 @@ export default function RegisterPage() {
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  const [whatsapp, setWhatsapp] = useState("");
+  // inicia já com o prefixo +55
+  const [whatsapp, setWhatsapp] = useState("+55 ");
+  const whatsRef = useRef<HTMLInputElement | null>(null);
 
   const [showPass, setShowPass] = useState(false);
   const [erro, setErro] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const whatsappDigits = useMemo(() => onlyDigits(whatsapp), [whatsapp]);
+  // Sempre manter o prefixo +55 visível
+  useEffect(() => {
+    setWhatsapp((prev) => ensurePlus55Prefix(prev));
+  }, []);
+
+  const whatsappDigits55 = useMemo(() => {
+    // sempre retorna começando com 55
+    const d = extractWhatsappDigits55(whatsapp);
+    // limita ao máximo 13 dígitos (55 + 2 + 9)
+    return d.slice(0, 13);
+  }, [whatsapp]);
 
   const formValido = useMemo(() => {
     return (
       nome.trim().length >= 3 &&
       isValidEmail(email) &&
       senha.length >= 6 &&
-      (whatsappDigits.length === 10 || whatsappDigits.length === 11)
+      isValidBRWhatsappDigits(whatsappDigits55)
     );
-  }, [nome, email, senha, whatsappDigits]);
+  }, [nome, email, senha, whatsappDigits55]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -70,7 +145,7 @@ export default function RegisterPage() {
 
     if (!formValido) {
       setErro(
-        "Verifique os dados: nome (mín. 3), e‑mail válido, senha (mín. 6) e WhatsApp completo."
+        "Verifique os dados: nome (mín. 3), e-mail válido, senha (mín. 6) e WhatsApp no padrão +55 (DDD) número."
       );
       return;
     }
@@ -80,10 +155,14 @@ export default function RegisterPage() {
       const cred = await createUserWithEmailAndPassword(auth, email.trim(), senha);
       const uid = cred.user.uid;
 
+      const digits = whatsappDigits55; // ex: 55 31 9XXXXXXX
+      const e164 = toE164(digits);     // ex: +55319XXXXXXX
+
       await setDoc(doc(db, "usuarios", uid), {
         nome: nome.trim(),
         email: email.trim().toLowerCase(),
-        whatsapp: whatsappDigits, // salvo apenas dígitos para facilitar contato/consulta
+        whatsapp: digits,       // só dígitos, começando por 55
+        whatsappE164: e164,     // +55DDDN...
         tipo: "usuario",
         criadoEm: serverTimestamp(),
         atualizadoEm: serverTimestamp(),
@@ -97,9 +176,9 @@ export default function RegisterPage() {
       const code = e?.code || e?.message || "";
 
       if (String(code).includes("auth/email-already-in-use"))
-        msg = "Este e‑mail já está em uso.";
+        msg = "Este e-mail já está em uso.";
       else if (String(code).includes("auth/invalid-email"))
-        msg = "E‑mail inválido.";
+        msg = "E-mail inválido.";
       else if (String(code).includes("auth/weak-password"))
         msg = "Senha muito fraca. Use pelo menos 6 caracteres.";
       else if (String(code).includes("network"))
@@ -158,7 +237,7 @@ export default function RegisterPage() {
           {/* Email */}
           <InputGroup
             icon={<Mail size={22} className="text-[#FB8500]" />}
-            placeholder="E‑mail"
+            placeholder="E-mail"
             value={email}
             onChange={setEmail}
             type="email"
@@ -185,21 +264,31 @@ export default function RegisterPage() {
             }
           />
 
-          {/* WhatsApp */}
+          {/* WhatsApp com +55 obrigatório */}
           <InputGroup
+            inputRef={whatsRef}
             icon={<Phone size={22} className="text-[#FB8500]" />}
-            placeholder="WhatsApp"
+            placeholder="+55 (DDD) número"
             value={whatsapp}
-            onChange={(v: string) => setWhatsapp(formatWhatsapp(v))}
+            onChange={(v: string) => {
+              // força o prefixo +55 e re-formata
+              const masked = formatWhatsappBRIntl(v);
+              setWhatsapp(masked);
+            }}
+            onFocus={() => setWhatsapp((prev) => ensurePlus55Prefix(prev))}
+            onBlur={() => setWhatsapp((prev) => formatWhatsappBRIntl(prev))}
             type="tel"
-            autoComplete="tel"
-            maxLength={16}
+            inputMode="tel"
+            autoComplete="tel-national"
+            // tamanho máximo para "+55 (DD) 9XXXX-XXXX" => ~19/20 chars
+            maxLength={20}
             hint={
-              whatsappDigits.length > 0 &&
-              !(whatsappDigits.length === 10 || whatsappDigits.length === 11)
-                ? "Informe DDD + número"
+              !isValidBRWhatsappDigits(whatsappDigits55)
+                ? "Informe no formato +55 (DDD) número (8 ou 9 dígitos)."
                 : undefined
             }
+            // Impede apagar o prefixo com Backspace/Home
+            leadingGuard="+55"
           />
 
           {/* Erro */}
@@ -272,6 +361,11 @@ function InputGroup({
   maxLength,
   trailing,
   hint,
+  inputMode,
+  inputRef,
+  onFocus,
+  onBlur,
+  leadingGuard, // quando definido, protege o prefixo no campo (ex.: "+55")
 }: {
   icon?: React.ReactNode;
   placeholder?: string;
@@ -283,19 +377,57 @@ function InputGroup({
   maxLength?: number;
   trailing?: React.ReactNode;
   hint?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  inputRef?: React.RefObject<HTMLInputElement>;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  leadingGuard?: string;
 }) {
   return (
     <div className={`${className}`}>
       <div className="flex items-center border border-[#eaecef] rounded-xl px-4 py-4 bg-[#f9fafb] shadow-sm focus-within:border-[#FB8500] transition">
         {icon && <span className="mr-3">{icon}</span>}
         <input
+          ref={inputRef}
           type={type}
           className="bg-transparent outline-none flex-1 text-[#023047] text-lg font-semibold"
           placeholder={placeholder}
           value={value}
-          onChange={e => onChange(e.target.value)}
+          onChange={e => {
+            const v = e.target.value;
+            // Protege o prefixo quando definido
+            if (leadingGuard && !v.startsWith(leadingGuard)) {
+              // se usuário apagou o começo, re-insere
+              onChange((leadingGuard + " " + v.replace(/^\+*/, "").trimStart()).trimEnd());
+            } else {
+              onChange(v);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (!leadingGuard) return;
+            const el = e.currentTarget;
+            // Impede apagar o prefixo com Backspace/Delete antes do prefixo
+            const guardLen = leadingGuard.length;
+            // posição do cursor
+            const start = el.selectionStart ?? 0;
+            if ((e.key === "Backspace" && start <= guardLen + 1) || (e.key === "Delete" && start < guardLen)) {
+              e.preventDefault();
+              // pula cursor para depois do prefixo
+              setTimeout(() => {
+                const pos = guardLen + 1;
+                el.setSelectionRange(pos, pos);
+              }, 0);
+            }
+            // Impede Ctrl+A seguido de Delete que remove tudo
+            if ((e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey)) {
+              // permite selecionar tudo, mas bloquearemos a remoção do prefixo no onChange
+            }
+          }}
+          onFocus={onFocus}
+          onBlur={onBlur}
           autoComplete={autoComplete}
           maxLength={maxLength}
+          inputMode={inputMode}
           style={{ minWidth: 0 }}
           required
         />

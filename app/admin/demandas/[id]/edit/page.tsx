@@ -1,4 +1,4 @@
-// app/admin/demandas/[id]/page.tsx
+// app/admin/demandas/[id]/edit/page.tsx
 "use client";
 
 import type React from "react";
@@ -17,11 +17,9 @@ import {
   Undo2, XCircle, Ban,
 } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
-
-// ✅ use a mesma fonte de categorias/subcategorias do restante do app
 import { useTaxonomia } from "@/hooks/useTaxonomia";
 
-/** ================== Tipos ================== */
+/* ================== Tipos ================== */
 type Usuario = {
   id: string;
   nome?: string;
@@ -62,22 +60,34 @@ type Demanda = {
   cidade?: string;
   prazo?: string;
   orcamento?: number | string;
-  whatsapp?: string;
+  whatsapp?: string; // legado
   observacoes?: string;
   imagens?: string[];
   tags?: string[];
   pricingDefault?: { amount?: number; currency?: string };
   createdAt?: any;
+  updatedAt?: any; // ✅ necessário no TS
   status?: string;
   userId?: string;
   unlockCap?: number;
   liberadoPara?: string[];
+
+  // dados originais do create-demanda (legado)
+  autorNome?: string;
+  autorEmail?: string;
+  autorWhatsapp?: string;
+
+  // novos campos de contato (editáveis no admin)
+  contatoNome?: string;
+  contatoEmail?: string;
+  contatoWhatsappE164?: string;   // só dígitos iniciando por 55
+  contatoWhatsappMasked?: string; // exibição "+55 (31) 9xxxx-xxxx"
 };
 
-/** ================== Constantes ================== */
+/* ================== Constantes ================== */
 const UFS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 
-/** ================== Helpers ================== */
+/* ================== Helpers gerais ================== */
 const toReais = (cents?: number) =>
   `R$ ${((Number(cents || 0) / 100) || 0).toFixed(2).replace(".", ",")}`;
 
@@ -111,6 +121,39 @@ function pairToken(cat?: string, sub?: string) {
   return c && s ? `${c}::${s}` : "";
 }
 
+/* ========= Helpers de telefone/WhatsApp BR (+55) ========= */
+const onlyDigits = (v: string) => (v || "").replace(/\D/g, "");
+
+// Garante que sempre começa por "+55 " no campo visível
+function ensurePlus55Prefix(masked: string) {
+  const t = (masked || "").trim();
+  if (!t) return "+55 ";
+  return t.startsWith("+55") ? t : `+55 ${t.replace(/^\+?/, "")}`;
+}
+
+// Formata como "+55 (31) 99999-9999" a partir do input livre
+function formatWhatsappBRIntl(v: string) {
+  let t = (v || "").trim();
+  if (!t.startsWith("+55")) t = `+55 ${t.replace(/^\+?/, "")}`;
+  const d = onlyDigits(t).slice(0, 13); // 55 + 2 DDD + 8/9 número
+  if (d.length <= 2) return "+55";
+  if (d.length <= 4) return `+55 (${d.slice(2, 4)}`;
+  if (d.length <= 9) return `+55 (${d.slice(2, 4)}) ${d.slice(4)}`;
+  return `+55 (${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`;
+}
+
+// Extrai dígitos iniciando por 55 (para salvar em E164 sem +)
+function extractDigits55FromMasked(masked?: string) {
+  const dig = onlyDigits(masked || "");
+  if (!dig) return "";
+  return dig.startsWith("55") ? dig : `55${dig.replace(/^55?/, "")}`;
+}
+
+// Valida: 55 + DDD(2) + número(8/9) => 12 ou 13 dígitos
+function isValidBRWhatsappDigits(d55: string) {
+  return d55.length === 12 || d55.length === 13;
+}
+
 /** ================== Página ================== */
 export default function EditDemandaPage() {
   const router = useRouter();
@@ -122,7 +165,7 @@ export default function EditDemandaPage() {
       ? params!.id[0]
       : "";
 
-  // 🔗 mesma taxonomia do create/perfil
+  // 🔗 mesma taxonomia do resto do app
   const { categorias, loading: taxLoading } = useTaxonomia();
 
   /** ------- Estados principais ------- */
@@ -136,9 +179,10 @@ export default function EditDemandaPage() {
 
   const [form, setForm] = useState<Required<Pick<
     Demanda, "titulo"|"descricao"|"categoria"|"subcategoria"|"estado"|"cidade"|"prazo"|"observacoes"
-  >> & { orcamento: string; whatsapp: string }>({
+  >> & { orcamento: string; whatsapp: string; contatoNome: string; contatoEmail: string; contatoWhatsappMasked: string }>({
     titulo: "", descricao: "", categoria: "", subcategoria: "", estado: "", cidade: "",
     prazo: "", orcamento: "", whatsapp: "", observacoes: "",
+    contatoNome: "", contatoEmail: "", contatoWhatsappMasked: "",
   });
 
   const [createdAt, setCreatedAt] = useState<string>("");
@@ -193,6 +237,7 @@ export default function EditDemandaPage() {
       }
       const d = snap.data() as Demanda;
 
+      // preencher formulário com fallback entre novos e legados
       setForm({
         titulo: d.titulo || "",
         descricao: d.descricao || "",
@@ -204,7 +249,21 @@ export default function EditDemandaPage() {
         orcamento: d.orcamento ? String(d.orcamento) : "",
         whatsapp: d.whatsapp || "",
         observacoes: d.observacoes || "",
+
+        contatoNome: d.contatoNome || d.autorNome || "",
+        contatoEmail: d.contatoEmail || d.autorEmail || "",
+        contatoWhatsappMasked:
+          d.contatoWhatsappMasked
+            ? d.contatoWhatsappMasked
+            : d.contatoWhatsappE164
+              ? formatWhatsappBRIntl("+" + d.contatoWhatsappE164)
+              : d.autorWhatsapp
+                ? formatWhatsappBRIntl(
+                    d.autorWhatsapp.startsWith("+") ? d.autorWhatsapp : `+55 ${d.autorWhatsapp}`
+                  )
+                : "",
       });
+
       setTags(d.tags || []);
       setImagens(d.imagens || []);
       setUserId(d.userId || "");
@@ -336,23 +395,22 @@ export default function EditDemandaPage() {
           const ended = snaps.every(s => s.size < PAGE);
 
           const fUFN = ufN;
-const fCatN = norm(fCat);
-const refined = Array.from(merged.values()).filter(u => {
-  const hitCat =
-    (u.categorias || []).some(c => norm(c) === fCatN) ||
-    (u.categoriasAtuacaoPairs || []).some(p => norm(p?.categoria) === fCatN);
+          const fCatN = norm(fCat);
+          const refined = Array.from(merged.values()).filter(u => {
+            const hitCat =
+              (u.categorias || []).some(c => norm(c) === fCatN) ||
+              (u.categoriasAtuacaoPairs || []).some(p => norm(p?.categoria) === fCatN);
 
-  if (!hitCat) return false;
+            if (!hitCat) return false;
 
-  const hitUF =
-    !fUFN ||
-    u.atendeBrasil === true ||
-    (Array.isArray(u.ufs) && (u.ufs.includes("BRASIL") || u.ufs.includes(fUFN))) ||
-    (u.estado && u.estado.toString().trim().toUpperCase() === fUFN);
+            const hitUF =
+              !fUFN ||
+              u.atendeBrasil === true ||
+              (Array.isArray(u.ufs) && (u.ufs.includes("BRASIL") || u.ufs.includes(fUFN))) ||
+              (u.estado && u.estado.toString().trim().toUpperCase() === fUFN);
 
-  return hitUF;
-});
-
+            return hitUF;
+          });
 
           setUsuarios(refined);
           setPaging({ last: lastDoc, ended });
@@ -514,15 +572,48 @@ const refined = Array.from(merged.values()).filter(u => {
     setSalvando(true);
     try {
       const cents = reaisToCents(precoPadraoReais);
+
+      // normaliza e valida whatsapp
+      const e164 = extractDigits55FromMasked(form.contatoWhatsappMasked || "");
+      const contatoOk = !form.contatoWhatsappMasked || isValidBRWhatsappDigits(e164);
+      if (!contatoOk) {
+        alert("WhatsApp inválido. Use o formato +55 (DDD) número.");
+        setSalvando(false);
+        return;
+      }
+
       await updateDoc(doc(db, "demandas", demandaId), {
-        ...form,
-        orcamento: form.orcamento ? Number(form.orcamento) : null,
-        tags,
-        imagens,
-        pricingDefault: { amount: cents, currency: "BRL" },
-        unlockCap: unlockCap ?? null,
+        ...{
+          titulo: form.titulo,
+          descricao: form.descricao,
+          categoria: form.categoria,
+          subcategoria: form.subcategoria,
+          estado: form.estado,
+          cidade: form.cidade,
+          prazo: form.prazo,
+          orcamento: form.orcamento ? Number(form.orcamento) : null,
+          observacoes: form.observacoes || "",
+          tags,
+          imagens,
+          pricingDefault: { amount: cents, currency: "BRL" },
+          unlockCap: unlockCap ?? null,
+        },
+
+        // novos campos de contato
+        contatoNome: form.contatoNome.trim(),
+        contatoEmail: form.contatoEmail.trim().toLowerCase(),
+        contatoWhatsappMasked: form.contatoWhatsappMasked || "",
+        contatoWhatsappE164: e164 || "",
+
+        // compatibilidade com telas antigas
+        autorNome: form.contatoNome.trim(),
+        autorEmail: form.contatoEmail.trim().toLowerCase(),
+        autorWhatsapp: e164 || "",
+        whatsapp: e164 || form.whatsapp || "",
+
         updatedAt: serverTimestamp(),
       });
+
       alert("Demanda atualizada com sucesso!");
     } catch (err) {
       console.error(err);
@@ -744,14 +835,71 @@ const refined = Array.from(merged.values()).filter(u => {
               </div>
             </div>
 
-            <div style={twoCols}>
-              <div style={{ flex: 1 }}>
-                <label style={label}>WhatsApp / Telefone (opcional)</label>
-                <input name="whatsapp" value={form.whatsapp} onChange={handleChange} placeholder="(xx) xxxxx-xxxx" style={input} />
+            {/* ===== Contato do solicitante (novo bloco) ===== */}
+            <div style={{ marginTop: 14, padding: "12px", border: "1px dashed #e2e8f0", borderRadius: 12, background: "#f8fafc" }}>
+              <div style={{ fontWeight: 900, color: "#023047", marginBottom: 8 }}>Contato do solicitante</div>
+
+              <div style={twoCols}>
+                <div style={{ flex: 1 }}>
+                  <label style={label}>Nome</label>
+                  <input
+                    name="contatoNome"
+                    value={form.contatoNome}
+                    onChange={(e)=>setForm(f=>({...f, contatoNome: e.target.value}))}
+                    placeholder="Ex.: João da Silva"
+                    style={input}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={label}>E-mail</label>
+                  <input
+                    name="contatoEmail"
+                    value={form.contatoEmail}
+                    onChange={(e)=>setForm(f=>({...f, contatoEmail: e.target.value}))}
+                    placeholder="exemplo@empresa.com"
+                    style={input}
+                    type="email"
+                  />
+                </div>
               </div>
-              <div style={{ flex: 1 }}>
-                <label style={label}>Orçamento estimado (opcional)</label>
-                <input name="orcamento" value={form.orcamento} onChange={handleChange} type="number" min={0} placeholder="R$" style={input} />
+
+              <div style={twoCols}>
+                <div style={{ flex: 1 }}>
+                  <label style={label}>WhatsApp (formato obrigatório +55)</label>
+                  <input
+                    name="contatoWhatsappMasked"
+                    value={form.contatoWhatsappMasked}
+                    onChange={(e)=>setForm(f=>({...f, contatoWhatsappMasked: formatWhatsappBRIntl(e.target.value)}))}
+                    onFocus={()=>setForm(f=>({...f, contatoWhatsappMasked: ensurePlus55Prefix(f.contatoWhatsappMasked)}))}
+                    onBlur={()=>setForm(f=>({...f, contatoWhatsappMasked: formatWhatsappBRIntl(f.contatoWhatsappMasked)}))}
+                    placeholder="+55 (DD) número"
+                    style={input}
+                    maxLength={20}
+                    inputMode="tel"
+                  />
+                  {(() => {
+                    const d55 = extractDigits55FromMasked(form.contatoWhatsappMasked);
+                    const ok = !form.contatoWhatsappMasked || isValidBRWhatsappDigits(d55);
+                    return ok ? null : (
+                      <div style={{ fontSize: 12, color: "#b45309", marginTop: 6 }}>
+                        Informe no padrão +55 (DDD) 8–9 dígitos.
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div style={{ flex: 1 }}>
+                  <label style={label}>Orçamento estimado (opcional)</label>
+                  <input
+                    name="orcamento"
+                    value={form.orcamento}
+                    onChange={(e)=>setForm(f=>({...f, orcamento: e.target.value}))}
+                    type="number"
+                    min={0}
+                    placeholder="R$"
+                    style={input}
+                  />
+                </div>
               </div>
             </div>
 

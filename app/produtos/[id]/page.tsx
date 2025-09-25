@@ -428,6 +428,17 @@ export default function ProdutoDetalhePage() {
     }
     fetchRelacionados();
   }, [produto?.id, produto?.categoria]);
+// Número fixo da Pedraum (formato exigido pelo WhatsApp: DDI + DDD + número, só dígitos)
+const WHATS_PEDRAUM = "5531990903613";
+
+function buildWhatsMsg(p?: ProdutoDoc) {
+  const titulo = p?.nome?.trim() || "Produto";
+  const preco = p?.preco ? ` • Preço: ${currency(p?.preco)}` : "";
+  const local = (p?.cidade || p?.estado) ? ` • Local: ${p?.cidade || "—"}/${p?.estado || "—"}` : "";
+  const link = (typeof window !== "undefined") ? window.location.href : `https://pedraum.com.br/produtos/${p?.id || ""}`;
+
+  return `Olá! Tenho interesse no produto "${titulo}" que vi na Pedraum.${preco}${local}\nLink: ${link}\nPode me ajudar?`;
+}
 
   const conteudo = (() => {
     if (!produto) {
@@ -561,26 +572,16 @@ export default function ProdutoDetalhePage() {
               </button>
 
               {!expirado && (
-                <a
-                  href={
-                    vendedorEmail
-                      ? `https://wa.me/?text=${encodeURIComponent(
-                          `Olá! Tenho interesse no produto "${produto?.nome || ""}".`
-                        )}`
-                      : `#`
-                  }
-                  target={vendedorEmail ? "_blank" : undefined}
-                  rel="noopener noreferrer"
-                  className="produto-btn-azul"
-                  aria-disabled={!vendedorEmail}
-                  style={{
-                    opacity: vendedorEmail ? 1 : 0.6,
-                    pointerEvents: vendedorEmail ? "auto" : "none",
-                  }}
-                >
-                  WhatsApp
-                </a>
-              )}
+  <a
+    href={`https://wa.me/${WHATS_PEDRAUM}?text=${encodeURIComponent(buildWhatsMsg(produto))}`}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="produto-btn-azul"
+  >
+    WhatsApp
+  </a>
+)}
+
             </div>
 
             {produto.descricao && (

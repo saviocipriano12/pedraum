@@ -1,11 +1,14 @@
 export const dynamic = "force-dynamic";
 
 type SP = Record<string, string | string[] | undefined>;
-const one = (v: SP[keyof SP]) => Array.isArray(v) ? v[0] : (v ?? "");
+const one = (v: SP[keyof SP]) => (Array.isArray(v) ? v[0] : (v ?? ""));
 
-export default function PendingPage({ searchParams }: { searchParams: SP }) {
-  const status = one(searchParams.status);
-  const paymentId = one(searchParams.payment_id);
+export default async function PendingPage({
+  searchParams,
+}: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
+  const status = one(sp.status);
+  const paymentId = one(sp.payment_id);
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">

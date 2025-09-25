@@ -1,16 +1,15 @@
-// SERVER component (sem "use client")
 export const dynamic = "force-dynamic";
 
 type SP = Record<string, string | string[] | undefined>;
+const one = (v: SP[keyof SP]) => (Array.isArray(v) ? v[0] : (v ?? ""));
 
-function getOne(v: SP[keyof SP]) {
-  return Array.isArray(v) ? v[0] : (v ?? "");
-}
-
-export default function SuccessPage({ searchParams }: { searchParams: SP }) {
-  const paymentId = getOne(searchParams.payment_id);
-  const status = getOne(searchParams.status);
-  const preferenceId = getOne(searchParams.preference_id);
+export default async function SuccessPage({
+  searchParams,
+}: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
+  const paymentId = one(sp.payment_id);
+  const status = one(sp.status);
+  const preferenceId = one(sp.preference_id);
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">

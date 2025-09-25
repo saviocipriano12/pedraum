@@ -1,11 +1,14 @@
 export const dynamic = "force-dynamic";
 
 type SP = Record<string, string | string[] | undefined>;
-const one = (v: SP[keyof SP]) => Array.isArray(v) ? v[0] : (v ?? "");
+const one = (v: SP[keyof SP]) => (Array.isArray(v) ? v[0] : (v ?? ""));
 
-export default function FailurePage({ searchParams }: { searchParams: SP }) {
-  const reason = one(searchParams.reason);
-  const status = one(searchParams.status);
+export default async function FailurePage({
+  searchParams,
+}: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
+  const reason = one(sp.reason);
+  const status = one(sp.status);
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">

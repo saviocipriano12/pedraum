@@ -1,23 +1,25 @@
 // lib/mercadopago.ts
 import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
 
-const accessToken = process.env.MP_ACCESS_TOKEN;
-if (!accessToken) {
-  throw new Error("Defina MP_ACCESS_TOKEN no ambiente (Vercel / .env.local).");
+let _client: MercadoPagoConfig | null = null;
+
+function ensureClient(): MercadoPagoConfig {
+  if (_client) return _client;
+  const token = process.env.MP_ACCESS_TOKEN;
+  if (!token) {
+    // Só lança quando realmente for usar o SDK
+    throw new Error("MP_ACCESS_TOKEN ausente no ambiente (Vercel/.env.local).");
+  }
+  _client = new MercadoPagoConfig({ accessToken: token, options: { timeout: 8000 } });
+  return _client;
 }
 
-// Cliente do SDK (1x só)
-export const mpClient = new MercadoPagoConfig({
-  accessToken,
-  options: { timeout: 8000 },
-});
+/** Preferência pronta (instanciada na hora) */
+export function getPreference() {
+  return new Preference(ensureClient());
+}
 
-// Instâncias prontas
-export const mpPreference = new Preference(mpClient);
-export const mpPayment = new Payment(mpClient);
-
-// (Opcional) agrupado, se quiser usar como objeto
-export const mp = {
-  preference: mpPreference,
-  payment: mpPayment,
-};
+/** Pagamentos pronto (instanciado na hora) */
+export function getPayment() {
+  return new Payment(ensureClient());
+}

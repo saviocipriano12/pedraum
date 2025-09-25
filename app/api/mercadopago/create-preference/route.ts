@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { mp } from "@/lib/mercadopago";
+import { NextResponse } from "next/server";
+import { getPreference } from "@/lib/mercadopago";
 
-export async function POST(req: NextRequest) {
+/** Cria preferência no Mercado Pago */
+export async function POST(req: Request) {
   try {
     const body = await req.json();
 
@@ -11,18 +12,18 @@ export async function POST(req: NextRequest) {
       quantity = 1,
       currency_id = "BRL",
 
-      // <- preço vindo do front em CENTAVOS (preferido)
+      // preço em centavos (preferível)
       unitPriceCents,
-      // (fallback) se alguém mandar em reais:
+      // fallback em reais
       unit_price: unitPriceReais,
 
-      // opcionais para rastrear no retorno
+      // metadados opcionais para rastreio
       kind = "lead",
       refId,
       metadata,
-    } = body;
+    } = body ?? {};
 
-    // converte para reais (o MP espera número em reais)
+    // Normaliza preço para REAIS (o SDK espera em reais)
     const priceCents =
       typeof unitPriceCents === "number"
         ? Math.round(unitPriceCents)
@@ -34,19 +35,23 @@ export async function POST(req: NextRequest) {
 
     const unit_price = Number((priceCents / 100).toFixed(2));
 
-    const pref = await mp.preference.create({
+    // Garante URLs absolutas mesmo sem BASE_URL na Vercel
+    const { protocol, host } = new URL(req.url);
+    const baseUrl = process.env.BASE_URL ?? `${protocol}//${host}`;
+
+    const pref = await getPreference().create({
       body: {
         items: [
           { id, title, quantity, currency_id, unit_price },
         ],
         back_urls: {
-          success: `${process.env.BASE_URL}/checkout/success`,
-          failure: `${process.env.BASE_URL}/checkout/failure`,
-          pending: `${process.env.BASE_URL}/checkout/pending`,
+          success: `${baseUrl}/checkout/success`,
+          failure: `${baseUrl}/checkout/failure`,
+          pending: `${baseUrl}/checkout/pending`,
         },
         auto_return: "approved",
         binary_mode: true,
-        external_reference: [kind, refId].filter(Boolean).join(":"), // opcional
+        external_reference: [kind, refId].filter(Boolean).join(":"), // "lead:abc123", p.ex.
         metadata: { ...metadata, priceCents, kind, refId },
       },
     });

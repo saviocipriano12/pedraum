@@ -12,79 +12,13 @@ import {
   Loader2, Save, Tag, MapPin, CheckCircle2, Sparkles, Upload, BookOpen,
   List, Layers, Info, ArrowLeft, FileText, Image as ImageIcon
 } from "lucide-react";
+import { useTaxonomia } from "@/hooks/useTaxonomia";
 
 // ✅ apenas isso, sem revalidate
 export const dynamic = "force-dynamic";
 
 const PDFUploader = nextDynamic(() => import("@/components/PDFUploader"), { ssr: false });
 const DrivePDFViewer = nextDynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
-
-
-
-/* ================== Categorias (mesmas do create-produto) ================== */
-const categorias = [
-  { nome: "Equipamentos de Perfuração e Demolição", subcategorias: [
-    "Perfuratrizes – Rotativas","Perfuratrizes – Pneumáticas","Perfuratrizes – Hidráulicas",
-    "Martelos Demolidores – Hidráulicos","Martelos Demolidores – Pneumáticos",
-    "Brocas para rocha","Coroas diamantadas","Varetas de extensão",
-    "Explosivos – Dinamite","Explosivos – ANFO","Detonadores","Cordel detonante"
-  ]},
-  { nome: "Equipamentos de Carregamento e Transporte", subcategorias: [
-    "Escavadeiras hidráulicas","Pás carregadeiras","Caminhões basculantes","Caminhões pipa",
-    "Correias transportadoras","Alimentadores vibratórios","Esteiras rolantes"
-  ]},
-  { nome: "Britagem e Classificação", subcategorias: [
-    "Britadores – Mandíbulas","Britadores – Cônicos","Britadores – Impacto","Britadores – Rolos",
-    "Rebritadores","Peneiras vibratórias","Trommels","Hidrociclones","Classificadores",
-    "Moinhos de bolas","Moinhos de barras","Moinhos verticais",
-    "Lavadores de areia","Silos e chutes","Carcaças e bases metálicas"
-  ]},
-  { nome: "Beneficiamento e Processamento Mineral", subcategorias: [
-    "Separadores Magnéticos","Flotação – Células","Flotação – Espumantes e coletores",
-    "Filtros prensa","Espessadores","Secadores rotativos"
-  ]},
-  { nome: "Peças e Componentes Industriais", subcategorias: [
-    "Rolamentos","Engrenagens","Polias","Eixos","Mancais","Buchas",
-    "Correntes","Correias transportadoras","Esticadores de correia","Parafusos e porcas",
-    "Molas industriais"
-  ]},
-  { nome: "Desgaste e Revestimento", subcategorias: [
-    "Mandíbulas","Martelos","Revestimentos de britadores","Chapas de desgaste",
-    "Barras de impacto","Grelhas","Telas metálicas","Telas em borracha"
-  ]},
-  { nome: "Automação, Elétrica e Controle", subcategorias: [
-    "Motores elétricos","Inversores de frequência","Painéis elétricos","Controladores ASRi",
-    "Soft starters","Sensores e detectores","Detectores de metais","CLPs e módulos"
-  ]},
-  { nome: "Lubrificação e Produtos Químicos", subcategorias: [
-    "Óleos lubrificantes","Graxas industriais","Selantes industriais",
-    "Desengripantes","Produtos químicos para peneiramento"
-  ]},
-  { nome: "Equipamentos Auxiliares e Ferramentas", subcategorias: [
-    "Compressores de Ar – Estacionários","Compressores de Ar – Móveis","Geradores de Energia",
-    "Bombas de água","Bombas de lama","Ferramentas manuais","Ferramentas elétricas",
-    "Mangueiras e Conexões Hidráulicas","Iluminação Industrial","Abraçadeiras e Fixadores",
-    "Soldas e Eletrodos","Equipamentos de Limpeza Industrial"
-  ]},
-  { nome: "EPIs (Equipamentos de Proteção Individual)", subcategorias: [
-    "Capacetes","Protetores auriculares","Máscaras contra poeira","Respiradores",
-    "Luvas","Botas de segurança","Óculos de proteção","Colete refletivo"
-  ]},
-  { nome: "Instrumentos de Medição e Controle", subcategorias: [
-    "Monitoramento de Estabilidade","Inclinômetros","Extensômetros","Análise de Material",
-    "Teor de umidade","Granulometria","Sensores de nível e vazão","Sistemas de controle remoto"
-  ]},
-  { nome: "Manutenção e Serviços Industriais", subcategorias: [
-    "Filtros de ar e combustível","Óleos hidráulicos e graxas","Rolamentos e correias",
-    "Martelos e mandíbulas para britadores","Pastilhas de desgaste",
-    "Serviços de manutenção industrial","Usinagem e caldeiraria"
-  ]},
-  { nome: "Veículos e Pneus", subcategorias: [
-    "Pneus industriais","Rodas e aros","Recapagens e reformas de pneus",
-    "Serviços de montagem e balanceamento"
-  ]},
-  { nome: "Outros", subcategorias: ["Outros equipamentos","Produtos diversos","Serviços diversos"] }
-];
 
 /* ================== Tipos e Constantes ================== */
 type FormState = {
@@ -109,6 +43,9 @@ const RASCUNHO_KEY = "pedraum:create-demandas:draft_v2";
 function CreateDemandaContent() {
   const router = useRouter();
 
+  // 🔗 Taxonomia unificada (Firestore > fallback local)
+  const { categorias, loading: taxLoading } = useTaxonomia();
+
   const [imagens, setImagens] = useState<string[]>([]);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
 
@@ -129,10 +66,13 @@ function CreateDemandaContent() {
 
   const [cidades, setCidades] = useState<string[]>([]);
   const [carregandoCidades, setCarregandoCidades] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [savingDraft, setSavingDraft] = useState(false);
+
+  // loading do submit (renomeado para não conflitar com taxLoading)
+  const [submitting, setSubmitting] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   /* ---------- Autosave local ---------- */
   useEffect(() => {
@@ -240,6 +180,10 @@ function CreateDemandaContent() {
 
   const isOutros = form.categoria === "Outros";
 
+  /* ---------- Subcategorias disponíveis ---------- */
+  const subcategoriasDisponiveis =
+    categorias.find((c) => c.nome === form.categoria)?.subcategorias || [];
+
   /* ---------- Preview ---------- */
   const preview = useMemo(() => {
     const local = form.estado ? `${form.cidade ? form.cidade + ", " : ""}${form.estado}` : "—";
@@ -260,12 +204,12 @@ function CreateDemandaContent() {
     e.preventDefault();
     setError(null);
     setSuccess(null);
-    setLoading(true);
+    setSubmitting(true);
 
     const user = auth.currentUser;
     if (!user) {
       setError("Você precisa estar logado para cadastrar uma demanda.");
-      setLoading(false);
+      setSubmitting(false);
       return;
     }
 
@@ -273,7 +217,7 @@ function CreateDemandaContent() {
 
     if (!form.titulo || !form.descricao || !form.categoria || !subcategoriaOk || !form.prazo || !form.estado || !form.cidade) {
       setError("Preencha todos os campos obrigatórios (*).");
-      setLoading(false);
+      setSubmitting(false);
       return;
     }
 
@@ -326,7 +270,7 @@ function CreateDemandaContent() {
       console.error(err);
       setError("Erro ao cadastrar. Tente novamente.");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
@@ -487,9 +431,9 @@ function CreateDemandaContent() {
             <div>
               <label style={labelStyle}><List size={15} /> Categoria *</label>
               <select name="categoria" value={form.categoria} onChange={handleChange} style={inputStyle} required>
-                <option value="">Selecione</option>
+                <option value="">{taxLoading ? "Carregando..." : "Selecione"}</option>
                 {categorias.map((cat) => (
-                  <option key={cat.nome} value={cat.nome}>{cat.nome}</option>
+                  <option key={cat.slug ?? cat.nome} value={cat.nome}>{cat.nome}</option>
                 ))}
               </select>
             </div>
@@ -515,8 +459,8 @@ function CreateDemandaContent() {
                   disabled={!form.categoria}
                 >
                   <option value="">{form.categoria ? "Selecione" : "Selecione a categoria primeiro"}</option>
-                  {(categorias.find((c) => c.nome === form.categoria)?.subcategorias || []).map((sub) => (
-                    <option key={sub} value={sub}>{sub}</option>
+                  {subcategoriasDisponiveis.map((sub) => (
+                    <option key={sub.slug ?? sub.nome} value={sub.nome}>{sub.nome}</option>
                   ))}
                 </select>
               )}
@@ -604,7 +548,7 @@ function CreateDemandaContent() {
           {/* Botão principal */}
           <button
             type="submit"
-            disabled={loading}
+            disabled={submitting}
             style={{
               background: "linear-gradient(90deg,#fb8500,#219ebc)",
               color: "#fff",
@@ -614,15 +558,15 @@ function CreateDemandaContent() {
               fontWeight: 800,
               fontSize: 20,
               boxShadow: "0 8px 40px rgba(251,133,0,0.25)",
-              cursor: loading ? "not-allowed" : "pointer",
+              cursor: submitting ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               gap: 10,
             }}
           >
-            {loading ? <Loader2 className="animate-spin w-6 h-6" /> : <Save className="w-5 h-5" />}
-            {loading ? "Cadastrando..." : "Cadastrar Demanda"}
+            {submitting ? <Loader2 className="animate-spin w-6 h-6" /> : <Save className="w-5 h-5" />}
+            {submitting ? "Cadastrando..." : "Cadastrar Demanda"}
           </button>
         </form>
       </section>

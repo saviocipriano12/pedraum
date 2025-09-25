@@ -1,14 +1,14 @@
 // app/create-produto/page.tsx
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import AuthGateRedirect from "@/components/AuthGateRedirect";
 import { useRouter } from "next/navigation";
 import { db, auth } from "@/firebaseConfig";
 import { collection, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import ImageUploader from "@/components/ImageUploader";
 import dynamic from "next/dynamic";
-import RequireAuth from "@/components/RequireAuth";
+import { useTaxonomia } from "@/hooks/useTaxonomia";
 
 const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
 const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
@@ -30,71 +30,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-/* ===================== Taxonomias ===================== */
-const categorias = [
-  { nome: "Equipamentos de Perfuração e Demolição", subcategorias: [
-    "Perfuratrizes – Rotativas","Perfuratrizes – Pneumáticas","Perfuratrizes – Hidráulicas",
-    "Martelos Demolidores – Hidráulicos","Martelos Demolidores – Pneumáticos",
-    "Brocas para rocha","Coroas diamantadas","Varetas de extensão",
-    "Explosivos – Dinamite","Explosivos – ANFO","Detonadores","Cordel detonante"
-  ]},
-  { nome: "Equipamentos de Carregamento e Transporte", subcategorias: [
-    "Escavadeiras hidráulicas","Pás carregadeiras","Caminhões basculantes","Caminhões pipa",
-    "Correias transportadoras","Alimentadores vibratórios","Esteiras rolantes"
-  ]},
-  { nome: "Britagem e Classificação", subcategorias: [
-    "Britadores – Mandíbulas","Britadores – Cônicos","Britadores – Impacto","Britadores – Rolos",
-    "Rebritadores","Peneiras vibratórias","Trommels","Hidrociclones","Classificadores",
-    "Moinhos de bolas","Moinhos de barras","Moinhos verticais",
-    "Lavadores de areia","Silos e chutes","Carcaças e bases metálicas"
-  ]},
-  { nome: "Beneficiamento e Processamento Mineral", subcategorias: [
-    "Separadores Magnéticos","Flotação – Células","Flotação – Espumantes e coletores",
-    "Filtros prensa","Espessadores","Secadores rotativos"
-  ]},
-  { nome: "Peças e Componentes Industriais", subcategorias: [
-    "Rolamentos","Engrenagens","Polias","Eixos","Mancais","Buchas",
-    "Correntes","Correias transportadoras","Esticadores de correia","Parafusos e porcas",
-    "Molas industriais"
-  ]},
-  { nome: "Desgaste e Revestimento", subcategorias: [
-    "Mandíbulas","Martelos","Revestimentos de britadores","Chapas de desgaste",
-    "Barras de impacto","Grelhas","Telas metálicas","Telas em borracha"
-  ]},
-  { nome: "Automação, Elétrica e Controle", subcategorias: [
-    "Motores elétricos","Inversores de frequência","Painéis elétricos","Controladores ASRi",
-    "Soft starters","Sensores e detectores","Detectores de metais","CLPs e módulos"
-  ]},
-  { nome: "Lubrificação e Produtos Químicos", subcategorias: [
-    "Óleos lubrificantes","Graxas industriais","Selantes industriais",
-    "Desengripantes","Produtos químicos para peneiramento"
-  ]},
-  { nome: "Equipamentos Auxiliares e Ferramentas", subcategorias: [
-    "Compressores de Ar – Estacionários","Compressores de Ar – Móveis","Geradores de Energia",
-    "Bombas de água","Bombas de lama","Ferramentas manuais","Ferramentas elétricas",
-    "Mangueiras e Conexões Hidráulicas","Iluminação Industrial","Abraçadeiras e Fixadores",
-    "Soldas e Eletrodos","Equipamentos de Limpeza Industrial"
-  ]},
-  { nome: "EPIs (Equipamentos de Proteção Individual)", subcategorias: [
-    "Capacetes","Protetores auriculares","Máscaras contra poeira","Respiradores",
-    "Luvas","Botas de segurança","Óculos de proteção","Colete refletivo"
-  ]},
-  { nome: "Instrumentos de Medição e Controle", subcategorias: [
-    "Monitoramento de Estabilidade","Inclinômetros","Extensômetros","Análise de Material",
-    "Teor de umidade","Granulometria","Sensores de nível e vazão","Sistemas de controle remoto"
-  ]},
-  { nome: "Manutenção e Serviços Industriais", subcategorias: [
-    "Filtros de ar e combustível","Óleos hidráulicos e graxas","Rolamentos e correias",
-    "Martelos e mandíbulas para britadores","Pastilhas de desgaste",
-    "Serviços de manutenção industrial","Usinagem e caldeiraria"
-  ]},
-  { nome: "Veículos e Pneus", subcategorias: [
-    "Pneus industriais","Rodas e aros","Recapagens e reformas de pneus",
-    "Serviços de montagem e balanceamento"
-  ]},
-  { nome: "Outros", subcategorias: ["Outros equipamentos","Produtos diversos","Serviços diversos"] }
-];
-
+/* ===================== Constantes ===================== */
 const condicoes = [
   "Novo com garantia",
   "Novo sem garantia",
@@ -103,8 +39,10 @@ const condicoes = [
   "No estado que se encontra",
 ];
 
-const estados = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
-
+const estados = [
+  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
+  "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"
+];
 
 /* ===================== Page Wrapper ===================== */
 export default function CreateProdutoPage() {
@@ -119,6 +57,9 @@ export default function CreateProdutoPage() {
 function CreateProdutoForm() {
   const router = useRouter();
 
+  // 🔗 Taxonomia unificada (Firestore > fallback local)
+  const { categorias, loading: taxLoading } = useTaxonomia();
+
   // imagens e PDF
   const [imagens, setImagens] = useState<string[]>([]);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -126,7 +67,6 @@ function CreateProdutoForm() {
   // form
   const [form, setForm] = useState({
     nome: "",
-    // 🔒 tipo removido do UI — sempre será "produto"
     categoria: "",
     subcategoria: "",
     preco: "",
@@ -143,7 +83,9 @@ function CreateProdutoForm() {
   const [cidades, setCidades] = useState<string[]>([]);
   const [carregandoCidades, setCarregandoCidades] = useState(false);
 
-  const [loading, setLoading] = useState(false);
+  // loading do submit (⚠️ nome diferente de taxLoading para não conflitar)
+  const [submitting, setSubmitting] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -178,55 +120,49 @@ function CreateProdutoForm() {
   }
 
   // carrega cidades ao escolher UF (IBGE)
- // 👇 troque TODO o seu useEffect atual por este
-useEffect(() => {
-  let abort = false;
+  useEffect(() => {
+    let abort = false;
 
-  async function fetchCidades(uf: string) {
-    if (!uf) {
-      setCidades([]);
-      return;
+    async function fetchCidades(uf: string) {
+      if (!uf) {
+        setCidades([]);
+        return;
+      }
+      setCarregandoCidades(true);
+      try {
+        const res = await fetch(
+          `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`,
+          { cache: "no-store" }
+        );
+        const data = (await res.json()) as Array<{ nome: string }>;
+        if (abort) return;
+
+        // Ordena com acentos corretamente
+        const nomes = data.map((m) => m.nome).sort((a, b) => a.localeCompare(b, "pt-BR"));
+        setCidades(nomes);
+      } catch {
+        if (!abort) setCidades([]);
+      } finally {
+        if (!abort) setCarregandoCidades(false);
+      }
     }
-    setCarregandoCidades(true);
-    try {
-      // ✅ use MUNICÍPIOS (cidades), não DISTRITOS
-      const res = await fetch(
-        `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`,
-        { cache: "no-store" }
-      );
-      const data = (await res.json()) as Array<{ nome: string }>;
-      if (abort) return;
 
-      // Ordena com acentos corretamente
-      const nomes = data
-        .map((m) => m.nome)
-        .sort((a, b) => a.localeCompare(b, "pt-BR"));
-
-      setCidades(nomes);
-    } catch {
-      if (!abort) setCidades([]);
-    } finally {
-      if (!abort) setCarregandoCidades(false);
-    }
-  }
-
-  fetchCidades(form.estado);
-  return () => {
-    abort = true;
-  };
-}, [form.estado]);
-
+    fetchCidades(form.estado);
+    return () => {
+      abort = true;
+    };
+  }, [form.estado]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
-    setLoading(true);
+    setSubmitting(true);
 
     const user = auth.currentUser;
     if (!user) {
       setError("Você precisa estar logado para cadastrar um produto.");
-      setLoading(false);
+      setSubmitting(false);
       return;
     }
 
@@ -242,13 +178,13 @@ useEffect(() => {
       !form.condicao
     ) {
       setError("Preencha todos os campos obrigatórios.");
-      setLoading(false);
+      setSubmitting(false);
       return;
     }
 
     if (imagens.length === 0) {
       setError("Envie pelo menos uma imagem.");
-      setLoading(false);
+      setSubmitting(false);
       return;
     }
 
@@ -256,7 +192,7 @@ useEffect(() => {
       const months = Number(form.warrantyMonths);
       if (!months || months <= 0) {
         setError("Informe um prazo de garantia válido (em meses).");
-        setLoading(false);
+        setSubmitting(false);
         return;
       }
     }
@@ -267,8 +203,7 @@ useEffect(() => {
       expiresAt.setDate(now.getDate() + 45); // 45 dias
 
       await addDoc(collection(db, "produtos"), {
-        // 🔒 força tipo como "produto"
-        tipo: "produto",
+        tipo: "produto", // força tipo
         nome: form.nome,
         categoria: form.categoria,
         subcategoria: form.subcategoria,
@@ -309,10 +244,10 @@ useEffect(() => {
       setPdfUrl(null);
       setTimeout(() => router.push("/vitrine"), 900);
     } catch (err) {
-      setError("Erro ao cadastrar. Tente novamente.");
       console.error(err);
+      setError("Erro ao cadastrar. Tente novamente.");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
@@ -322,22 +257,21 @@ useEffect(() => {
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#f7f9fb] via-white to-[#e0e7ef] flex flex-col items-center py-8 px-2 sm:px-4">
       {/* 🔙 Botão Voltar estilizado */}
-<div className="w-full max-w-5xl px-2 mb-3 flex">
-  <button
-    type="button"
-    onClick={() => router.back()}
-    className="inline-flex items-center gap-2 rounded-xl px-4 py-2 font-semibold text-sm shadow-sm transition-all hover:shadow-md hover:scale-[1.02]"
-    style={{
-      background: "linear-gradient(90deg,#e0e7ef,#f8fafc)",
-      border: "1.5px solid #cfd8e3",
-      color: "#023047",
-    }}
-  >
-    <ArrowLeft className="w-4 h-4 text-orange-500" />
-    Voltar
-  </button>
-</div>
-
+      <div className="w-full max-w-5xl px-2 mb-3 flex">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="inline-flex items-center gap-2 rounded-xl px-4 py-2 font-semibold text-sm shadow-sm transition-all hover:shadow-md hover:scale-[1.02]"
+          style={{
+            background: "linear-gradient(90deg,#e0e7ef,#f8fafc)",
+            border: "1.5px solid #cfd8e3",
+            color: "#023047",
+          }}
+        >
+          <ArrowLeft className="w-4 h-4 text-orange-500" />
+          Voltar
+        </button>
+      </div>
 
       <section
         style={{
@@ -484,9 +418,9 @@ useEffect(() => {
                 style={inputStyle}
                 required
               >
-                <option value="">Selecione</option>
+                <option value="">{taxLoading ? "Carregando..." : "Selecione"}</option>
                 {categorias.map((cat) => (
-                  <option key={cat.nome} value={cat.nome}>
+                  <option key={cat.slug ?? cat.nome} value={cat.nome}>
                     {cat.nome}
                   </option>
                 ))}
@@ -503,10 +437,12 @@ useEffect(() => {
                 required
                 disabled={!form.categoria}
               >
-                <option value="">{form.categoria ? "Selecione" : "Selecione a categoria primeiro"}</option>
+                <option value="">
+                  {form.categoria ? "Selecione" : "Selecione a categoria primeiro"}
+                </option>
                 {subcategoriasDisponiveis.map((sub) => (
-                  <option key={sub} value={sub}>
-                    {sub}
+                  <option key={sub.slug ?? sub.nome} value={sub.nome}>
+                    {sub.nome}
                   </option>
                 ))}
               </select>
@@ -693,7 +629,7 @@ useEffect(() => {
           <div className="flex flex-col sm:flex-row-reverse gap-3">
             <button
               type="submit"
-              disabled={loading}
+              disabled={submitting}
               style={{
                 background: "linear-gradient(90deg,#fb8500,#219ebc)",
                 color: "#fff",
@@ -703,18 +639,16 @@ useEffect(() => {
                 fontWeight: 800,
                 fontSize: 20,
                 boxShadow: "0 8px 40px rgba(251,133,0,0.25)",
-                cursor: loading ? "not-allowed" : "pointer",
+                cursor: submitting ? "not-allowed" : "pointer",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 10,
               }}
             >
-              {loading ? <Loader2 className="animate-spin w-6 h-6" /> : <Save className="w-5 h-5" />}
-              {loading ? "Salvando..." : "Cadastrar Produto"}
+              {submitting ? <Loader2 className="animate-spin w-6 h-6" /> : <Save className="w-5 h-5" />}
+              {submitting ? "Salvando..." : "Cadastrar Produto"}
             </button>
-
-           
           </div>
         </form>
       </section>

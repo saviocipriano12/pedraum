@@ -18,125 +18,22 @@ import {
   ChevronLeft,
   Loader,
   Tag,
-  LinkIcon,
-  Lock,
   HelpCircle,
   CheckSquare,
   Square,
   Upload,
   FileText,
+  Lock,
 } from "lucide-react";
+import { useTaxonomia } from "@/hooks/useTaxonomia";
 
 /** ==== PDF (SSR desativado para evitar erro no Next) ==== */
 const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
 const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
 
 /** =========================
- *  Taxonomia (Categoria → Subcategorias)
+ *  Constantes auxiliares
  *  ========================= */
-const TAXONOMIA: Record<string, string[]> = {
-  "Equipamentos de Perfuração e Demolição": [
-    "Perfuratrizes",
-    "Rompedores/Martelos",
-    "Bits/Brocas",
-    "Carretas de Perfuração",
-    "Compressores",
-    "Ferramentas de Demolição",
-  ],
-  "Equipamentos de Carregamento e Transporte": [
-    "Pás-Carregadeiras",
-    "Escavadeiras",
-    "Retroescavadeiras",
-    "Caminhões Fora-de-Estrada",
-    "Tratores de Esteiras",
-    "Motoniveladoras",
-  ],
-  "Britagem e Classificação": [
-    "Britador de Mandíbulas",
-    "Britador Cônico",
-    "Britador de Impacto",
-    "Peneiras Vibratórias",
-    "Alimentadores",
-    "Correias Transportadoras",
-  ],
-  "Beneficiamento e Processamento Mineral": [
-    "Moinhos (Bolas/Rolos)",
-    "Ciclones",
-    "Classificadores Espirais",
-    "Espessadores",
-    "Flotação",
-    "Bombas de Polpa",
-  ],
-  "Peças e Componentes Industriais": [
-    "Motores",
-    "Transmissões/Redutores",
-    "Sistemas Hidráulicos",
-    "Sistemas Elétricos",
-    "Filtros e Filtração",
-    "Mangueiras/Conexões",
-  ],
-  "Desgaste e Revestimento": [
-    "Revestimento de Britadores",
-    "Chapas AR",
-    "Dentes/Lâminas",
-    "Placas Cerâmicas",
-    "Revestimentos de Borracha",
-  ],
-  "Automação, Elétrica e Controle": [
-    "CLPs/Controladores",
-    "Sensores/Instrumentação",
-    "Inversores/Soft-Starters",
-    "Painéis/Quadros",
-    "SCADA/Supervisório",
-  ],
-  "Lubrificação e Produtos Químicos": [
-    "Óleos e Graxas",
-    "Sistemas Centralizados",
-    "Aditivos",
-    "Reagentes de Flotação",
-    "Desincrustantes/Limpeza",
-  ],
-  "Equipamentos Auxiliares e Ferramentas": [
-    "Geradores",
-    "Soldagem/Corte",
-    "Bombas",
-    "Ferramentas de Torque",
-    "Compressores Auxiliares",
-  ],
-  "EPIs (Equipamentos de Proteção Individual)": [
-    "Capacetes",
-    "Luvas",
-    "Óculos/Face Shield",
-    "Respiradores",
-    "Protetores Auriculares",
-    "Botas",
-  ],
-  "Instrumentos de Medição e Controle": [
-    "Vibração/Análise",
-    "Alinhamento a Laser",
-    "Balanças/Pesagem",
-    "Medidores de Espessura",
-    "Termografia",
-  ],
-  "Manutenção e Serviços Industriais": [
-    "Mecânica Pesada",
-    "Caldeiraria/Solda",
-    "Usinagem",
-    "Alinhamento/Balanceamento",
-    "Inspeções/NR",
-    "Elétrica/Automação",
-  ],
-  "Veículos e Pneus": [
-    "Pickups/Utilitários",
-    "Caminhões 3/4",
-    "Empilhadeiras",
-    "Pneus OTR",
-    "Recapagem/Serviços",
-  ],
-  "Outros": ["Diversos"],
-};
-
-const CATEGORIAS = Object.keys(TAXONOMIA);
 const SUPPORT_WHATSAPP = "5531990903613";
 const estados = [
   "BRASIL",
@@ -181,13 +78,20 @@ type PerfilForm = {
 
 const MAX_CATEGORIAS = 5;
 
+/** =========================
+ *  Página
+ *  ========================= */
 export default function PerfilPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
-  // imagens e PDF do portfólio
+  // Taxonomia centralizada (Firestore > fallback local)
+  const { categorias, loading: taxLoading } = useTaxonomia();
+  const nomesCategorias = useMemo(() => categorias.map((c) => c.nome), [categorias]);
+
+  // PDF do portfólio
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
 
   // cidades por UF
@@ -240,7 +144,9 @@ export default function PerfilPage() {
 
   const avatarLista = useMemo(() => (form.avatar ? [form.avatar] : []), [form.avatar]);
 
-  /** Auth + realtime load */
+  /** =========================
+   *  Auth + realtime load
+   *  ========================= */
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged((user) => {
       if (!user) {
@@ -261,6 +167,7 @@ export default function PerfilPage() {
           ? data.categoriasAtuacaoPairs
           : [];
 
+        // “Legado”: se não houver pairs mas houver categorias simples
         let initialPairs = pairs;
         if (!pairs?.length && Array.isArray(data.categoriasAtuacao) && data.categoriasAtuacao.length) {
           initialPairs = (data.categoriasAtuacao as string[])
@@ -314,7 +221,9 @@ export default function PerfilPage() {
     return () => unsubAuth();
   }, []);
 
-  /** Estados/UF -> cidades (IBGE) */
+  /** =========================
+   *  Estados/UF -> cidades (IBGE)
+   *  ========================= */
   useEffect(() => {
     let abort = false;
 
@@ -350,7 +259,9 @@ export default function PerfilPage() {
     };
   }, [form.estado]);
 
-  /** Helpers */
+  /** =========================
+   *  Helpers
+   *  ========================= */
   function setField<K extends keyof PerfilForm>(key: K, value: PerfilForm[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
@@ -361,6 +272,11 @@ export default function PerfilPage() {
     const m = new Map<string, CategoriaPair>();
     for (const p of pairs) m.set(`${norm(p.categoria)}::${norm(p.subcategoria)}`, p);
     return Array.from(m.values());
+  }
+
+  function toSubcatNames(arr: any[] | undefined): string[] {
+    if (!Array.isArray(arr)) return [];
+    return arr.map((s) => (typeof s === "string" ? s : (s?.nome ?? ""))).filter(Boolean);
   }
 
   function buildCategoriesAll(pairs: CategoriaPair[], legacy: string[] = []) {
@@ -390,10 +306,15 @@ export default function PerfilPage() {
   const categoriasDropdown = useMemo(() => {
     if (categoriasLocked) return selectedCategorias;
     if (selectedCategoriasSet.size >= MAX_CATEGORIAS) return selectedCategorias;
-    return CATEGORIAS;
-  }, [categoriasLocked, selectedCategorias, selectedCategoriasSet.size]);
+    return nomesCategorias; // todas da base central
+  }, [categoriasLocked, selectedCategorias, selectedCategoriasSet.size, nomesCategorias]);
 
-  const subcatsDaSelecionada = selCategoria ? (TAXONOMIA[selCategoria] || []) : [];
+  // Subcategorias da categoria selecionada (base central)
+  const subcatsDaSelecionada = useMemo(() => {
+    if (!selCategoria) return [];
+    const cat = categorias.find((c) => c.nome === selCategoria);
+    return toSubcatNames(cat?.subcategorias);
+  }, [selCategoria, categorias]);
 
   /** ====== MULTI-SELEÇÃO DE SUBCATEGORIAS ====== */
   function toggleSubcat(sc: string) {
@@ -447,6 +368,8 @@ export default function PerfilPage() {
 
   async function pedirAlteracaoViaWhatsApp() {
     if (!userId) return;
+
+    // cria ticket interno (silencioso)
     try {
       await addDoc(collection(db, "supportRequests"), {
         userId,
@@ -456,20 +379,26 @@ export default function PerfilPage() {
         status: "open",
         canal: "whatsapp",
       });
-    } catch (e) {
+    } catch {
       // silencioso
     }
 
-    const texto = `
-Olá, equipe de suporte! Quero alterar minhas CATEGORIAS de atuação.
+    // monta texto sem crases aninhadas
+    const pairsTxt =
+      (form.categoriasAtuacaoPairs || [])
+        .map((p) => `${p.categoria} › ${p.subcategoria || "-"}`)
+        .join(" | ");
 
-• UID: ${userId}
-• Nome: ${form.nome || "-"}
-• E-mail: ${form.email || "-"}
-• Pares atuais: ${form.categoriasAtuacaoPairs?.map(p=>`${p.categoria} › ${p.subcategoria||"-"}`).join(" | ") || "-"}
-
-Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
-    `.trim();
+    const texto = [
+      "Olá, equipe de suporte! Quero alterar minhas CATEGORIAS de atuação.",
+      "",
+      `• UID: ${userId}`,
+      `• Nome: ${form.nome || "-"}`,
+      `• E-mail: ${form.email || "-"}`,
+      `• Pares atuais: ${pairsTxt || "-"}`,
+      "",
+      "Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS."
+    ].join("\n");
 
     const url = `https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(texto)}`;
     window.open(url, "_blank", "noopener,noreferrer");
@@ -756,8 +685,9 @@ Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
                   setSelCategoria(e.target.value);
                   setSelSubcats([]); // reseta seleção ao trocar de categoria
                 }}
+                disabled={taxLoading}
               >
-                <option value="">Selecionar categoria...</option>
+                <option value="">{taxLoading ? "Carregando categorias..." : "Selecionar categoria..."}</option>
                 {categoriasDropdown.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
@@ -767,7 +697,7 @@ Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
               <div style={{ marginTop: 8 }}>
                 <div className="label" style={{ marginBottom: 8 }}>Subcategorias da categoria selecionada</div>
                 <div className="flex items-center gap-8" style={{ marginBottom: 8 }}>
-                  <button type="button" className="btn-sec" disabled={!selCategoria} onClick={marcarTodas}>
+                  <button type="button" className="btn-sec" disabled={!selCategoria || taxLoading} onClick={marcarTodas}>
                     Marcar tudo
                   </button>
                   <button type="button" className="btn-sec" disabled={!selCategoria} onClick={limparSelecao}>
@@ -780,7 +710,7 @@ Mensagem: Solicito liberação para alterar o conjunto de CATEGORIAS.
 
                 <div className="subcat-grid">
                   {selCategoria ? (
-                    subcatsDaSelecionada.map((s) => {
+                    (subcatsDaSelecionada.length ? subcatsDaSelecionada : []).map((s) => {
                       const checked = selSubcats.includes(s);
                       return (
                         <button

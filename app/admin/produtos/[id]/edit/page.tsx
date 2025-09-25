@@ -1,25 +1,77 @@
+// app/admin/produtos/[id]/page.tsx
 "use client";
-import { useEffect, useState } from "react";
+
+import { useEffect, useMemo, useState, Suspense } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import dynamic from "next/dynamic";
 import { db } from "@/firebaseConfig";
 import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import Link from "next/link";
-import { Loader, Trash2, Save, ChevronLeft } from "lucide-react";
-import ImageUploader from "@/components/ImageUploader";
+import { useTaxonomia } from "@/hooks/useTaxonomia";
 
-export default function EditProdutoPage() {
-  const params = useParams();
+import ImageUploader from "@/components/ImageUploader";
+const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
+const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
+
+import {
+  Loader2,
+  Loader as LoaderIcon,
+  Trash2,
+  Save,
+  ChevronLeft,
+  Upload,
+  FileText,
+  Image as ImageIcon,
+  Tag,
+  List,
+  DollarSign,
+  Calendar,
+  MapPin,
+  BookOpen,
+} from "lucide-react";
+
+/* ======= Constantes ======= */
+const estados = [
+  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
+  "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"
+];
+
+const condicoes = [
+  "Novo com garantia",
+  "Novo sem garantia",
+  "Reformado com garantia",
+  "Reformado",
+  "No estado que se encontra",
+];
+
+export default function AdminEditProdutoPageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-6 text-[#023047]">Carregando…</div>}>
+      <AdminEditProdutoPage />
+    </Suspense>
+  );
+}
+
+function AdminEditProdutoPage() {
+  const { id } = useParams() as { id: string };
   const router = useRouter();
-  const produtoId = params.id as string;
+
+  // 🔗 Taxonomia unificada (Firestore > fallback local)
+  const { categorias, loading: taxLoading } = useTaxonomia();
 
   const [produto, setProduto] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
-  const [imagens, setImagens] = useState<string[]>([]);
 
-  const [form, setForm] = useState<any>({
+  // imagens e PDF
+  const [imagens, setImagens] = useState<string[]>([]);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+
+  // form
+  const [form, setForm] = useState({
     nome: "",
     descricao: "",
     preco: "",
@@ -33,58 +85,117 @@ export default function EditProdutoPage() {
     status: "ativo",
   });
 
-  // Buscar produto e usuário criador
+  // cidades por UF (IBGE)
+  const [cidades, setCidades] = useState<string[]>([]);
+  const [carregandoCidades, setCarregandoCidades] = useState(false);
+
+  /* ======= Carrega produto e usuário dono ======= */
   useEffect(() => {
     async function fetchData() {
+      if (!id) return;
       setLoading(true);
       try {
-        const prodSnap = await getDoc(doc(db, "produtos", produtoId));
+        const prodSnap = await getDoc(doc(db, "produtos", id));
         if (!prodSnap.exists()) {
           setProduto(null);
           setLoading(false);
           return;
         }
-        const prodData = prodSnap.data();
-        setProduto(prodData);
-        setForm({
-          nome: prodData.nome || "",
-          descricao: prodData.descricao || "",
-          preco: prodData.preco || "",
-          categoria: prodData.categoria || "",
-          subcategoria: prodData.subcategoria || "",
-          ano: prodData.ano || "",
-          condicao: prodData.condicao || "",
-          tipo: prodData.tipo || "produto",
-          cidade: prodData.cidade || "",
-          estado: prodData.estado || "",
-          status: prodData.status || "ativo",
-        });
-        setImagens(Array.isArray(prodData.imagens) ? prodData.imagens : []);
+        const data = prodSnap.data() as any;
+        setProduto(data);
 
-        if (prodData.userId) {
-          const userSnap = await getDoc(doc(db, "usuarios", prodData.userId));
+        setForm({
+          nome: data.nome || "",
+          descricao: data.descricao || "",
+          preco: data.preco != null ? String(data.preco) : "",
+          categoria: data.categoria || "",
+          subcategoria: data.subcategoria || "",
+          ano: data.ano != null ? String(data.ano) : "",
+          condicao: data.condicao || "",
+          tipo: data.tipo || "produto",
+          cidade: data.cidade || "",
+          estado: data.estado || "",
+          status: data.status || "ativo",
+        });
+
+        setImagens(Array.isArray(data.imagens) ? data.imagens : []);
+        setPdfUrl(data.pdfUrl || null);
+
+        if (data.userId) {
+          const userSnap = await getDoc(doc(db, "usuarios", data.userId));
           if (userSnap.exists()) setUser(userSnap.data());
         }
-      } catch {
-        setProduto(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
-    if (produtoId) fetchData();
-  }, [produtoId]);
+    fetchData();
+  }, [id]);
 
-  // Handle input changes
-  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
-    setForm((f: any) => ({ ...f, [e.target.name]: e.target.value }));
+  /* ======= IBGE: cidades por UF ======= */
+  useEffect(() => {
+    let abort = false;
+
+    async function fetchCidades(uf: string) {
+      if (!uf) {
+        setCidades([]);
+        return;
+      }
+      setCarregandoCidades(true);
+      try {
+        const res = await fetch(
+          `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`,
+          { cache: "no-store" }
+        );
+        const data = (await res.json()) as Array<{ nome: string }>;
+        if (abort) return;
+
+        const nomes = data.map((m) => m.nome).sort((a, b) => a.localeCompare(b, "pt-BR"));
+        // garante cidade atual se IBGE não retornar (raro)
+        if (form.cidade && !nomes.includes(form.cidade)) nomes.unshift(form.cidade);
+        setCidades(nomes);
+      } catch {
+        if (!abort) setCidades((prev) => (prev.length ? prev : form.cidade ? [form.cidade] : []));
+      } finally {
+        if (!abort) setCarregandoCidades(false);
+      }
+    }
+
+    fetchCidades(form.estado);
+    return () => {
+      abort = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.estado]);
+
+  /* ======= Helpers ======= */
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) {
+    const { name, value } = e.target as any;
+    setForm((f) => ({
+      ...f,
+      [name]: value,
+      ...(name === "categoria" ? { subcategoria: "" } : null),
+      ...(name === "estado" ? { cidade: "" } : null),
+    }));
   }
 
-  // Salvar alterações
+  const subcategoriasDisponiveis =
+    useMemo(
+      () =>
+        categorias.find((c) => c.nome === form.categoria)?.subcategorias || [],
+      [categorias, form.categoria]
+    );
+
+  /* ======= Persistência ======= */
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setMsg("");
 
-    if (!form.nome || !form.categoria || !form.cidade || !form.estado) {
+    // validações rápidas
+    if (!form.nome || !form.categoria || !form.subcategoria || !form.cidade || !form.estado) {
       setMsg("Preencha os campos obrigatórios.");
       setSaving(false);
       return;
@@ -96,10 +207,12 @@ export default function EditProdutoPage() {
     }
 
     try {
-      await updateDoc(doc(db, "produtos", produtoId), {
+      await updateDoc(doc(db, "produtos", id), {
         ...form,
         preco: form.preco ? parseFloat(form.preco) : null,
+        ano: form.ano ? Number(form.ano) : null,
         imagens,
+        pdfUrl: pdfUrl || null,
         updatedAt: serverTimestamp(),
       });
       setMsg("Alterações salvas com sucesso!");
@@ -110,13 +223,12 @@ export default function EditProdutoPage() {
     setSaving(false);
   }
 
-  // Excluir produto
   async function handleDelete() {
     if (!window.confirm("Tem certeza que deseja excluir este produto?")) return;
     setSaving(true);
     setMsg("");
     try {
-      await deleteDoc(doc(db, "produtos", produtoId));
+      await deleteDoc(doc(db, "produtos", id));
       router.push("/admin/produtos");
     } catch {
       setMsg("Erro ao excluir produto.");
@@ -124,10 +236,11 @@ export default function EditProdutoPage() {
     }
   }
 
+  /* ======= UI ======= */
   if (loading)
     return (
-      <div style={{ padding: 48, textAlign: "center" }}>
-        <Loader size={30} className="animate-spin" /> Carregando...
+      <div style={{ padding: 48, textAlign: "center", color: "#219EBC", fontWeight: 800 }}>
+        <LoaderIcon size={30} className="animate-spin" /> Carregando...
       </div>
     );
   if (!produto)
@@ -140,7 +253,7 @@ export default function EditProdutoPage() {
   return (
     <section
       style={{
-        maxWidth: 800,
+        maxWidth: 980,
         margin: "0 auto",
         padding: "42px 2vw 60px 2vw",
         background: "#fff",
@@ -171,7 +284,7 @@ export default function EditProdutoPage() {
           margin: "0 0 25px 0",
         }}
       >
-        Editar Produto
+        Editar Produto (Admin)
       </h1>
 
       {/* Proprietário */}
@@ -180,12 +293,12 @@ export default function EditProdutoPage() {
           background: "#f3f6fa",
           borderRadius: 12,
           padding: 18,
-          marginBottom: 26,
+          marginBottom: 22,
           border: "1.6px solid #e8eaf0",
         }}
       >
-        <div style={{ fontWeight: 700, color: "#219EBC", marginBottom: 6 }}>
-          Proprietário do Produto:
+        <div style={{ fontWeight: 800, color: "#219EBC", marginBottom: 6 }}>
+          Proprietário do Produto
         </div>
         <div><b>Nome:</b> {user?.nome || "—"}</div>
         <div><b>E-mail:</b> {user?.email || "—"}</div>
@@ -197,24 +310,24 @@ export default function EditProdutoPage() {
         <div>
           <b>Criado em:</b>{" "}
           {produto.createdAt?.seconds
-            ? new Date(produto.createdAt.seconds * 1000).toLocaleString()
+            ? new Date(produto.createdAt.seconds * 1000).toLocaleString("pt-BR")
             : "—"}
         </div>
         <div>
           <b>Atualizado em:</b>{" "}
           {produto.updatedAt?.seconds
-            ? new Date(produto.updatedAt.seconds * 1000).toLocaleString()
+            ? new Date(produto.updatedAt.seconds * 1000).toLocaleString("pt-BR")
             : "—"}
         </div>
       </div>
 
-      {/* Status msg */}
+      {/* Mensagem */}
       {msg && (
         <div
           style={{
-            background: "#f7fafc",
-            color: msg.includes("sucesso") ? "#16a34a" : "#b91c1c",
-            border: `1.5px solid ${msg.includes("sucesso") ? "#c3f3d5" : "#fbbf24"}`,
+            background: msg.toLowerCase().includes("sucesso") ? "#f7fafc" : "#fff7f7",
+            color: msg.toLowerCase().includes("sucesso") ? "#16a34a" : "#b91c1c",
+            border: `1.5px solid ${msg.toLowerCase().includes("sucesso") ? "#c3f3d5" : "#ffdada"}`,
             padding: "12px 0",
             borderRadius: 11,
             textAlign: "center",
@@ -226,92 +339,259 @@ export default function EditProdutoPage() {
         </div>
       )}
 
-      {/* Form */}
-      <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <label style={labelStyle}>Nome *</label>
-        <input name="nome" value={form.nome} onChange={handleChange} style={inputStyle} required />
-
-        <label style={labelStyle}>Descrição *</label>
-        <textarea
-          name="descricao"
-          value={form.descricao}
-          onChange={handleChange}
-          style={{ ...inputStyle, height: 90 }}
-          required
-        />
-
-        <label style={labelStyle}>Preço (R$)</label>
-        <input
-          name="preco"
-          type="number"
-          value={form.preco}
-          onChange={handleChange}
-          style={inputStyle}
-          min="0"
-          step="0.01"
-        />
-
-        <label style={labelStyle}>Categoria *</label>
-        <input name="categoria" value={form.categoria} onChange={handleChange} style={inputStyle} required />
-
-        <label style={labelStyle}>Subcategoria</label>
-        <input name="subcategoria" value={form.subcategoria} onChange={handleChange} style={inputStyle} />
-
-        <label style={labelStyle}>Ano</label>
-        <input name="ano" type="number" value={form.ano} onChange={handleChange} style={inputStyle} />
-
-        <label style={labelStyle}>Condição</label>
-        <input name="condicao" value={form.condicao} onChange={handleChange} style={inputStyle} />
-
-        <label style={labelStyle}>Tipo</label>
-        <select name="tipo" value={form.tipo} onChange={handleChange} style={inputStyle}>
-          <option value="produto">Produto</option>
-          <option value="máquina">Máquina</option>
-        </select>
-
-        <label style={labelStyle}>Status</label>
-        <select name="status" value={form.status} onChange={handleChange} style={inputStyle}>
-          <option value="ativo">Ativo</option>
-          <option value="inativo">Inativo</option>
-          <option value="vendido">Vendido</option>
-        </select>
-
-        <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Cidade *</label>
-            <input name="cidade" value={form.cidade} onChange={handleChange} style={inputStyle} required />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Estado *</label>
-            <input name="estado" value={form.estado} onChange={handleChange} style={inputStyle} required />
-          </div>
+      {/* ======= Uploads (imagens + PDF) ======= */}
+      <div
+        className="rounded-2xl border"
+        style={{
+          background: "linear-gradient(180deg,#f8fbff, #ffffff)",
+          borderColor: "#e6ebf2",
+          padding: "18px",
+          marginBottom: 16,
+        }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <Upload className="w-4 h-4 text-slate-700" />
+          <h3 className="text-slate-800 font-black tracking-tight">Arquivos do anúncio</h3>
         </div>
 
-        {/* Imagens */}
-        <label style={labelStyle}>Imagens *</label>
-        <ImageUploader imagens={imagens} setImagens={setImagens} max={5} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Imagens */}
+          <div
+            className="rounded-xl border overflow-hidden"
+            style={{
+              borderColor: "#e6ebf2",
+              background:
+                "radial-gradient(1200px 300px at -200px -200px, #eef6ff 0%, transparent 60%), #ffffff",
+            }}
+          >
+            <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-sky-700" />
+              <strong className="text-[#0f172a]">Imagens *</strong>
+            </div>
+            <div className="px-4 pb-4">
+              <div className="rounded-lg border border-dashed p-3">
+                <ImageUploader imagens={imagens} setImagens={setImagens} max={5} />
+              </div>
+              <p className="text-xs text-slate-500 mt-2">
+                Envie até 5 imagens (JPG/PNG).
+              </p>
+            </div>
+          </div>
+
+          {/* PDF */}
+          <div
+            className="rounded-xl border overflow-hidden"
+            style={{
+              borderColor: "#e6ebf2",
+              background:
+                "radial-gradient(1200px 300px at -200px -200px, #fff1e6 0%, transparent 60%), #ffffff",
+            }}
+          >
+            <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-orange-600" />
+              <strong className="text-[#0f172a]">Ficha técnica (PDF) — opcional</strong>
+            </div>
+            <div className="px-4 pb-4 space-y-3">
+              <div className="rounded-lg border border-dashed p-3">
+                <PDFUploader initialUrl={pdfUrl ?? undefined} onUploaded={setPdfUrl} />
+              </div>
+
+              {pdfUrl ? (
+                <div className="rounded-lg border overflow-hidden" style={{ height: 300 }}>
+                  <DrivePDFViewer
+                    fileUrl={`/api/pdf-proxy?file=${encodeURIComponent(pdfUrl || "")}`}
+                    height={300}
+                  />
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Anexe manuais, especificações ou ficha técnica (até 8MB).
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ======= Form ======= */}
+      <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* Nome */}
+        <FormField label="Nome *" icon={<Tag size={15} />}>
+          <input
+            name="nome"
+            value={form.nome}
+            onChange={handleChange}
+            style={inputStyle}
+            required
+          />
+        </FormField>
+
+        {/* Descrição */}
+        <FormField label="Descrição *" icon={<BookOpen size={15} />}>
+          <textarea
+            name="descricao"
+            value={form.descricao}
+            onChange={handleChange}
+            style={{ ...inputStyle, height: 110 }}
+            required
+          />
+        </FormField>
+
+        {/* Grade de campos */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Preço */}
+          <FormField label="Preço (R$)" icon={<DollarSign size={15} />}>
+            <input
+              name="preco"
+              value={form.preco}
+              onChange={handleChange}
+              type="number"
+              style={inputStyle}
+              placeholder="Ex: 15000"
+              min={0}
+              step={0.01}
+            />
+          </FormField>
+
+          {/* Ano */}
+          <FormField label="Ano" icon={<Calendar size={15} />}>
+            <input
+              name="ano"
+              value={form.ano}
+              onChange={handleChange}
+              type="number"
+              style={inputStyle}
+              placeholder="Ex: 2021"
+              min={1900}
+            />
+          </FormField>
+
+          {/* Categoria */}
+          <FormField label="Categoria *" icon={<List size={15} />}>
+            <select
+              name="categoria"
+              value={form.categoria}
+              onChange={handleChange}
+              style={inputStyle}
+              required
+            >
+              <option value="">{taxLoading ? "Carregando..." : "Selecione"}</option>
+              {categorias.map((cat) => (
+                <option key={cat.slug ?? cat.nome} value={cat.nome}>
+                  {cat.nome}
+                </option>
+              ))}
+            </select>
+          </FormField>
+
+          {/* Subcategoria */}
+          <FormField label="Subcategoria *" icon={<Tag size={15} />}>
+            <select
+              name="subcategoria"
+              value={form.subcategoria}
+              onChange={handleChange}
+              style={inputStyle}
+              required
+              disabled={!form.categoria}
+            >
+              <option value="">
+                {form.categoria ? "Selecione" : "Selecione a categoria primeiro"}
+              </option>
+              {subcategoriasDisponiveis.map((sub: any) => (
+                <option key={sub.slug ?? sub.nome} value={sub.nome}>
+                  {sub.nome}
+                </option>
+              ))}
+            </select>
+          </FormField>
+
+          {/* Condição */}
+          <FormField label="Condição" icon={<Tag size={15} />}>
+            <select
+              name="condicao"
+              value={form.condicao}
+              onChange={handleChange}
+              style={inputStyle}
+            >
+              <option value="">Selecione</option>
+              {condicoes.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </FormField>
+
+          {/* Estado */}
+          <FormField label="Estado *" icon={<MapPin size={15} />}>
+            <select
+              name="estado"
+              value={form.estado}
+              onChange={handleChange}
+              style={inputStyle}
+              required
+            >
+              <option value="">Selecione</option>
+              {estados.map((e) => (
+                <option key={e} value={e}>
+                  {e}
+                </option>
+              ))}
+            </select>
+          </FormField>
+        </div>
+
+        {/* Cidade */}
+        <FormField label="Cidade *" icon={<MapPin size={15} />}>
+          <select
+            name="cidade"
+            value={form.cidade}
+            onChange={handleChange}
+            style={inputStyle}
+            required
+            disabled={!form.estado || carregandoCidades}
+          >
+            <option value="">
+              {carregandoCidades
+                ? "Carregando..."
+                : form.estado
+                ? "Selecione a cidade"
+                : "Selecione primeiro o estado"}
+            </option>
+            {cidades.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </FormField>
+
+        
 
         {/* Botões */}
-        <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
+        <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
           <button
             type="submit"
             disabled={saving}
             style={{
-              background: "#FB8500",
+              background: "linear-gradient(90deg,#fb8500,#219ebc)",
               color: "#fff",
               border: "none",
-              borderRadius: 10,
-              padding: "13px 32px",
-              fontWeight: 800,
+              borderRadius: 13,
+              padding: "14px 26px",
+              fontWeight: 900,
               fontSize: 18,
               cursor: saving ? "not-allowed" : "pointer",
-              display: "flex",
+              display: "inline-flex",
               alignItems: "center",
               gap: 10,
+              boxShadow: "0 8px 40px rgba(251,133,0,0.25)",
             }}
           >
-            <Save size={20} /> {saving ? "Salvando..." : "Salvar Alterações"}
+            {saving ? <Loader2 className="animate-spin w-5 h-5" /> : <Save size={18} />}
+            {saving ? "Salvando..." : "Salvar Alterações"}
           </button>
+
           <button
             type="button"
             onClick={handleDelete}
@@ -320,17 +600,17 @@ export default function EditProdutoPage() {
               background: "#fff0f0",
               color: "#d90429",
               border: "1.5px solid #ffe5e5",
-              borderRadius: 10,
-              padding: "13px 32px",
-              fontWeight: 700,
-              fontSize: 17,
+              borderRadius: 12,
+              padding: "14px 26px",
+              fontWeight: 800,
+              fontSize: 16,
               cursor: saving ? "not-allowed" : "pointer",
-              display: "flex",
+              display: "inline-flex",
               alignItems: "center",
               gap: 10,
             }}
           >
-            <Trash2 size={20} /> Excluir Produto
+            <Trash2 size={18} /> Excluir Produto
           </button>
         </div>
       </form>
@@ -338,17 +618,49 @@ export default function EditProdutoPage() {
   );
 }
 
-// estilos
-const labelStyle: React.CSSProperties = { fontWeight: 700, color: "#023047", marginBottom: 4 };
+/* ======= UI helpers ======= */
+function FormField({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label style={labelStyle}>
+        {icon} {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+/* ======= Estilos ======= */
+const labelStyle: React.CSSProperties = {
+  fontWeight: 800,
+  color: "#023047",
+  marginBottom: 6,
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  letterSpacing: -0.2,
+};
+
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "11px 13px",
-  borderRadius: 9,
-  border: "1.5px solid #e5e7eb",
+  padding: "13px 14px",
+  borderRadius: 12,
+  border: "1.6px solid #e5e7eb",
   fontSize: 16,
-  color: "#222",
+  color: "#0f172a",
   background: "#f8fafc",
   fontWeight: 600,
-  marginBottom: 8,
+  marginBottom: 2,
   outline: "none",
+  marginTop: 2,
+  minHeight: 46,
+  boxShadow: "0 0 0 0 rgba(0,0,0,0)",
 };

@@ -18,51 +18,8 @@ import {
 } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
 
-/** ================== Taxonomia (MESMA do PERFIL/CREATE) ================== */
-const TAXONOMIA: Record<string, string[]> = {
-  "Equipamentos de Perfuração e Demolição": [
-    "Perfuratrizes","Rompedores/Martelos","Bits/Brocas","Carretas de Perfuração","Compressores","Ferramentas de Demolição",
-  ],
-  "Equipamentos de Carregamento e Transporte": [
-    "Pás-Carregadeiras","Escavadeiras","Retroescavadeiras","Caminhões Fora-de-Estrada","Tratores de Esteiras","Motoniveladoras",
-  ],
-  "Britagem e Classificação": [
-    "Britador de Mandíbulas","Britador Cônico","Britador de Impacto","Peneiras Vibratórias","Alimentadores","Correias Transportadoras",
-  ],
-  "Beneficiamento e Processamento Mineral": [
-    "Moinhos (Bolas/Rolos)","Ciclones","Classificadores Espirais","Espessadores","Flotação","Bombas de Polpa",
-  ],
-  "Peças e Componentes Industriais": [
-    "Motores","Transmissões/Redutores","Sistemas Hidráulicos","Sistemas Elétricos","Filtros e Filtração","Mangueiras/Conexões",
-  ],
-  "Desgaste e Revestimento": [
-    "Revestimento de Britadores","Chapas AR","Dentes/Lâminas","Placas Cerâmicas","Revestimentos de Borracha",
-  ],
-  "Automação, Elétrica e Controle": [
-    "CLPs/Controladores","Sensores/Instrumentação","Inversores/Soft-Starters","Painéis/Quadros","SCADA/Supervisório",
-  ],
-  "Lubrificação e Produtos Químicos": [
-    "Óleos e Graxas","Sistemas Centralizados","Aditivos","Reagentes de Flotação","Desincrustantes/Limpeza",
-  ],
-  "Equipamentos Auxiliares e Ferramentas": [
-    "Geradores","Soldagem/Corte","Bombas","Ferramentas de Torque","Compressores Auxiliares",
-  ],
-  "EPIs (Equipamentos de Proteção Individual)": [
-    "Capacetes","Luvas","Óculos/Face Shield","Respiradores","Protetores Auriculares","Botas",
-  ],
-  "Instrumentos de Medição e Controle": [
-    "Vibração/Análise","Alinhamento a Laser","Balanças/Pesagem","Medidores de Espessura","Termografia",
-  ],
-  "Manutenção e Serviços Industriais": [
-    "Mecânica Pesada","Caldeiraria/Solda","Usinagem","Alinhamento/Balanceamento","Inspeções/NR","Elétrica/Automação",
-  ],
-  "Veículos e Pneus": [
-    "Pickups/Utilitários","Caminhões 3/4","Empilhadeiras","Pneus OTR","Recapagem/Serviços",
-  ],
-  "Outros": ["Diversos"],
-};
-const CATEGORIAS = Object.keys(TAXONOMIA);
-const UFS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+// ✅ use a mesma fonte de categorias/subcategorias do restante do app
+import { useTaxonomia } from "@/hooks/useTaxonomia";
 
 /** ================== Tipos ================== */
 type Usuario = {
@@ -72,10 +29,10 @@ type Usuario = {
   whatsapp?: string;
   telefone?: string;
   estado?: string;
-  ufs?: string[];          // ufsAtendidas preferencialmente
-  atendeBrasil?: boolean;  // cobre todo o país
+  ufs?: string[];
+  atendeBrasil?: boolean;
   cidade?: string;
-  categorias?: string[];   // categorias principais (legado ou atuais)
+  categorias?: string[];
   categoriasAtuacaoPairs?: { categoria: string; subcategoria: string }[];
   photoURL?: string;
 };
@@ -117,6 +74,9 @@ type Demanda = {
   liberadoPara?: string[];
 };
 
+/** ================== Constantes ================== */
+const UFS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+
 /** ================== Helpers ================== */
 const toReais = (cents?: number) =>
   `R$ ${((Number(cents || 0) / 100) || 0).toFixed(2).replace(".", ",")}`;
@@ -135,7 +95,7 @@ const chip = (bg: string, fg: string): React.CSSProperties => ({
 
 const isNonEmptyString = (v: any): v is string => typeof v === "string" && v.trim() !== "";
 
-// Normaliza string para comparação robusta (ignora acentos e espaços duplos)
+// Normaliza string para comparação robusta
 const norm = (s?: string) =>
   (s || "")
     .normalize("NFD")
@@ -144,7 +104,7 @@ const norm = (s?: string) =>
     .trim()
     .toLowerCase();
 
-// Monta o token usado em pairsSearch: cat::sub (já normalizado como no backend)
+// Monta o token usado em pairsSearch: cat::sub
 function pairToken(cat?: string, sub?: string) {
   const c = norm(cat);
   const s = norm(sub);
@@ -155,7 +115,15 @@ function pairToken(cat?: string, sub?: string) {
 export default function EditDemandaPage() {
   const router = useRouter();
   const params = useParams();
-  const demandaId = typeof params?.id === "string" ? params.id : (params?.id as string[])[0];
+  const demandaId =
+    typeof params?.id === "string"
+      ? params.id
+      : Array.isArray(params?.id)
+      ? params!.id[0]
+      : "";
+
+  // 🔗 mesma taxonomia do create/perfil
+  const { categorias, loading: taxLoading } = useTaxonomia();
 
   /** ------- Estados principais ------- */
   const [loading, setLoading] = useState(true);
@@ -195,10 +163,22 @@ export default function EditDemandaPage() {
   /** ------- Filtros e busca ------- */
   const [busca, setBusca] = useState("");
   const [fCat, setFCat] = useState("");
-  const [fSub, setFSub] = useState(""); // subcategoria
+  const [fSub, setFSub] = useState("");
   const [fUF, setFUF] = useState("");
 
   const debounceRef = useRef<any>(null);
+
+  // Subcategorias dinâmicas do FORM (categoria da demanda)
+  const subcatsForm = useMemo(
+    () => (categorias.find(c => c.nome === form.categoria)?.subcategorias ?? []),
+    [categorias, form.categoria]
+  );
+
+  // Subcategorias dinâmicas do FILTRO (enviar para usuários)
+  const subcatsFiltro = useMemo(
+    () => (categorias.find(c => c.nome === fCat)?.subcategorias ?? []),
+    [categorias, fCat]
+  );
 
   /** ================== Carregar Demanda ================== */
   useEffect(() => {
@@ -229,7 +209,11 @@ export default function EditDemandaPage() {
       setImagens(d.imagens || []);
       setUserId(d.userId || "");
 
-      setCreatedAt(d.createdAt?.seconds ? new Date(d.createdAt.seconds * 1000).toLocaleString("pt-BR") : "");
+      setCreatedAt(
+        d.createdAt?.seconds
+          ? new Date(d.createdAt.seconds * 1000).toLocaleString("pt-BR")
+          : ""
+      );
 
       const cents = d?.pricingDefault?.amount ?? 1990;
       setPrecoPadraoReais((cents / 100).toFixed(2).replace(".", ","));
@@ -270,24 +254,18 @@ export default function EditDemandaPage() {
   function docToUsuario(d: any): Usuario {
     const raw = d.data ? (d.data() as any) : (d as any);
 
-    // categorias: aceita tanto categoriasAtuacao quanto categorias “antigas”
     let categorias: string[] = [];
     if (Array.isArray(raw.categoriasAtuacao)) categorias = raw.categoriasAtuacao;
     else if (Array.isArray(raw.categorias)) categorias = raw.categorias;
 
-    // UF/Regiões atendidas
     const ufsRaw =
       Array.isArray(raw.ufsAtendidas) ? raw.ufsAtendidas :
       Array.isArray(raw.ufs) ? raw.ufs :
       [];
 
-    // Normaliza UFs para UPPERCASE e adiciona "BRASIL" quando atendeBrasil=true
     const ufsNorm = (ufsRaw || []).map((x: string) => (x || "").toString().trim().toUpperCase());
-    if (raw.atendeBrasil) {
-      if (!ufsNorm.includes("BRASIL")) ufsNorm.push("BRASIL");
-    }
+    if (raw.atendeBrasil && !ufsNorm.includes("BRASIL")) ufsNorm.push("BRASIL");
 
-    // Pairs (cat/sub) bem tipados
     const pairs = Array.isArray(raw.categoriasAtuacaoPairs) ? raw.categoriasAtuacaoPairs : [];
 
     return {
@@ -300,171 +278,162 @@ export default function EditDemandaPage() {
     } as Usuario;
   }
 
-  /** ================== Busca “Servidor” com filtros (PASSO 3) ================== */
- async function smartFetchUsuarios(reset = true) {
-  setLoadingUsuarios(true);
-  try {
-    const PAGE = 40;
-    const merged = new Map<string, Usuario>();
+  /** ================== Busca “Servidor” com filtros ================== */
+  async function smartFetchUsuarios(reset = true) {
+    setLoadingUsuarios(true);
+    try {
+      const PAGE = 40;
+      const merged = new Map<string, Usuario>();
 
-    const hasBusca = !!busca.trim();
-    const token = pairToken(fCat, fSub);
-    const ufN  = (fUF || "").toString().trim().toUpperCase();
+      const hasBusca = !!busca.trim();
+      const token = pairToken(fCat, fSub);
+      const ufN  = (fUF || "").toString().trim().toUpperCase();
 
-    // ===== A) Sem texto de busca: só filtros
-    if (!hasBusca) {
-      // 1) cat+sub -> usar pairsSearch (com UF se houver)
-      if (token) {
-        let qBase: any = query(collection(db, "usuarios"), where("pairsSearch", "array-contains", token));
-        if (ufN) qBase = query(qBase, where("ufsSearch", "array-contains", ufN));
+      // ===== A) Sem texto de busca: só filtros
+      if (!hasBusca) {
+        // 1) cat+sub -> pairsSearch (+ UF)
+        if (token) {
+          let qBase: any = query(collection(db, "usuarios"), where("pairsSearch", "array-contains", token));
+          if (ufN) qBase = query(qBase, where("ufsSearch", "array-contains", ufN));
 
-        let qFinal = query(qBase, orderBy("nome"), limit(PAGE));
-        if (!reset && paging.last) qFinal = query(qBase, orderBy("nome"), startAfter(paging.last), limit(PAGE));
+          let qFinal = query(qBase, orderBy("nome"), limit(PAGE));
+          if (!reset && paging.last) qFinal = query(qBase, orderBy("nome"), startAfter(paging.last), limit(PAGE));
 
-        const snap = await getDocs(qFinal);
-        snap.forEach(d => merged.set(d.id, docToUsuario(d)));
+          const snap = await getDocs(qFinal);
+          snap.forEach(d => merged.set(d.id, docToUsuario(d)));
 
-        // paginação baseada nessa consulta
-        setUsuarios(Array.from(merged.values()));
-        setPaging({ last: snap.docs[snap.docs.length - 1], ended: snap.size < PAGE });
-        return;
+          setUsuarios(Array.from(merged.values()));
+          setPaging({ last: snap.docs[snap.docs.length - 1], ended: snap.size < PAGE });
+          return;
+        }
+
+        // 2) só categoria: consultar “novo” e “legado” e unificar
+        if (isNonEmptyString(fCat)) {
+          const queries: any[] = [];
+
+          let qNew: any = query(collection(db, "usuarios"), where("categoriesAll", "array-contains", fCat));
+          if (ufN) qNew = query(qNew, where("ufsSearch", "array-contains", ufN));
+          qNew = reset || !paging.last
+            ? query(qNew, orderBy("nome"), limit(PAGE))
+            : query(qNew, orderBy("nome"), startAfter(paging.last), limit(PAGE));
+          queries.push(qNew);
+
+          let qLegacy: any = query(collection(db, "usuarios"), where("categorias", "array-contains", fCat));
+          if (ufN) qLegacy = query(qLegacy, where("ufsSearch", "array-contains", ufN));
+          qLegacy = reset || !paging.last
+            ? query(qLegacy, orderBy("nome"), limit(PAGE))
+            : query(qLegacy, orderBy("nome"), startAfter(paging.last), limit(PAGE));
+          queries.push(qLegacy);
+
+          const snaps = await Promise.all(queries.map(getDocs));
+          snaps.forEach(s => s.forEach(d => merged.set(d.id, docToUsuario(d))));
+
+          const lastDoc =
+            snaps
+              .map(s => s.docs[s.docs.length - 1])
+              .filter(Boolean)
+              .at(-1);
+          const ended = snaps.every(s => s.size < PAGE);
+
+          const fUFN = ufN;
+const fCatN = norm(fCat);
+const refined = Array.from(merged.values()).filter(u => {
+  const hitCat =
+    (u.categorias || []).some(c => norm(c) === fCatN) ||
+    (u.categoriasAtuacaoPairs || []).some(p => norm(p?.categoria) === fCatN);
+
+  if (!hitCat) return false;
+
+  const hitUF =
+    !fUFN ||
+    u.atendeBrasil === true ||
+    (Array.isArray(u.ufs) && (u.ufs.includes("BRASIL") || u.ufs.includes(fUFN))) ||
+    (u.estado && u.estado.toString().trim().toUpperCase() === fUFN);
+
+  return hitUF;
+});
+
+
+          setUsuarios(refined);
+          setPaging({ last: lastDoc, ended });
+          return;
+        }
+
+        // 3) sem filtros -> pagina por nome
+        {
+          let q: any = query(collection(db, "usuarios"), orderBy("nome"), limit(PAGE));
+          if (!reset && paging.last) q = query(collection(db, "usuarios"), orderBy("nome"), startAfter(paging.last), limit(PAGE));
+          const snap = await getDocs(q);
+          snap.forEach(d => merged.set(d.id, docToUsuario(d)));
+          setUsuarios(Array.from(merged.values()));
+          setPaging({ last: snap.docs[snap.docs.length - 1], ended: snap.size < PAGE });
+          return;
+        }
       }
 
-      // 2) só categoria: consultar "novo" e "legado" e unificar
-      if (isNonEmptyString(fCat)) {
-        const queries: any[] = [];
+      // ===== B) Com texto de busca
+      const t = busca.trim();
 
-        // novo
-        let qNew: any = query(collection(db, "usuarios"), where("categoriesAll", "array-contains", fCat));
-        if (ufN) qNew = query(qNew, where("ufsSearch", "array-contains", ufN));
-        qNew = reset || !paging.last
-          ? query(qNew, orderBy("nome"), limit(PAGE))
-          : query(qNew, orderBy("nome"), startAfter(paging.last), limit(PAGE));
-        queries.push(qNew);
-
-        // legado (para perfis não migrados 100%)
-        let qLegacy: any = query(collection(db, "usuarios"), where("categorias", "array-contains", fCat));
-        if (ufN) qLegacy = query(qLegacy, where("ufsSearch", "array-contains", ufN));
-        qLegacy = reset || !paging.last
-          ? query(qLegacy, orderBy("nome"), limit(PAGE))
-          : query(qLegacy, orderBy("nome"), startAfter(paging.last), limit(PAGE));
-        queries.push(qLegacy);
-
-        // roda as duas e mescla
-        const snaps = await Promise.all(queries.map(getDocs));
-        snaps.forEach(s => s.forEach(d => merged.set(d.id, docToUsuario(d))));
-
-        // como juntamos duas páginas, a paginação fica “conservadora”
-        const lastDoc =
-          snaps
-            .map(s => s.docs[s.docs.length - 1])
-            .filter(Boolean)
-            .at(-1);
-
-        const ended = snaps.every(s => s.size < PAGE);
-
-        // filtro local extra de segurança (caso `ufsSearch` falte em alguém)
-        const fUFN = ufN;
-        const fCatN = norm(fCat);
-        const refined = Array.from(merged.values()).filter(u => {
-          const hitCat =
-            (u.categorias || []).some(c => norm(c) === fCatN) ||
-            (u.categoriasAtuacaoPairs || []).some(p => norm(p?.categoria) === fCatN) ||
-            true; // se veio da query já bateu categoria
-          const hitUF =
-            !fUFN ||
-            u.atendeBrasil === true ||
-            (Array.isArray(u.ufs) && (u.ufs.includes("BRASIL") || u.ufs.includes(fUFN))) ||
-            (u.estado && u.estado.toString().trim().toUpperCase() === fUFN);
-          return hitCat && hitUF;
-        });
-
-        setUsuarios(refined);
-        setPaging({ last: lastDoc, ended });
-        return;
+      if (t.length >= 8) {
+        try {
+          const byId = await getDoc(doc(db, "usuarios", t));
+          if (byId.exists()) merged.set(byId.id, docToUsuario(byId));
+        } catch {}
       }
 
-      // 3) sem cat/sub/uf -> lista livre por nome
-      {
-        let q: any = query(collection(db, "usuarios"), orderBy("nome"), limit(PAGE));
-        if (!reset && paging.last) q = query(collection(db, "usuarios"), orderBy("nome"), startAfter(paging.last), limit(PAGE));
-        const snap = await getDocs(q);
-        snap.forEach(d => merged.set(d.id, docToUsuario(d)));
-        setUsuarios(Array.from(merged.values()));
-        setPaging({ last: snap.docs[snap.docs.length - 1], ended: snap.size < PAGE });
-        return;
-      }
-    }
-
-    // ===== B) Com texto de busca
-    const t = busca.trim();
-
-    // 1) id exato
-    if (t.length >= 8) {
       try {
-        const byId = await getDoc(doc(db, "usuarios", t));
-        if (byId.exists()) merged.set(byId.id, docToUsuario(byId));
-      } catch {}
-    }
-
-    // 2) email exato
-    try {
-      const sEmailEq = await getDocs(
-        query(collection(db, "usuarios"), where("email", "==", t.toLowerCase()), limit(1))
-      );
-      sEmailEq.forEach(d => merged.set(d.id, docToUsuario(d)));
-    } catch {}
-
-    // 3) prefixo nome (case friendly)
-    const tCap = t.charAt(0).toUpperCase() + t.slice(1);
-    const sNome = await getDocs(
-      query(collection(db, "usuarios"), orderBy("nome"), startAt(tCap), endAt(tCap + "\uf8ff"), limit(40))
-    );
-    sNome.forEach(d => merged.set(d.id, docToUsuario(d)));
-
-    // 4) prefixo email
-    try {
-      const tLower = t.toLowerCase();
-      const sEmail = await getDocs(
-        query(collection(db, "usuarios"), orderBy("email"), startAt(tLower), endAt(tLower + "\uf8ff"), limit(40))
-      );
-      sEmail.forEach(d => merged.set(d.id, docToUsuario(d)));
-    } catch {}
-
-    // refino local por cat/sub/uf quando a busca estiver ativa
-    const fCatN = norm(fCat);
-    const fSubN = norm(fSub);
-    const fUFN = ufN;
-    const refined = Array.from(merged.values()).filter(u => {
-      const hitCat =
-        !fCatN ||
-        (u.categorias || []).some(c => norm(c) === fCatN) ||
-        (u.categoriasAtuacaoPairs || []).some(p => norm(p?.categoria) === fCatN);
-      if (!hitCat) return false;
-
-      const hitSub =
-        !fSubN ||
-        (u.categoriasAtuacaoPairs || []).some(
-          p => norm(p?.categoria) === fCatN && norm(p?.subcategoria) === fSubN
+        const sEmailEq = await getDocs(
+          query(collection(db, "usuarios"), where("email", "==", t.toLowerCase()), limit(1))
         );
-      if (!hitSub) return false;
+        sEmailEq.forEach(d => merged.set(d.id, docToUsuario(d)));
+      } catch {}
 
-      const hitUF =
-        !fUFN ||
-        u.atendeBrasil === true ||
-        (Array.isArray(u.ufs) && (u.ufs.includes("BRASIL") || u.ufs.includes(fUFN))) ||
-        (u.estado && u.estado.toString().trim().toUpperCase() === fUFN);
+      const tCap = t.charAt(0).toUpperCase() + t.slice(1);
+      const sNome = await getDocs(
+        query(collection(db, "usuarios"), orderBy("nome"), startAt(tCap), endAt(tCap + "\uf8ff"), limit(40))
+      );
+      sNome.forEach(d => merged.set(d.id, docToUsuario(d)));
 
-      return hitUF;
-    });
+      try {
+        const tLower = t.toLowerCase();
+        const sEmail = await getDocs(
+          query(collection(db, "usuarios"), orderBy("email"), startAt(tLower), endAt(tLower + "\uf8ff"), limit(40))
+        );
+        sEmail.forEach(d => merged.set(d.id, docToUsuario(d)));
+      } catch {}
 
-    setUsuarios(refined);
-    setPaging({ ended: true }); // busca livre sem paginação incremental
-  } finally {
-    setLoadingUsuarios(false);
+      const fCatN = norm(fCat);
+      const fSubN = norm(fSub);
+      const fUFN = ufN;
+      const refined = Array.from(merged.values()).filter(u => {
+        const hitCat =
+          !fCatN ||
+          (u.categorias || []).some(c => norm(c) === fCatN) ||
+          (u.categoriasAtuacaoPairs || []).some(p => norm(p?.categoria) === fCatN);
+        if (!hitCat) return false;
+
+        const hitSub =
+          !fSubN ||
+          (u.categoriasAtuacaoPairs || []).some(
+            p => norm(p?.categoria) === fCatN && norm(p?.subcategoria) === fSubN
+          );
+        if (!hitSub) return false;
+
+        const hitUF =
+          !fUFN ||
+          u.atendeBrasil === true ||
+          (Array.isArray(u.ufs) && (u.ufs.includes("BRASIL") || u.ufs.includes(fUFN))) ||
+          (u.estado && u.estado.toString().trim().toUpperCase() === fUFN);
+
+        return hitUF;
+      });
+
+      setUsuarios(refined);
+      setPaging({ ended: true });
+    } finally {
+      setLoadingUsuarios(false);
+    }
   }
-}
-
 
   // load inicial
   useEffect(() => {
@@ -472,7 +441,7 @@ export default function EditDemandaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // sempre que filtros no servidor mudarem, recarrega
+  // recarrega quando os filtros mudarem
   useEffect(() => {
     smartFetchUsuarios(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -495,14 +464,12 @@ export default function EditDemandaPage() {
     const fUFN = (fUF || "").toString().trim().toUpperCase();
 
     return usuarios.filter(u => {
-      // Categoria
       const hitCat =
         !fCatN ||
         (u.categorias || []).some(c => norm(c) === fCatN) ||
         (u.categoriasAtuacaoPairs || []).some(p => norm(p?.categoria) === fCatN);
       if (!hitCat) return false;
 
-      // Subcategoria
       const hitSub =
         !fSubN ||
         (u.categoriasAtuacaoPairs || []).some(
@@ -510,7 +477,6 @@ export default function EditDemandaPage() {
         );
       if (!hitSub) return false;
 
-      // UF
       const hitUF =
         !fUFN ||
         u.atendeBrasil === true ||
@@ -523,7 +489,13 @@ export default function EditDemandaPage() {
 
   /** ================== Handlers básicos ================== */
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    // reseta subcategoria ao trocar a categoria
+    if (name === "categoria") {
+      setForm((f) => ({ ...f, categoria: value, subcategoria: "" }));
+      return;
+    }
+    setForm({ ...form, [name]: value });
   }
   function handleTagKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if ((e.key === "Enter" || e.key === ",") && tagInput.trim() && tags.length < 3) {
@@ -728,9 +700,18 @@ export default function EditDemandaPage() {
             <div style={twoCols}>
               <div style={{ flex: 1 }}>
                 <label style={label}>Categoria</label>
-                <select name="categoria" value={form.categoria} onChange={handleChange} required style={input}>
-                  <option value="">Selecione</option>
-                  {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
+                <select
+                  name="categoria"
+                  value={form.categoria}
+                  onChange={handleChange}
+                  required
+                  style={input}
+                  disabled={taxLoading}
+                >
+                  <option value="">{taxLoading ? "Carregando..." : "Selecione"}</option>
+                  {categorias.map((c) => (
+                    <option key={c.slug} value={c.nome}>{c.nome}</option>
+                  ))}
                 </select>
 
                 <select
@@ -742,7 +723,9 @@ export default function EditDemandaPage() {
                   disabled={!form.categoria}
                 >
                   <option value="">{form.categoria ? "Selecione" : "Selecione a categoria"}</option>
-                  {(TAXONOMIA[form.categoria] || []).map((s) => <option key={s} value={s}>{s}</option>)}
+                  {subcatsForm.map((s) => (
+                    <option key={s.slug} value={s.nome}>{s.nome}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -851,14 +834,24 @@ export default function EditDemandaPage() {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <div>
                 <label style={miniLabel}><Filter size={13} /> Categoria</label>
-                <select value={fCat} onChange={(e)=>{ setFCat(e.target.value); setFSub(""); }} style={{ ...input, width: 240 }}>
-                  <option value="">Todas</option>
-                  {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
+                <select
+                  value={fCat}
+                  onChange={(e)=>{ setFCat(e.target.value); setFSub(""); }}
+                  style={{ ...input, width: 240 }}
+                  disabled={taxLoading}
+                >
+                  <option value="">{taxLoading ? "Carregando..." : "Todas"}</option>
+                  {categorias.map((c) => <option key={c.slug} value={c.nome}>{c.nome}</option>)}
                 </select>
 
-                <select value={fSub} onChange={(e)=>setFSub(e.target.value)} style={{ ...input, width: 240 }} disabled={!fCat}>
+                <select
+                  value={fSub}
+                  onChange={(e)=>setFSub(e.target.value)}
+                  style={{ ...input, width: 240 }}
+                  disabled={!fCat}
+                >
                   <option value="">{fCat ? "Todas" : "Selecione a Cat."}</option>
-                  {(TAXONOMIA[fCat] || []).map((s) => <option key={s} value={s}>{s}</option>)}
+                  {subcatsFiltro.map((s) => <option key={s.slug} value={s.nome}>{s.nome}</option>)}
                 </select>
               </div>
               <div>
@@ -1169,7 +1162,6 @@ if (typeof window !== "undefined") {
       section > div[style*="grid-template-columns: 1fr"] { grid-template-columns: 1fr 1fr !important; }
     }
     @media (max-width: 860px) {
-      /* tabela de envios -> cards */
       div[style*="display: flex"][style*="gap: 12px"][style*="align-items: center"][style*="border: 1px solid #e5e7eb"] {
         flex-direction: column !important;
         align-items: flex-start !important;
@@ -1177,9 +1169,7 @@ if (typeof window !== "undefined") {
       div[style*="display: flex"][style*="gap: 12px"][style*="padding: 10px 12px"][style*="border: 1px solid #eef2f7"] {
         display: none !important;
       }
-      /* inputs ocupam toda a largura */
       input, select, textarea { max-width: 100% !important; }
-      /* header de filtros grudado no topo */
       .sticky { position: sticky; top: 0; }
     }
   `;

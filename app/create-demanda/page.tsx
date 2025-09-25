@@ -14,13 +14,15 @@ import {
 } from "lucide-react";
 import { useTaxonomia } from "@/hooks/useTaxonomia";
 
-// ✅ apenas isso, sem revalidate
 export const dynamic = "force-dynamic";
 
 const PDFUploader = nextDynamic(() => import("@/components/PDFUploader"), { ssr: false });
 const DrivePDFViewer = nextDynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
 
 /* ================== Tipos e Constantes ================== */
+type Subcat = { nome: string; slug?: string };
+type Cat = { nome: string; slug?: string; subcategorias?: Subcat[] };
+
 type FormState = {
   titulo: string;
   descricao: string;
@@ -36,7 +38,7 @@ type FormState = {
   outraCategoriaTexto: string;
 };
 
-const ESTADOS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+const ESTADOS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"] as const;
 const RASCUNHO_KEY = "pedraum:create-demandas:draft_v2";
 
 /* ===== Componente interno com toda a lógica ===== */
@@ -44,7 +46,10 @@ function CreateDemandaContent() {
   const router = useRouter();
 
   // 🔗 Taxonomia unificada (Firestore > fallback local)
-  const { categorias, loading: taxLoading } = useTaxonomia();
+  const { categorias, loading: taxLoading } = useTaxonomia() as {
+    categorias: Cat[];
+    loading: boolean;
+  };
 
   const [imagens, setImagens] = useState<string[]>([]);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -181,8 +186,8 @@ function CreateDemandaContent() {
   const isOutros = form.categoria === "Outros";
 
   /* ---------- Subcategorias disponíveis ---------- */
-  const subcategoriasDisponiveis =
-    categorias.find((c) => c.nome === form.categoria)?.subcategorias || [];
+  const subcategoriasDisponiveis: Subcat[] =
+    (categorias.find((c) => c.nome === form.categoria)?.subcategorias ?? []);
 
   /* ---------- Preview ---------- */
   const preview = useMemo(() => {
@@ -459,6 +464,7 @@ function CreateDemandaContent() {
                   disabled={!form.categoria}
                 >
                   <option value="">{form.categoria ? "Selecione" : "Selecione a categoria primeiro"}</option>
+                  {/* ✅ AQUI estava o erro: precisa estar dentro de { ... } */}
                   {subcategoriasDisponiveis.map((sub) => (
                     <option key={sub.slug ?? sub.nome} value={sub.nome}>{sub.nome}</option>
                   ))}

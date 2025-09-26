@@ -182,7 +182,9 @@ export default function PerfilPage() {
           ...prev,
           nome: data.nome || "",
           email: data.email || user.email || "",
-          telefone: data.telefone || "",
+          telefone: data.whatsappE164
+  ? maskBRFrom55(data.whatsappE164)
+  : (data.whatsapp ? maskBRFrom55(data.whatsapp) : (data.telefone || "")),
           cidade: data.cidade || "",
           estado: data.estado || "",
           cpf_cnpj: data.cpf_cnpj || "",
@@ -267,6 +269,31 @@ export default function PerfilPage() {
   }
   const norm = (s: string = "") =>
     s.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").trim().toLowerCase();
+function onlyDigits(v: string) {
+  return v.replace(/\D/g, "");
+}
+
+/** Gera (DD) 9XXXX-XXXX ou (DD) XXXX-XXXX a partir de E.164 (+55…) ou 55… */
+function maskBRFrom55(input: string) {
+  const onlyDigits = (v: string) => v.replace(/\D/g, "");
+  const d = onlyDigits(input || "");
+  const body = d.startsWith("55") ? d.slice(2) : d; // remove 55 se houver
+  const ddd = body.slice(0, 2);
+  const num = body.slice(2);
+
+  if (!ddd) return "+55 ";
+
+  let masked = `+55 (${ddd}) `;
+  if (num.length <= 4) return masked + num;
+  if (num.length <= 8) return masked + `${num.slice(0, 4)}-${num.slice(4)}`;
+  return masked + `${num.slice(0, 5)}-${num.slice(5)}`;
+}
+
+/** Extrai dígitos e garante prefixo 55 */
+function toDigits55FromFree(input: string) {
+  const d = onlyDigits(input || "");
+  return d.startsWith("55") ? d : `55${d}`;
+}
 
   function dedupPairs(pairs: CategoriaPair[]) {
     const m = new Map<string, CategoriaPair>();
@@ -434,15 +461,13 @@ export default function PerfilPage() {
     setMsg("");
 
     try {
-      if (!form.categoriasAtuacaoPairs.length) {
-        setMsg("Adicione pelo menos 1 par (Categoria + Subcategoria).");
-        setSaving(false); return;
-      }
-      const algumSemSub = form.categoriasAtuacaoPairs.some((p) => !p.subcategoria?.trim());
-      if (algumSemSub) {
-        setMsg("Todos os pares precisam de subcategoria selecionada.");
-        setSaving(false); return;
-      }
+      if (form.categoriasAtuacaoPairs.length) {
+  const algumSemSub = form.categoriasAtuacaoPairs.some((p) => !p.subcategoria?.trim());
+  if (algumSemSub) {
+    setMsg("Todos os pares precisam de subcategoria selecionada.");
+    setSaving(false); return;
+  }
+}
 
       // Dedup + validação de limite de categorias
       const paresDedup = dedupPairs(form.categoriasAtuacaoPairs);
@@ -471,11 +496,16 @@ export default function PerfilPage() {
       // UFs persistidas (normalizadas)
       const ufsAtendidas = form.atendeBrasil ? ["BRASIL"] :
         Array.from(new Set((form.ufsAtendidas || []).map((u) => String(u).trim().toUpperCase())));
+// Normaliza WhatsApp a partir do campo livre do formulário
+const wDigits55 = form.telefone ? toDigits55FromFree(form.telefone) : "";
+const wE164 = wDigits55 ? `+${wDigits55}` : "";
 
       await updateDoc(doc(db, "usuarios", userId), {
         // Identidade
         nome: form.nome,
-        telefone: form.telefone || "",
+        telefone: form.telefone || "",    // opcional (compat)
+whatsapp: wDigits55 || "",        // FONTE DE VERDADE (só dígitos iniciando com 55)
+whatsappE164: wE164 || "", 
         cidade: form.estado === "BRASIL" ? "" : (form.cidade || ""),
         estado: form.estado || "",
         cpf_cnpj: form.cpf_cnpj || "",

@@ -53,11 +53,40 @@ function normalizeCats(input: any[]): Cat[] {
 }
 
 /** ===================== TAXONOMIA LOCAL (COMPLETA) ===================== */
-/** 
- * Lista completa embutida (17 categorias + subcategorias atômicas).
+/**
+ * Lista completa embutida (merge Pedra Um + Pedreira Mineradora).
  * Se quiser voltar a usar Firestore no futuro, basta ajustar a flag USE_ONLY_LOCAL.
  */
 export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
+  {
+    nome: "Perfuração e Detonação",
+    subcategorias: [
+      "Perfuratrizes - Rotativas",
+      "Perfuratrizes - Pneumáticas",
+      "Perfuratrizes - Hidráulica",
+      "Perfuratrizes - Elétrica",
+      "Perfuratrizes - Superfície",
+      "Perfuratrizes - Subterrânea",
+      "Martelos Demolidores - Hidráulicos",
+      "Martelos Demolidores - Pneumáticos",
+      "Brocas para Rocha",
+      "Coroas Diamantadas",
+      "Varetas de Extensão",
+      "Hastes",
+      "Explosivos - Dinamite",
+      "Explosivos - ANFO",
+      "Explosivos - Civis",
+      "Explosivos - Industriais",
+      "Detonadores - Elétricos",
+      "Detonadores - Não Elétricos",
+      "Cordéis Detonantes",
+      "Sistemas de Controle de Detonação",
+      // Itens específicos do seu fluxo (mantidos)
+      "Drop ball",
+      "Esferas",
+    ],
+  },
+
   {
     nome: "Britagem e Peneiramento",
     subcategorias: [
@@ -65,45 +94,46 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Britadores - Cônicos",
       "Britadores - Impacto",
       "Britadores - Giratório",
+      "Britadores - Rolos",
       "Britadores - Portátil/Móvel",
+      "Rebritadores",
       "Trituradores Secundários e Terciários",
       "Peneiras - Vibratórias",
       "Peneiras - Rotativas",
+      "Peneiras - Trommels",
       "Peneiras - De Tambor",
-      "Peneiras - Móveis",
       "Peneiras - Fixas",
+      "Peneiras - Móveis",
       "Peneiras - Finas",
-      "Alimentadores - Vibratórios",
-      "Alimentadores - Hidráulicos",
-      "Alimentadores - Magnéticos",
-      "Transportadores - Esteiras",
-      "Transportadores - Correias",
-      "Transportadores - Elevadores de Caçamba",
+      "Classificação - Hidrociclones",
+      "Classificação - Classificadores",
       "Moinhos - Bolas",
+      "Moinhos - Barras",
       "Moinhos - SAG",
+      "Moinhos - Verticais (roller mills)",
       "Trituradores - Rocha Fina",
+      "Lavadores de Areia",
+      "Silos e Chutes",
+      "Carcaças e Bases Metálicas",
       "Telas",
       "Telas de Borracha",
     ],
   },
+
   {
-    nome: "Perfuração e Detonação",
+    nome: "Beneficiamento e Processamento Mineral",
     subcategorias: [
-      "Perfuratrizes - Hidráulica",
-      "Perfuratrizes - Elétrica",
-      "Perfuratrizes - Superfície",
-      "Perfuratrizes - Subterrânea",
-      "Brocas e Hastes",
-      "Explosivos - Civis",
-      "Explosivos - Industriais",
-      "Detonadores - Elétricos",
-      "Detonadores - Não Elétricos",
-      "Cordéis Detonantes",
-      "Sistemas de Controle de Detonação",
-      "Drop ball",
-      "Esferas",
+      "Separadores Magnéticos - Tambor",
+      "Separadores Magnéticos - Overband",
+      "Flotação - Células",
+      "Flotação - Espumantes",
+      "Flotação - Coletores",
+      "Filtragem e Secagem - Filtros Prensa",
+      "Filtragem e Secagem - Espessadores",
+      "Filtragem e Secagem - Secadores Rotativos",
     ],
   },
+
   {
     nome: "Transporte Interno e Logística",
     subcategorias: [
@@ -112,11 +142,15 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Caminhões Tanque",
       "Veículos Utilitários e Tratores Industriais",
       "Guinchos e Guindastes Móveis",
+      "Transportadores Internos - Esteiras",
+      "Transportadores Internos - Correias",
+      "Transportadores Internos - Elevadores de Caçamba",
+      "Trenes Internos de Minério",
       "Esteiras Transportadoras",
       "Correias Transportadoras",
-      "Trenes Internos de Minério",
     ],
   },
+
   {
     nome: "Linha Amarela e Maquinário Pesado",
     subcategorias: [
@@ -130,22 +164,35 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Plataformas de Manutenção e Acesso",
     ],
   },
+
   {
     nome: "Motores, Compressores e Sistemas Hidráulicos",
     subcategorias: [
       "Motores Elétricos e Diesel",
       "Compressores Industriais e Portáteis",
       "Bombas Hidráulicas e Peças",
+      "Bombas de Água (centrífugas, submersíveis)",
+      "Bombas de Lama",
       "Turbinas e Ventiladores Industriais",
       "Geradores Elétricos",
       "Sistemas de Ar Comprimido",
       "Sistemas Hidráulicos Completos",
     ],
   },
+
   {
     nome: "Peças, Componentes e Consumíveis",
     subcategorias: [
-      "Correias, Polias, Engrenagens, Rolamentos, Fixadores",
+      "Correias Transportadoras e Industriais",
+      "Polias",
+      "Engrenagens",
+      "Rolamentos",
+      "Eixos",
+      "Mancais",
+      "Buchas",
+      "Esticadores de Correia",
+      "Parafusos, Porcas, Arruelas e Fixadores",
+      "Parafusos e Porcas de Alta Resistência",
       "Filtros de Óleo, Ar e Combustível",
       "Cilindros e Mangueiras Hidráulicas",
       "Ferramentas Especializadas",
@@ -153,34 +200,118 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Componentes de Britadores, Peneiras e Perfuratrizes",
       "Cabos Elétricos e Conectores Industriais",
       "Kits de Reparo Hidráulico",
+      "Molas Industriais",
     ],
   },
+
   {
-    nome: "Aluguel e Locação de Equipamentos",
+    nome: "Desgaste e Revestimento",
     subcategorias: [
-      "Britadores Móveis",
-      "Peneiras Móveis",
-      "Perfuratrizes",
-      "Linha Amarela",
-      "Caminhões e Guindastes",
-      "Geradores e Compressores Portáteis",
-      "Plataformas de Carregamento e Manutenção",
+      "Mandíbulas",
+      "Martelos",
+      "Revestimentos de Britadores",
+      "Chapas de Desgaste",
+      "Barras de Impacto",
+      "Grelhas",
+      "Telas Metálicas",
+      "Telas em Borracha",
+      "Pastilhas de Desgaste",
     ],
   },
+
   {
-    nome: "Materiais e Insumos",
+    nome: "Automação, Monitoramento e TI",
     subcategorias: [
-      "Minérios e Agregados",
-      "Produtos Químicos para Beneficiamento",
-      "Lubrificantes e Óleos Industriais",
-      "Explosivos",
-      "Combustíveis",
-      "Água Industrial",
-      "Areia, Cascalho, Brita",
+      "Motores (Automação)",
+      "Inversores de Frequência",
+      "Soft Starters",
+      "Painéis Elétricos",
+      "Controladores ASRi",
+      "CLPs e Módulos de Automação",
+      "SCADA",
+      "Sensores - Nível",
+      "Sensores - Fluxo",
+      "Sensores - Pressão",
+      "Sensores e Detectores Diversos",
+      "Detectores de Metais",
+      "Sistemas de Controle Remoto",
+      "IoT e Telemetria para Máquinas",
+      "Câmeras de Monitoramento",
+      "Rádios e Comunicação Industrial",
+      "Softwares de Planejamento de Produção",
+    ],
+  },
+
+  {
+    nome: "Lubrificação e Produtos Químicos",
+    subcategorias: [
+      "Óleos Lubrificantes",
+      "Graxas Industriais",
+      "Selantes Industriais",
+      "Desengripantes",
+      "Produtos Químicos para Peneiramento",
       "Reagentes Químicos",
-      "Graxas e Aditivos",
     ],
   },
+
+  {
+    nome: "Equipamentos Auxiliares e Ferramentas",
+    subcategorias: [
+      "Compressores - Estacionários",
+      "Compressores - Móveis",
+      "Geradores de Energia - Diesel",
+      "Geradores de Energia - Elétricos",
+      "Transformadores",
+      "Ferramentas Manuais - Picaretas, Marretas, Alavancas",
+      "Ferramentas Manuais - Chaves e Ajustes",
+      "Serras para Metais e Rochas",
+      "Ferramentas Elétricas",
+      "Mangueiras e Conexões Hidráulicas",
+      "Iluminação Industrial",
+      "Abraçadeiras e Fixadores",
+      "Soldas e Eletrodos",
+      "Equipamentos de Limpeza Industrial",
+      "Gruas e Guindastes Fixos",
+      "Plataformas de Acesso",
+      "Balanças Industriais",
+      "Equipamentos de Pesagem de Caminhões",
+      "Kits de Ferramentas Manuais",
+    ],
+  },
+
+  {
+    nome: "EPIs, Segurança e Sinalização",
+    subcategorias: [
+      "EPI - Capacetes",
+      "EPI - Luvas",
+      "EPI - Botas",
+      "EPI - Óculos",
+      "EPI - Respiradores",
+      "EPI - Protetores Auriculares",
+      "EPI - Colete Refletivo",
+      "Sinalização - Placas",
+      "Sinalização - Barreiras Físicas",
+      "Sinalização - Alarmes Sonoros e Visuais",
+      "Sistemas de Combate a Incêndio - Extintores",
+      "Sistemas de Combate a Incêndio - Hidrantes",
+      "Sistemas de Combate a Incêndio - Mangueiras",
+      "Monitoramento de Gases e Riscos",
+      "Barreiras de Contenção de Áreas de Risco",
+    ],
+  },
+
+  {
+    nome: "Instrumentos de Medição e Controle",
+    subcategorias: [
+      "Monitoramento de Estabilidade - Inclinômetros",
+      "Monitoramento de Estabilidade - Extensômetros",
+      "Análise de Material - Teor de Umidade",
+      "Análise de Material - Granulometria (peneiras de ensaio)",
+      "Sensores de Nível e Vazão",
+      "Sistemas de Controle Remoto",
+    ],
+  },
+
   {
     nome: "Serviços e Manutenção",
     subcategorias: [
@@ -195,27 +326,20 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Treinamento de Operadores",
       "Instalação de Equipamentos",
       "Inspeção de Segurança Industrial",
+      "Usinagem e Caldeiraria",
     ],
   },
+
   {
-    nome: "Segurança e Sinalização",
+    nome: "Veículos e Pneus",
     subcategorias: [
-      "EPI - Capacetes",
-      "EPI - Luvas",
-      "EPI - Botas",
-      "EPI - Óculos",
-      "EPI - Respiradores",
-      "EPI - Protetores Auriculares",
-      "Sinalização - Placas",
-      "Sinalização - Barreiras Físicas",
-      "Sinalização - Alarmes Sonoros e Visuais",
-      "Sistemas de Combate a Incêndio - Extintores",
-      "Sistemas de Combate a Incêndio - Hidrantes",
-      "Sistemas de Combate a Incêndio - Mangueiras",
-      "Monitoramento de Gases e Riscos",
-      "Barreiras de Contenção de Áreas de Risco",
+      "Pneus Industriais (Caminhão, Pá Carregadeira, Empilhadeira)",
+      "Rodas e Aros",
+      "Recapagens e Reformas de Pneus",
+      "Serviços de Montagem e Balanceamento",
     ],
   },
+
   {
     nome: "Infraestrutura e Armazenamento",
     subcategorias: [
@@ -230,6 +354,7 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Estradas Internas e Ramais Ferroviários",
     ],
   },
+
   {
     nome: "Laboratório e Controle de Qualidade",
     subcategorias: [
@@ -243,6 +368,7 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Testes de Densidade e Composição Química",
     ],
   },
+
   {
     nome: "Energia e Utilidades",
     subcategorias: [
@@ -255,18 +381,7 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Sistemas de Ventilação e Exaustão",
     ],
   },
-  {
-    nome: "Automação, Monitoramento e TI",
-    subcategorias: [
-      "Sistemas SCADA",
-      "Sensores de Nível, Fluxo e Pressão",
-      "Câmeras de Monitoramento",
-      "Rádios e Comunicação Industrial",
-      "Softwares de Planejamento de Produção",
-      "IoT e Telemetria para Máquinas",
-      "Drones para Inspeção",
-    ],
-  },
+
   {
     nome: "Meio Ambiente e Sustentabilidade",
     subcategorias: [
@@ -278,6 +393,7 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Sistemas de Reciclagem de Água e Lama",
     ],
   },
+
   {
     nome: "Transporte Externo",
     subcategorias: [
@@ -287,6 +403,20 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Transporte Especializado de Explosivos e Químicos",
     ],
   },
+
+  {
+    nome: "Aluguel e Locação de Equipamentos",
+    subcategorias: [
+      "Britadores Móveis",
+      "Peneiras Móveis",
+      "Perfuratrizes",
+      "Linha Amarela",
+      "Caminhões e Guindastes",
+      "Geradores e Compressores Portáteis",
+      "Plataformas de Carregamento e Manutenção",
+    ],
+  },
+
   {
     nome: "Equipamentos Auxiliares",
     subcategorias: [
@@ -300,11 +430,24 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
   },
 
   {
-    nome: "Outros",
+    nome: "Materiais e Insumos",
     subcategorias: [
-      "Diversos"
-    ]
-  }
+      "Minérios e Agregados",
+      "Produtos Químicos para Beneficiamento",
+      "Lubrificantes e Óleos Industriais",
+      "Explosivos",
+      "Combustíveis",
+      "Água Industrial",
+      "Areia, Cascalho, Brita",
+      "Reagentes Químicos",
+      "Graxas e Aditivos",
+    ],
+  },
+
+  {
+    nome: "Outros",
+    subcategorias: ["Diversos"],
+  },
 ]);
 
 /** ===================== Hook ===================== */
@@ -343,7 +486,9 @@ export function useTaxonomia() {
       }
     })();
 
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   return { categorias, loading };

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { mapAntigoParaNovo } from "@/lib/mapCategorias";
 import { db, auth } from "@/firebaseConfig";
 import {
   doc,
@@ -33,149 +34,18 @@ import {
   FileText,
   Upload,
 } from "lucide-react";
+import { useTaxonomia } from "@/hooks/useTaxonomia";
 
 /** ==== PDF (SSR off para evitar erro no Next) ==== */
 const PDFUploader = dynamic(() => import("@/components/PDFUploader"), { ssr: false });
 const DrivePDFViewer = dynamic(() => import("@/components/DrivePDFViewer"), { ssr: false });
 
-/** =========================
- *  Taxonomia (Categoria → Subcategorias)
- *  ========================= */
-const TAXONOMIA: Record<string, string[]> = {
-  "Equipamentos de Perfuração e Demolição": [
-    "Perfuratrizes",
-    "Rompedores/Martelos",
-    "Bits/Brocas",
-    "Carretas de Perfuração",
-    "Compressores",
-    "Ferramentas de Demolição",
-  ],
-  "Equipamentos de Carregamento e Transporte": [
-    "Pás-Carregadeiras",
-    "Escavadeiras",
-    "Retroescavadeiras",
-    "Caminhões Fora-de-Estrada",
-    "Tratores de Esteiras",
-    "Motoniveladoras",
-  ],
-  "Britagem e Classificação": [
-    "Britador de Mandíbulas",
-    "Britador Cônico",
-    "Britador de Impacto",
-    "Peneiras Vibratórias",
-    "Alimentadores",
-    "Correias Transportadoras",
-  ],
-  "Beneficiamento e Processamento Mineral": [
-    "Moinhos (Bolas/Rolos)",
-    "Ciclones",
-    "Classificadores Espirais",
-    "Espessadores",
-    "Flotação",
-    "Bombas de Polpa",
-  ],
-  "Peças e Componentes Industriais": [
-    "Motores",
-    "Transmissões/Redutores",
-    "Sistemas Hidráulicos",
-    "Sistemas Elétricos",
-    "Filtros e Filtração",
-    "Mangueiras/Conexões",
-  ],
-  "Desgaste e Revestimento": [
-    "Revestimento de Britadores",
-    "Chapas AR",
-    "Dentes/Lâminas",
-    "Placas Cerâmicas",
-    "Revestimentos de Borracha",
-  ],
-  "Automação, Elétrica e Controle": [
-    "CLPs/Controladores",
-    "Sensores/Instrumentação",
-    "Inversores/Soft-Starters",
-    "Painéis/Quadros",
-    "SCADA/Supervisório",
-  ],
-  "Lubrificação e Produtos Químicos": [
-    "Óleos e Graxas",
-    "Sistemas Centralizados",
-    "Aditivos",
-    "Reagentes de Flotação",
-    "Desincrustantes/Limpeza",
-  ],
-  "Equipamentos Auxiliares e Ferramentas": [
-    "Geradores",
-    "Soldagem/Corte",
-    "Bombas",
-    "Ferramentas de Torque",
-    "Compressores Auxiliares",
-  ],
-  "EPIs (Equipamentos de Proteção Individual)": [
-    "Capacetes",
-    "Luvas",
-    "Óculos/Face Shield",
-    "Respiradores",
-    "Protetores Auriculares",
-    "Botas",
-  ],
-  "Instrumentos de Medição e Controle": [
-    "Vibração/Análise",
-    "Alinhamento a Laser",
-    "Balanças/Pesagem",
-    "Medidores de Espessura",
-    "Termografia",
-  ],
-  "Manutenção e Serviços Industriais": [
-    "Mecânica Pesada",
-    "Caldeiraria/Solda",
-    "Usinagem",
-    "Alinhamento/Balanceamento",
-    "Inspeções/NR",
-    "Elétrica/Automação",
-  ],
-  "Veículos e Pneus": [
-    "Pickups/Utilitários",
-    "Caminhões 3/4",
-    "Empilhadeiras",
-    "Pneus OTR",
-    "Recapagem/Serviços",
-  ],
-  Outros: ["Diversos"],
-};
-
-const CATEGORIAS = Object.keys(TAXONOMIA);
+/* ========= Constantes ========= */
 const MAX_CATEGORIAS = 5;
 
-/* ========= Constantes ========= */
 const estados = [
-  "BRASIL",
-  "AC",
-  "AL",
-  "AP",
-  "AM",
-  "BA",
-  "CE",
-  "DF",
-  "ES",
-  "GO",
-  "MA",
-  "MT",
-  "MS",
-  "MG",
-  "PA",
-  "PB",
-  "PR",
-  "PE",
-  "PI",
-  "RJ",
-  "RN",
-  "RS",
-  "RO",
-  "RR",
-  "SC",
-  "SP",
-  "SE",
-  "TO",
+  "BRASIL","AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
+  "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"
 ];
 
 const diasSemana = [
@@ -188,13 +58,14 @@ const diasSemana = [
   { key: "dom", label: "Domingo" },
 ];
 
+/** ====== Tipos ====== */
 type AgendaDia = { ativo: boolean; das: string; ate: string };
 type CategoriaPair = { categoria: string; subcategoria: string };
 
 type PerfilForm = {
   id: string;
 
-  // ===== Patrocinador =====
+  // Patrocínio
   isPatrocinador?: boolean;
   patrocinadorDesde?: any;
   patrocinadorAte?: any;
@@ -212,22 +83,20 @@ type PerfilForm = {
   prestaServicos: boolean;
   vendeProdutos: boolean;
 
-  // Pares (fonte da verdade)
+  // Fonte da verdade
   categoriasAtuacaoPairs: CategoriaPair[];
 
-  // Legado/compat
+  // Legado
   categoriasAtuacao: string[];
 
   atendeBrasil: boolean;
   ufsAtendidas: string[];
 
   agenda: Record<string, AgendaDia>;
-  portfolioImagens: string[];
 
-  // Portfólio PDFs
+  portfolioImagens: string[];
   portfolioPDFs?: string[];
   portfolioPdfUrl?: string | null;
-
   portfolioVideos: string[];
 
   leadPreferencias: {
@@ -240,7 +109,7 @@ type PerfilForm = {
   mpConnected?: boolean;
   mpStatus?: string;
 
-  // -------- Extras do Admin --------
+  // Extras do Admin
   status?: "ativo" | "suspenso" | "banido";
   verificado?: boolean;
   role?: "user" | "seller" | "admin";
@@ -260,8 +129,60 @@ type PerfilForm = {
   requirePasswordChange?: boolean;
 };
 
+/** =========================
+ * Helpers compartilhados (harmonizados com /perfil)
+ * ========================= */
+const norm = (s: string = "") =>
+  s.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+function onlyDigits(v: string) { return (v || "").replace(/\D/g, ""); }
+
+function maskBRFrom55(input: string) {
+  const d = onlyDigits(input || "");
+  const body = d.startsWith("55") ? d.slice(2) : d;
+  const ddd = body.slice(0, 2);
+  const num = body.slice(2);
+  if (!ddd) return "+55 ";
+  let masked = `+55 (${ddd}) `;
+  if (num.length <= 4) return masked + num;
+  if (num.length <= 8) return masked + `${num.slice(0, 4)}-${num.slice(4)}`;
+  return masked + `${num.slice(0, 5)}-${num.slice(5)}`;
+}
+function toDigits55FromFree(input: string) {
+  const d = onlyDigits(input || "");
+  return d.startsWith("55") ? d : (d ? `55${d}` : "");
+}
+
+function dedupPairs(pairs: CategoriaPair[]) {
+  const m = new Map<string, CategoriaPair>();
+  for (const p of pairs) m.set(`${norm(p.categoria)}::${norm(p.subcategoria)}`, p);
+  return Array.from(m.values());
+}
+const buildCategoriesAll = (pairs: CategoriaPair[], legacy: string[] = []) => {
+  const set = new Set<string>((legacy || []).filter(Boolean));
+  for (const p of pairs) set.add(p.categoria);
+  return Array.from(set);
+};
+const buildPairsSearch = (pairs: CategoriaPair[] = []) =>
+  pairs
+    .filter((p) => p.categoria && p.subcategoria)
+    .map((p) => `${norm(p.categoria)}::${norm(p.subcategoria)}`);
+const buildUfsSearch = (atendeBrasil: boolean, ufsAtendidas: string[] = []) => {
+  const arr = (ufsAtendidas || []).map((u) => String(u).trim().toUpperCase());
+  if (atendeBrasil && !arr.includes("BRASIL")) arr.push("BRASIL");
+  return Array.from(new Set(arr));
+};
+
+// traduz estrutura do hook para nomes de subcategorias (igual ao /perfil)
+function toSubcatNames(arr: any[] | undefined): string[] {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((s) => (typeof s === "string" ? s : (s?.nome ?? ""))).filter(Boolean);
+}
+
+/** =========================
+ * Página
+ * ========================= */
 export default function AdminEditarUsuarioPage() {
-  // useParams pode retornar string | string[]
   const params = useParams() as { id?: string | string[] };
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id || "";
 
@@ -271,13 +192,20 @@ export default function AdminEditarUsuarioPage() {
 
   const [form, setForm] = useState<PerfilForm | null>(null);
 
+  // ==== Taxonomia centralizada (harmonizada com /perfil) ====
+  const { categorias, loading: taxLoading } = useTaxonomia();
+  const nomesCategorias = useMemo(() => categorias.map((c) => c.nome), [categorias]);
+
   // ====== UI: seleção de pares (categoria + várias subcategorias) ======
   const [selCategoria, setSelCategoria] = useState("");
   const [selSubcats, setSelSubcats] = useState<string[]>([]);
-  const subcatsDaSelecionada = selCategoria ? TAXONOMIA[selCategoria] || [] : [];
+  const subcatsDaSelecionada = useMemo(() => {
+    if (!selCategoria) return [];
+    const cat = categorias.find((c) => c.nome === selCategoria);
+    return toSubcatNames(cat?.subcategorias);
+  }, [selCategoria, categorias]);
 
-  // Vídeos/PDFs (inputs)
-  const [novoVideo, setNovoVideo] = useState("");
+  // PDFs
   const [pdfExpandido, setPdfExpandido] = useState<string | null>(null);
 
   // modal de senha
@@ -291,30 +219,6 @@ export default function AdminEditarUsuarioPage() {
   // avatar como lista pro ImageUploader
   const avatarLista = useMemo(() => (form?.avatar ? [form.avatar] : []), [form?.avatar]);
 
-  // ===== Helpers =====
-  const norm = (s: string = "") =>
-    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").trim().toLowerCase();
-
-  function dedupPairs(pairs: CategoriaPair[]) {
-    const m = new Map<string, CategoriaPair>();
-    for (const p of pairs) m.set(`${norm(p.categoria)}::${norm(p.subcategoria)}`, p);
-    return Array.from(m.values());
-  }
-  const buildCategoriesAll = (pairs: CategoriaPair[], legacy: string[] = []) => {
-    const set = new Set<string>((legacy || []).filter(Boolean));
-    for (const p of pairs) set.add(p.categoria);
-    return Array.from(set);
-  };
-  const buildPairsSearch = (pairs: CategoriaPair[] = []) =>
-    pairs
-      .filter((p) => p.categoria && p.subcategoria)
-      .map((p) => `${norm(p.categoria)}::${norm(p.subcategoria)}`);
-  const buildUfsSearch = (atendeBrasil: boolean, ufsAtendidas: string[] = []) => {
-    const arr = (ufsAtendidas || []).map((u) => String(u).trim().toUpperCase());
-    if (atendeBrasil && !arr.includes("BRASIL")) arr.push("BRASIL");
-    return Array.from(new Set(arr));
-  };
-
   useEffect(() => {
     (async () => {
       try {
@@ -327,6 +231,7 @@ export default function AdminEditarUsuarioPage() {
           return;
         }
         const data = snap.data() || {};
+
         const baseAgenda = Object.fromEntries(
           diasSemana.map((d) => [d.key, { ativo: d.key !== "dom", das: "08:00", ate: "18:00" }])
         ) as Record<string, AgendaDia>;
@@ -352,7 +257,8 @@ export default function AdminEditarUsuarioPage() {
           patrocinadorAte: data.patrocinadorAte || null,
 
           email: data.email || "",
-          telefone: data.telefone || data.whatsapp || "",
+          telefone: data.whatsappE164 ? maskBRFrom55(data.whatsappE164)
+                   : (data.whatsapp ? maskBRFrom55(data.whatsapp) : (data.telefone || "")),
           cidade: data.cidade || "",
           estado: data.estado || "",
           cpf_cnpj: data.cpf_cnpj || data.cpfCnpj || "",
@@ -370,6 +276,7 @@ export default function AdminEditarUsuarioPage() {
           ufsAtendidas: data.ufsAtendidas || [],
 
           agenda: data.agenda || baseAgenda,
+
           portfolioImagens: data.portfolioImagens || [],
           portfolioVideos: data.portfolioVideos || [],
           portfolioPDFs: pdfs,
@@ -418,6 +325,127 @@ export default function AdminEditarUsuarioPage() {
     setForm({ ...form, [key]: value });
   }
 
+  /** ======= MIGRAÇÃO LEGADO → NOVO (igual conceito do /perfil) ======= */
+  function migrarEsteUsuarioLocalmente() {
+    if (!form) return;
+
+    const legacyStrings: string[] = [
+      ...(Array.isArray((form as any).categorias) ? (form as any).categorias : []),
+      ...(Array.isArray(form.categoriasAtuacao) ? form.categoriasAtuacao : []),
+      ...((form.categoriasAtuacaoPairs || []).map((p) => [p?.categoria, p?.subcategoria].filter(Boolean).join(" "))),
+    ].filter(Boolean);
+
+    if (legacyStrings.length === 0) {
+      setMsg("Nenhuma categoria legada encontrada neste usuário.");
+      setTimeout(() => setMsg(""), 4000);
+      return;
+    }
+
+    const mapped = legacyStrings.map((txt) => mapAntigoParaNovo(String(txt)));
+
+    const key = (c: string, s: string) =>
+      `${norm(c)}::${norm(s)}`;
+    const map = new Map<string, { categoria: string; subcategoria: string }>();
+    for (const p of mapped) map.set(key(p.categoria, p.subcategoria), p);
+    const dedup = Array.from(map.values());
+
+    const distinctCats = Array.from(new Set(dedup.map((p) => p.categoria)));
+    let finais = dedup;
+    let catsUsadas = distinctCats;
+
+    if (distinctCats.length > MAX_CATEGORIAS) {
+      const freq = new Map<string, number>();
+      for (const p of dedup) freq.set(p.categoria, (freq.get(p.categoria) || 0) + 1);
+      const topCats = distinctCats.sort((a, b) => (freq.get(b)! - freq.get(a)!)).slice(0, MAX_CATEGORIAS);
+      finais = dedup.filter((p) => topCats.includes(p.categoria));
+      catsUsadas = topCats;
+    }
+
+    setForm({
+      ...form,
+      categoriasAtuacaoPairs: finais,
+      categoriasAtuacao: catsUsadas,
+    });
+
+    setMsg("Categorias antigas mapeadas para a taxonomia nova. Revise e clique em “Salvar Alterações”.");
+    setTimeout(() => setMsg(""), 4000);
+  }
+
+  // ======= Subcategorias — UI helpers =======
+  const selectedCategoriasSet = useMemo(
+    () => new Set((form?.categoriasAtuacaoPairs || []).map((p) => p.categoria)),
+    [form?.categoriasAtuacaoPairs]
+  );
+  const selectedCategorias = useMemo(() => Array.from(selectedCategoriasSet), [selectedCategoriasSet]);
+
+  function toggleSubcat(sc: string) {
+    setSelSubcats((curr) => (curr.includes(sc) ? curr.filter((s) => s !== sc) : [...curr, sc]));
+  }
+  function marcarTodas() {
+    setSelSubcats(subcatsDaSelecionada);
+  }
+  function limparSelecao() {
+    setSelSubcats([]);
+  }
+
+  function addParesSelecionados() {
+    if (!form) return;
+    if (!selCategoria) {
+      setMsg("Selecione uma categoria.");
+      return;
+    }
+    if (!selSubcats.length) {
+      setMsg("Marque uma ou mais subcategorias.");
+      return;
+    }
+
+    // limite de 5 categorias
+    const isCategoriaNova = !selectedCategoriasSet.has(selCategoria);
+    if (isCategoriaNova && selectedCategoriasSet.size >= MAX_CATEGORIAS) {
+      setMsg(`Você já tem ${MAX_CATEGORIAS}/${MAX_CATEGORIAS} categorias. Remova uma para adicionar outra.`);
+      return;
+    }
+
+    const novos = selSubcats.map((s) => ({ categoria: selCategoria, subcategoria: s }));
+    const futuros = dedupPairs([...(form.categoriasAtuacaoPairs || []), ...novos]);
+    const categoriasDistintas = Array.from(new Set(futuros.map((p) => p.categoria)));
+    if (categoriasDistintas.length > MAX_CATEGORIAS) {
+      setMsg(`Máximo de ${MAX_CATEGORIAS} categorias distintas.`);
+      return;
+    }
+    setForm({ ...form, categoriasAtuacaoPairs: futuros, categoriasAtuacao: categoriasDistintas });
+    setSelCategoria("");
+    setSelSubcats([]);
+  }
+
+  function removeParCategoria(par: CategoriaPair) {
+    if (!form) return;
+    const futuros = (form.categoriasAtuacaoPairs || []).filter(
+      (p) => !(p.categoria === par.categoria && p.subcategoria === par.subcategoria)
+    );
+    const categoriasDistintas = Array.from(new Set(futuros.map((p) => p.categoria)));
+    setForm({ ...form, categoriasAtuacaoPairs: futuros, categoriasAtuacao: categoriasDistintas });
+  }
+
+  // ======= PDFs =======
+  function addPDF(url: string) {
+    if (!form) return;
+    const v = (url || "").trim();
+    if (!v) return;
+    setForm({ ...form, portfolioPDFs: Array.from(new Set([...(form.portfolioPDFs || []), v])) });
+  }
+  function removePDF(url: string) {
+    if (!form) return;
+    setForm({ ...form, portfolioPDFs: (form.portfolioPDFs || []).filter((u) => u !== url) });
+    if (pdfExpandido === url) setPdfExpandido(null);
+  }
+
+  // ======= Imagens: remover =======
+  function removeImagem(url: string) {
+    if (!form) return;
+    setForm({ ...form, portfolioImagens: (form.portfolioImagens || []).filter((u) => u !== url) });
+  }
+
   // === salvar SINCRONIZANDO com os campos que o /perfil usa ===
   async function salvar(e?: React.FormEvent) {
     e?.preventDefault();
@@ -456,11 +484,20 @@ export default function AdminEditarUsuarioPage() {
       const pdfList = form.portfolioPDFs || [];
       const firstPdf = pdfList[0] || null;
 
+      // WhatsApp: normaliza como no /perfil
+      const wDigits55 = form.telefone ? toDigits55FromFree(form.telefone) : "";
+      const wE164 = wDigits55 ? `+${wDigits55}` : "";
+
       await updateDoc(doc(db, "usuarios", form.id), {
         // Identidade
         nome: form.nome,
         email: form.email,
         telefone: form.telefone || "",
+
+        // WhatsApp normalizado (harmonia com /perfil)
+        whatsapp: wDigits55 || "",
+        whatsappE164: wE164 || "",
+
         cidade: form.estado === "BRASIL" ? "" : form.cidade || "",
         estado: form.estado || "",
         cpf_cnpj: form.cpf_cnpj || "",
@@ -601,81 +638,6 @@ export default function AdminEditarUsuarioPage() {
     }
   }
 
-  // ======= Subcategorias — UI helpers =======
-  const selectedCategoriasSet = useMemo(
-    () => new Set((form?.categoriasAtuacaoPairs || []).map((p) => p.categoria)),
-    [form?.categoriasAtuacaoPairs]
-  );
-  const selectedCategorias = useMemo(() => Array.from(selectedCategoriasSet), [selectedCategoriasSet]);
-
-  function toggleSubcat(sc: string) {
-    setSelSubcats((curr) => (curr.includes(sc) ? curr.filter((s) => s !== sc) : [...curr, sc]));
-  }
-  function marcarTodas() {
-    setSelSubcats(subcatsDaSelecionada);
-  }
-  function limparSelecao() {
-    setSelSubcats([]);
-  }
-
-  function addParesSelecionados() {
-    if (!form) return;
-    if (!selCategoria) {
-      setMsg("Selecione uma categoria.");
-      return;
-    }
-    if (!selSubcats.length) {
-      setMsg("Marque uma ou mais subcategorias.");
-      return;
-    }
-
-    // respeitar limite de 5 categorias
-    const isCategoriaNova = !selectedCategoriasSet.has(selCategoria);
-    if (isCategoriaNova && selectedCategoriasSet.size >= MAX_CATEGORIAS) {
-      setMsg(`Você já tem ${MAX_CATEGORIAS}/${MAX_CATEGORIAS} categorias. Remova uma para adicionar outra.`);
-      return;
-    }
-
-    const novos = selSubcats.map((s) => ({ categoria: selCategoria, subcategoria: s }));
-    const futuros = dedupPairs([...(form.categoriasAtuacaoPairs || []), ...novos]);
-    const categoriasDistintas = Array.from(new Set(futuros.map((p) => p.categoria)));
-    if (categoriasDistintas.length > MAX_CATEGORIAS) {
-      setMsg(`Máximo de ${MAX_CATEGORIAS} categorias distintas.`);
-      return;
-    }
-    setForm({ ...form, categoriasAtuacaoPairs: futuros, categoriasAtuacao: categoriasDistintas });
-    setSelCategoria("");
-    setSelSubcats([]);
-  }
-
-  function removeParCategoria(par: CategoriaPair) {
-    if (!form) return;
-    const futuros = (form.categoriasAtuacaoPairs || []).filter(
-      (p) => !(p.categoria === par.categoria && p.subcategoria === par.subcategoria)
-    );
-    const categoriasDistintas = Array.from(new Set(futuros.map((p) => p.categoria)));
-    setForm({ ...form, categoriasAtuacaoPairs: futuros, categoriasAtuacao: categoriasDistintas });
-  }
-
-  // ======= PDFs =======
-  function addPDF(url: string) {
-    if (!form) return;
-    const v = (url || "").trim();
-    if (!v) return;
-    setForm({ ...form, portfolioPDFs: Array.from(new Set([...(form.portfolioPDFs || []), v])) });
-  }
-  function removePDF(url: string) {
-    if (!form) return;
-    setForm({ ...form, portfolioPDFs: (form.portfolioPDFs || []).filter((u) => u !== url) });
-    if (pdfExpandido === url) setPdfExpandido(null);
-  }
-
-  // ======= Imagens: remover =======
-  function removeImagem(url: string) {
-    if (!form) return;
-    setForm({ ...form, portfolioImagens: (form.portfolioImagens || []).filter((u) => u !== url) });
-  }
-
   if (loading) {
     return (
       <section style={{ maxWidth: 980, margin: "0 auto", padding: "50px 2vw 70px 2vw" }}>
@@ -742,9 +704,7 @@ export default function AdminEditarUsuarioPage() {
             </div>
 
             <div className="grid gap-4">
-              <label className="label" htmlFor="nome">
-                Nome
-              </label>
+              <label className="label" htmlFor="nome">Nome</label>
               <input
                 id="nome"
                 className="input"
@@ -753,14 +713,15 @@ export default function AdminEditarUsuarioPage() {
                 required
               />
 
-              <label className="label" htmlFor="email">
-                E-mail
-              </label>
-              <input id="email" className="input" value={form.email} onChange={(e) => setField("email", e.target.value)} />
+              <label className="label" htmlFor="email">E-mail</label>
+              <input
+                id="email"
+                className="input"
+                value={form.email}
+                onChange={(e) => setField("email", e.target.value)}
+              />
 
-              <label className="label" htmlFor="whatsapp">
-                WhatsApp
-              </label>
+              <label className="label" htmlFor="whatsapp">WhatsApp</label>
               <input
                 id="whatsapp"
                 className="input"
@@ -771,9 +732,7 @@ export default function AdminEditarUsuarioPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="label" htmlFor="uf">
-                    Estado (UF)
-                  </label>
+                  <label className="label" htmlFor="uf">Estado (UF)</label>
                   <select
                     id="uf"
                     className="input"
@@ -782,16 +741,12 @@ export default function AdminEditarUsuarioPage() {
                   >
                     <option value="">Selecione</option>
                     {estados.map((uf) => (
-                      <option key={uf} value={uf}>
-                        {uf}
-                      </option>
+                      <option key={uf} value={uf}>{uf}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="label" htmlFor="cidade">
-                    Cidade
-                  </label>
+                  <label className="label" htmlFor="cidade">Cidade</label>
                   <input
                     id="cidade"
                     className="input"
@@ -803,9 +758,7 @@ export default function AdminEditarUsuarioPage() {
                 </div>
               </div>
 
-              <label className="label" htmlFor="cpfCnpj">
-                CPF ou CNPJ
-              </label>
+              <label className="label" htmlFor="cpfCnpj">CPF ou CNPJ</label>
               <input
                 id="cpfCnpj"
                 className="input"
@@ -813,9 +766,7 @@ export default function AdminEditarUsuarioPage() {
                 onChange={(e) => setField("cpf_cnpj", e.target.value)}
               />
 
-              <label className="label" htmlFor="bio">
-                Bio / Sobre
-              </label>
+              <label className="label" htmlFor="bio">Bio / Sobre</label>
               <textarea
                 id="bio"
                 className="input"
@@ -830,6 +781,23 @@ export default function AdminEditarUsuarioPage() {
         {/* Atuação (categorias + SUBCATEGORIAS) */}
         <div className="card">
           <div className="card-title">Atuação</div>
+
+          {/* MIGRAR CATEGORIAS (LEGADO -> NOVO) */}
+          <div className="flex items-center gap-3" style={{ margin: "6px 0 10px" }}>
+            <button
+              type="button"
+              className="btn-sec"
+              onClick={migrarEsteUsuarioLocalmente}
+              style={{ borderWidth: 2, fontWeight: 900 }}
+              title="Mapear categorias antigas para a taxonomia nova (este usuário)"
+            >
+              🔁 Migrar categorias antigas → novas (este usuário)
+            </button>
+            <small style={{ color: "#475569" }}>
+              Usa equivalências e respeita limite de {MAX_CATEGORIAS} categorias.
+            </small>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
             <div className="grid gap-2">
               <label className="checkbox">
@@ -863,12 +831,13 @@ export default function AdminEditarUsuarioPage() {
                   setSelCategoria(e.target.value);
                   setSelSubcats([]);
                 }}
+                disabled={taxLoading}
               >
-                <option value="">Selecionar categoria...</option>
-                {CATEGORIAS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
+                <option value="">
+                  {taxLoading ? "Carregando categorias..." : "Selecionar categoria..."}
+                </option>
+                {nomesCategorias.map((c) => (
+                  <option key={c} value={c}>{c}</option>
                 ))}
               </select>
 
@@ -878,7 +847,7 @@ export default function AdminEditarUsuarioPage() {
                   Subcategorias da categoria selecionada
                 </div>
                 <div className="flex items-center gap-8" style={{ marginBottom: 8 }}>
-                  <button type="button" className="btn-sec" disabled={!selCategoria} onClick={marcarTodas}>
+                  <button type="button" className="btn-sec" disabled={!selCategoria || taxLoading} onClick={marcarTodas}>
                     Marcar tudo
                   </button>
                   <button type="button" className="btn-sec" disabled={!selCategoria} onClick={limparSelecao}>
@@ -896,7 +865,7 @@ export default function AdminEditarUsuarioPage() {
 
                 <div className="subcat-grid">
                   {selCategoria ? (
-                    subcatsDaSelecionada.map((s) => {
+                    (subcatsDaSelecionada.length ? subcatsDaSelecionada : []).map((s) => {
                       const checked = selSubcats.includes(s);
                       return (
                         <button
@@ -1204,51 +1173,7 @@ export default function AdminEditarUsuarioPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10" style={{ marginTop: 18 }}>
             <div>
               <div className="label">Vídeos (URLs YouTube/Vimeo)</div>
-              <div className="flex gap-2">
-                <input
-                  className="input"
-                  placeholder="https://..."
-                  value={novoVideo}
-                  onChange={(e) => setNovoVideo(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      if (!novoVideo.trim()) return;
-                      setField("portfolioVideos", [...form.portfolioVideos, novoVideo.trim()]);
-                      setNovoVideo("");
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  className="btn-sec"
-                  onClick={() => {
-                    if (!novoVideo.trim()) return;
-                    setField("portfolioVideos", [...form.portfolioVideos, novoVideo.trim()]);
-                    setNovoVideo("");
-                  }}
-                >
-                  + Adicionar
-                </button>
-              </div>
-              {form.portfolioVideos.length > 0 && (
-                <ul style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                  {form.portfolioVideos.map((v) => (
-                    <li key={v} className="video-row">
-                      <a href={v} target="_blank" rel="noopener noreferrer" className="a">
-                        {v}
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => setField("portfolioVideos", form.portfolioVideos.filter((x) => x !== v))}
-                        title="Remover"
-                      >
-                        ×
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <VideoList form={form} setField={setField} />
             </div>
           </div>
         </div>
@@ -1287,9 +1212,7 @@ export default function AdminEditarUsuarioPage() {
             <div className="panel-section">
               <div className="section-title">Conta</div>
 
-              <label className="label" htmlFor="statusConta">
-                Status da conta
-              </label>
+              <label className="label" htmlFor="statusConta">Status da conta</label>
               <select
                 id="statusConta"
                 className="input"
@@ -1303,9 +1226,7 @@ export default function AdminEditarUsuarioPage() {
 
               <div className="divider" />
 
-              <label className="label" htmlFor="obsInternas">
-                Observações internas
-              </label>
+              <label className="label" htmlFor="obsInternas">Observações internas</label>
               <textarea
                 id="obsInternas"
                 className="input"
@@ -1553,9 +1474,7 @@ export default function AdminEditarUsuarioPage() {
           >
             <h3 style={{ fontWeight: 900, color: "#023047", fontSize: 20, marginBottom: 12 }}>Definir nova senha</h3>
 
-            <label className="label" htmlFor="novaSenha">
-              Nova senha
-            </label>
+            <label className="label" htmlFor="novaSenha">Nova senha</label>
             <div style={{ position: "relative" }}>
               <input
                 id="novaSenha"
@@ -1578,9 +1497,7 @@ export default function AdminEditarUsuarioPage() {
               </button>
             </div>
 
-            <label className="label" htmlFor="confirmaSenha" style={{ marginTop: 12 }}>
-              Confirmar senha
-            </label>
+            <label className="label" htmlFor="confirmaSenha" style={{ marginTop: 12 }}>Confirmar senha</label>
             <input
               id="confirmaSenha"
               type={pwdVisible ? "text" : "password"}
@@ -1614,285 +1531,117 @@ export default function AdminEditarUsuarioPage() {
 
       {/* CSS utilitário + admin-panel */}
       <style jsx>{`
-        .card {
-          background: #fff;
-          border-radius: 20px;
-          box-shadow: 0 4px 28px #0001;
-          padding: 24px 22px;
-        }
-        .card-title {
-          font-weight: 900;
-          color: #023047;
-          font-size: 1.2rem;
-          margin-bottom: 14px;
-        }
-        .label {
-          font-weight: 800;
-          color: #023047;
-          margin-bottom: 6px;
-          display: block;
-        }
-        .input {
-          width: 100%;
-          border: 1.6px solid #e5e7eb;
-          border-radius: 10px;
-          background: #f8fafc;
-          padding: 11px 12px;
-          font-size: 16px;
-          color: #222;
-          outline: none;
-        }
-        .checkbox {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          font-weight: 700;
-          color: #023047;
-        }
-        .chips {
-          margin-top: 10px;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-        .chip {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          background: #f3f7ff;
-          color: #2563eb;
-          border: 1px solid #e0ecff;
-          padding: 6px 10px;
-          border-radius: 10px;
-          font-weight: 800;
-          font-size: 0.95rem;
-        }
-        .chip button {
-          background: none;
-          border: none;
-          color: #999;
-          font-weight: 900;
-          cursor: pointer;
-        }
-        .pill {
-          border: 1px solid #e6e9ef;
-          border-radius: 999px;
-          padding: 6px 10px;
-          font-weight: 800;
-          font-size: 0.95rem;
-        }
-        .btn-sec {
-          background: #f7f9fc;
-          color: #2563eb;
-          border: 1px solid #e0ecff;
-          font-weight: 800;
-          border-radius: 10px;
-          padding: 8px 12px;
-        }
-        .btn-gradient {
-          background: linear-gradient(90deg, #fb8500, #fb8500);
-          color: #fff;
-          font-weight: 900;
-          border: none;
-          border-radius: 14px;
-          padding: 14px 26px;
-          font-size: 1.08rem;
-          box-shadow: 0 4px 18px #fb850033;
-        }
-        .video-row {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          align-items: center;
-          gap: 8px;
-          background: #f7fafc;
-          border: 1px solid #e6edf6;
-          border-radius: 10px;
-          padding: 8px 10px;
-        }
-        .video-row .a {
-          color: #2563eb;
-          text-decoration: none;
-          font-weight: 700;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .video-row button {
-          background: none;
-          border: none;
-          color: #999;
-          font-weight: 900;
-          cursor: pointer;
-        }
+        .card { background: #fff; border-radius: 20px; box-shadow: 0 4px 28px #0001; padding: 24px 22px; }
+        .card-title { font-weight: 900; color: #023047; font-size: 1.2rem; margin-bottom: 14px; }
+        .label { font-weight: 800; color: #023047; margin-bottom: 6px; display: block; }
+        .input { width: 100%; border: 1.6px solid #e5e7eb; border-radius: 10px; background: #f8fafc; padding: 11px 12px; font-size: 16px; color: #222; outline: none; }
+        .checkbox { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: #023047; }
+        .chips { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; background: #f3f7ff; color: #2563eb; border: 1px solid #e0ecff; padding: 6px 10px; border-radius: 10px; font-weight: 800; font-size: 0.95rem; }
+        .chip button { background: none; border: none; color: #999; font-weight: 900; cursor: pointer; }
+        .pill { border: 1px solid #e6e9ef; border-radius: 999px; padding: 6px 10px; font-weight: 800; font-size: 0.95rem; }
+        .btn-sec { background: #f7f9fc; color: #2563eb; border: 1px solid #e0ecff; font-weight: 800; border-radius: 10px; padding: 8px 12px; }
+        .btn-gradient { background: linear-gradient(90deg,#fb8500,#fb8500); color: #fff; font-weight: 900; border: none; border-radius: 14px; padding: 14px 26px; font-size: 1.08rem; box-shadow: 0 4px 18px #fb850033; }
 
         /* Subcategorias */
-        .subcat-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px;
-        }
-        .subcat-pill {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          border: 1px solid;
-          border-radius: 10px;
-          padding: 8px 10px;
-          font-weight: 800;
-        }
+        .subcat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .subcat-pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid; border-radius: 10px; padding: 8px 10px; font-weight: 800; }
         @media (max-width: 650px) {
-          .card {
-            padding: 18px 14px;
-            border-radius: 14px;
-          }
-          .subcat-grid {
-            grid-template-columns: 1fr;
-          }
+          .card { padding: 18px 14px; border-radius: 14px; }
+          .subcat-grid { grid-template-columns: 1fr; }
         }
 
         /* ===== admin-panel ===== */
-        .admin-panel {
-          padding: 20px 20px 22px;
-        }
-        .admin-panel__header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 14px;
-        }
-        .admin-panel__title {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          font-weight: 900;
-          color: #023047;
-          font-size: 1.1rem;
-        }
-        .admin-panel__toolbar {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .section-title {
-          font-weight: 900;
-          color: #0f172a;
-          margin-bottom: 8px;
-          font-size: 1rem;
-        }
-        .section-title.inline {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .section-subtitle {
-          font-weight: 800;
-          color: #334155;
-          margin-bottom: 6px;
-        }
-
-        .panel-section {
-          display: grid;
-          gap: 10px;
-        }
-        .divider {
-          height: 1px;
-          background: linear-gradient(90deg, #0000, #e9eef9, #0000);
-          margin: 6px 0 4px 0;
-        }
-
-        .badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 10px;
-          border-radius: 999px;
-          font-weight: 900;
-          font-size: 12px;
-          border: 1px solid #e6edf6;
-          background: #f3f7ff;
-          color: #2563eb;
-        }
-        .badge-success {
-          background: #ecfdf5;
-          border-color: #baf3cd;
-          color: #059669;
-        }
-        .badge-warn {
-          background: #fff7ed;
-          border-color: #ffedd5;
-          color: #9a3412;
-        }
-        .badge-danger {
-          background: #fff1f2;
-          border-color: #ffe0e6;
-          color: #be123c;
-        }
-        .badge-info {
-          background: #ecfeff;
-          border-color: #bae6fd;
-          color: #0ea5e9;
-        }
-
-        .btn-chip {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          border: 1px solid #e6edf6;
-          border-radius: 999px;
-          padding: 8px 12px;
-          background: #f7f9fc;
-          color: #2563eb;
-          font-weight: 800;
-        }
-        .btn-chip:hover {
-          filter: brightness(0.98);
-        }
-        .chip-on {
-          background: #ecfdf5;
-          border-color: #baf3cd;
-          color: #059669;
-        }
-        .chip-off {
-          background: #fff0f0;
-          border-color: #ffdada;
-          color: #d90429;
-        }
-
-        .btn-outline {
-          background: #fff;
-          border-style: dashed;
-          border-color: #dbe7ff !important;
-        }
-        .btn-row {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .sponsor-card {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          flex-wrap: wrap;
-          background: #f7f9fc;
-          border: 1px solid #e6edf6;
-          padding: 10px 12px;
-          border-radius: 12px;
-        }
-        .sponsor-meta {
-          display: flex;
-          align-items: center;
-          gap: 2px;
-          color: #6b7280;
-          font-size: 0.9rem;
-        }
-        .hint {
-          margin-top: 6px;
-          font-size: 12px;
-          color: #94a3b8;
-        }
+        .admin-panel { padding: 20px 20px 22px; }
+        .admin-panel__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+        .admin-panel__title { display: flex; align-items: center; gap: 10px; font-weight: 900; color: #023047; font-size: 1.1rem; }
+        .admin-panel__toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+        .section-title { font-weight: 900; color: #0f172a; margin-bottom: 8px; font-size: 1rem; }
+        .section-title.inline { display: inline-flex; align-items: center; gap: 8px; }
+        .section-subtitle { font-weight: 800; color: #334155; margin-bottom: 6px; }
+        .panel-section { display: grid; gap: 10px; }
+        .divider { height: 1px; background: linear-gradient(90deg, #0000, #e9eef9, #0000); margin: 6px 0 4px 0; }
+        .badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-weight: 900; font-size: 12px; border: 1px solid #e6edf6; background: #f3f7ff; color: #2563eb; }
+        .badge-success { background: #ecfdf5; border-color: #baf3cd; color: #059669; }
+        .badge-warn { background: #fff7ed; border-color: #ffedd5; color: #9a3412; }
+        .badge-danger { background: #fff1f2; border-color: #ffe0e6; color: #be123c; }
+        .badge-info { background: #ecfeff; border-color: #bae6fd; color: #0ea5e9; }
+        .btn-chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid #e6edf6; border-radius: 999px; padding: 8px 12px; background: #f7f9fc; color: #2563eb; font-weight: 800; }
+        .btn-chip:hover { filter: brightness(0.98); }
+        .chip-on { background: #ecfdf5; border-color: #baf3cd; color: #059669; }
+        .chip-off { background: #fff0f0; border-color: #ffdada; color: #d90429; }
+        .btn-outline { background: #fff; border-style: dashed; border-color: #dbe7ff !important; }
+        .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        .sponsor-card { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #f7f9fc; border: 1px solid #e6edf6; padding: 10px 12px; border-radius: 12px; }
+        .sponsor-meta { display: flex; align-items: center; gap: 2px; color: #6b7280; font-size: 0.9rem; }
+        .hint { margin-top: 6px; font-size: 12px; color: #94a3b8; }
       `}</style>
     </section>
+  );
+}
+
+/** ===== Componente auxiliar para vídeos (mantém o corpo principal limpo) ===== */
+function VideoList({
+  form,
+  setField,
+}: {
+  form: PerfilForm;
+  setField: <K extends keyof PerfilForm>(key: K, value: PerfilForm[K]) => void;
+}) {
+  const [novoVideo, setNovoVideo] = useState("");
+
+  return (
+    <>
+      <div className="flex gap-2">
+        <input
+          className="input"
+          placeholder="https://..."
+          value={novoVideo}
+          onChange={(e) => setNovoVideo(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (!novoVideo.trim()) return;
+              setField("portfolioVideos", [...(form.portfolioVideos || []), novoVideo.trim()]);
+              setNovoVideo("");
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="btn-sec"
+          onClick={() => {
+            if (!novoVideo.trim()) return;
+            setField("portfolioVideos", [...(form.portfolioVideos || []), novoVideo.trim()]);
+            setNovoVideo("");
+          }}
+        >
+          + Adicionar
+        </button>
+      </div>
+      {form.portfolioVideos?.length ? (
+        <ul style={{ marginTop: 10, display: "grid", gap: 8 }}>
+          {form.portfolioVideos.map((v) => (
+            <li key={v} className="video-row">
+              <a href={v} target="_blank" rel="noopener noreferrer" className="a">
+                {v}
+              </a>
+              <button
+                type="button"
+                onClick={() =>
+                  setField(
+                    "portfolioVideos",
+                    (form.portfolioVideos || []).filter((x) => x !== v)
+                  )
+                }
+                title="Remover"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
   );
 }

@@ -24,8 +24,9 @@ type Usuario = {
   id: string;
   nome?: string;
   email?: string;
-  whatsapp?: string;
-  telefone?: string;
+  whatsapp?: string;          // dígitos “55…”
+  whatsappE164?: string;      // “+55…”
+  telefone?: string;          // legado/livre
   estado?: string;
   ufs?: string[];
   atendeBrasil?: boolean;
@@ -43,7 +44,7 @@ type Assignment = {
   demandId: string;
   supplierId: string;
   status: AssignmentStatus;
-  pricing?: { amount?: number; currency?: string; exclusive?: boolean; cap?: number; soldCount?: number };
+  pricing?: { amount?: number; currency?: string; exclusive?: boolean; cap?: number | null; soldCount?: number };
   paymentStatus?: PaymentStatus;
   createdAt?: any;
   updatedAt?: any;
@@ -59,17 +60,17 @@ type Demanda = {
   estado?: string;
   cidade?: string;
   prazo?: string;
-  orcamento?: number | string;
+  orcamento?: number | string | null;
   whatsapp?: string; // legado
   observacoes?: string;
   imagens?: string[];
   tags?: string[];
   pricingDefault?: { amount?: number; currency?: string };
   createdAt?: any;
-  updatedAt?: any; // ✅ necessário no TS
+  updatedAt?: any;
   status?: string;
   userId?: string;
-  unlockCap?: number;
+  unlockCap?: number | null;
   liberadoPara?: string[];
 
   // dados originais do create-demanda (legado)
@@ -80,19 +81,25 @@ type Demanda = {
   // novos campos de contato (editáveis no admin)
   contatoNome?: string;
   contatoEmail?: string;
-  contatoWhatsappE164?: string;   // só dígitos iniciando por 55
+  contatoWhatsappE164?: string;   // dígitos iniciando por 55 (sem +) — compat
   contatoWhatsappMasked?: string; // exibição "+55 (31) 9xxxx-xxxx"
 };
 
+type CategoriaTax = {
+  nome: string;
+  slug?: string;
+  subcategorias?: { nome: string; slug?: string }[];
+};
+
 /* ================== Constantes ================== */
-const UFS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+const UFS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"] as const;
 
 /* ================== Helpers gerais ================== */
 const toReais = (cents?: number) =>
   `R$ ${((Number(cents || 0) / 100) || 0).toFixed(2).replace(".", ",")}`;
 
 const reaisToCents = (val: string) => {
-  const n = Number(val.replace(/\./g, "").replace(",", "."));
+  const n = Number(String(val || "0").replace(/\./g, "").replace(",", "."));
   if (Number.isNaN(n)) return 0;
   return Math.round(n * 100);
 };
@@ -146,12 +153,18 @@ function formatWhatsappBRIntl(v: string) {
 function extractDigits55FromMasked(masked?: string) {
   const dig = onlyDigits(masked || "");
   if (!dig) return "";
+  // força iniciar em 55
   return dig.startsWith("55") ? dig : `55${dig.replace(/^55?/, "")}`;
 }
 
 // Valida: 55 + DDD(2) + número(8/9) => 12 ou 13 dígitos
 function isValidBRWhatsappDigits(d55: string) {
-  return d55.length === 12 || d55.length === 13;
+  if (!d55 || !d55.startsWith("55")) return false;
+  const total = d55.length;
+  if (total !== 12 && total !== 13) return false;
+  const ddd = d55.slice(2, 4);
+  const num = d55.slice(4);
+  return ddd.length === 2 && (num.length === 8 || num.length === 9);
 }
 
 /** ================== Página ================== */
@@ -165,8 +178,8 @@ export default function EditDemandaPage() {
       ? params!.id[0]
       : "";
 
-  // 🔗 mesma taxonomia do resto do app
-  const { categorias, loading: taxLoading } = useTaxonomia();
+  // 🔗 taxonomia central
+  const { categorias, loading: taxLoading } = useTaxonomia() as { categorias: CategoriaTax[]; loading: boolean };
 
   /** ------- Estados principais ------- */
   const [loading, setLoading] = useState(true);
@@ -246,7 +259,7 @@ export default function EditDemandaPage() {
         estado: d.estado || "",
         cidade: d.cidade || "",
         prazo: d.prazo || "",
-        orcamento: d.orcamento ? String(d.orcamento) : "",
+        orcamento: d.orcamento != null ? String(d.orcamento) : "",
         whatsapp: d.whatsapp || "",
         observacoes: d.observacoes || "",
 
@@ -355,8 +368,9 @@ export default function EditDemandaPage() {
           let qBase: any = query(collection(db, "usuarios"), where("pairsSearch", "array-contains", token));
           if (ufN) qBase = query(qBase, where("ufsSearch", "array-contains", ufN));
 
-          let qFinal = query(qBase, orderBy("nome"), limit(PAGE));
-          if (!reset && paging.last) qFinal = query(qBase, orderBy("nome"), startAfter(paging.last), limit(PAGE));
+          let qFinal = reset || !paging.last
+            ? query(qBase, orderBy("nome"), limit(PAGE))
+            : query(qBase, orderBy("nome"), startAfter(paging.last), limit(PAGE));
 
           const snap = await getDocs(qFinal);
           snap.forEach(d => merged.set(d.id, docToUsuario(d)));
@@ -419,8 +433,10 @@ export default function EditDemandaPage() {
 
         // 3) sem filtros -> pagina por nome
         {
-          let q: any = query(collection(db, "usuarios"), orderBy("nome"), limit(PAGE));
-          if (!reset && paging.last) q = query(collection(db, "usuarios"), orderBy("nome"), startAfter(paging.last), limit(PAGE));
+          let q: any = reset || !paging.last
+            ? query(collection(db, "usuarios"), orderBy("nome"), limit(PAGE))
+            : query(collection(db, "usuarios"), orderBy("nome"), startAfter(paging.last), limit(PAGE));
+
           const snap = await getDocs(q);
           snap.forEach(d => merged.set(d.id, docToUsuario(d)));
           setUsuarios(Array.from(merged.values()));
@@ -432,6 +448,7 @@ export default function EditDemandaPage() {
       // ===== B) Com texto de busca
       const t = busca.trim();
 
+      // por id
       if (t.length >= 8) {
         try {
           const byId = await getDoc(doc(db, "usuarios", t));
@@ -439,6 +456,7 @@ export default function EditDemandaPage() {
         } catch {}
       }
 
+      // exato por e-mail
       try {
         const sEmailEq = await getDocs(
           query(collection(db, "usuarios"), where("email", "==", t.toLowerCase()), limit(1))
@@ -446,12 +464,16 @@ export default function EditDemandaPage() {
         sEmailEq.forEach(d => merged.set(d.id, docToUsuario(d)));
       } catch {}
 
+      // prefix por nome
       const tCap = t.charAt(0).toUpperCase() + t.slice(1);
-      const sNome = await getDocs(
-        query(collection(db, "usuarios"), orderBy("nome"), startAt(tCap), endAt(tCap + "\uf8ff"), limit(40))
-      );
-      sNome.forEach(d => merged.set(d.id, docToUsuario(d)));
+      try {
+        const sNome = await getDocs(
+          query(collection(db, "usuarios"), orderBy("nome"), startAt(tCap), endAt(tCap + "\uf8ff"), limit(40))
+        );
+        sNome.forEach(d => merged.set(d.id, docToUsuario(d)));
+      } catch {}
 
+      // prefix por email
       try {
         const tLower = t.toLowerCase();
         const sEmail = await getDocs(
@@ -574,8 +596,8 @@ export default function EditDemandaPage() {
       const cents = reaisToCents(precoPadraoReais);
 
       // normaliza e valida whatsapp
-      const e164 = extractDigits55FromMasked(form.contatoWhatsappMasked || "");
-      const contatoOk = !form.contatoWhatsappMasked || isValidBRWhatsappDigits(e164);
+      const e164Digits = extractDigits55FromMasked(form.contatoWhatsappMasked || "");
+      const contatoOk = !form.contatoWhatsappMasked || isValidBRWhatsappDigits(e164Digits);
       if (!contatoOk) {
         alert("WhatsApp inválido. Use o formato +55 (DDD) número.");
         setSalvando(false);
@@ -583,33 +605,31 @@ export default function EditDemandaPage() {
       }
 
       await updateDoc(doc(db, "demandas", demandaId), {
-        ...{
-          titulo: form.titulo,
-          descricao: form.descricao,
-          categoria: form.categoria,
-          subcategoria: form.subcategoria,
-          estado: form.estado,
-          cidade: form.cidade,
-          prazo: form.prazo,
-          orcamento: form.orcamento ? Number(form.orcamento) : null,
-          observacoes: form.observacoes || "",
-          tags,
-          imagens,
-          pricingDefault: { amount: cents, currency: "BRL" },
-          unlockCap: unlockCap ?? null,
-        },
+        titulo: form.titulo,
+        descricao: form.descricao,
+        categoria: form.categoria,
+        subcategoria: form.subcategoria,
+        estado: form.estado,
+        cidade: form.cidade,
+        prazo: form.prazo,
+        orcamento: form.orcamento ? Number(form.orcamento) : null,
+        observacoes: form.observacoes || "",
+        tags,
+        imagens,
+        pricingDefault: { amount: cents, currency: "BRL" },
+        unlockCap: unlockCap ?? null,
 
         // novos campos de contato
         contatoNome: form.contatoNome.trim(),
         contatoEmail: form.contatoEmail.trim().toLowerCase(),
         contatoWhatsappMasked: form.contatoWhatsappMasked || "",
-        contatoWhatsappE164: e164 || "",
+        contatoWhatsappE164: e164Digits || "", // dígitos “55…”
 
         // compatibilidade com telas antigas
         autorNome: form.contatoNome.trim(),
         autorEmail: form.contatoEmail.trim().toLowerCase(),
-        autorWhatsapp: e164 || "",
-        whatsapp: e164 || form.whatsapp || "",
+        autorWhatsapp: e164Digits || "",
+        whatsapp: e164Digits || form.whatsapp || "",
 
         updatedAt: serverTimestamp(),
       });
@@ -750,6 +770,34 @@ export default function EditDemandaPage() {
   const unlockedCount = useMemo(() => assignments.filter(a => a.status === "unlocked").length, [assignments]);
   const capInfo = unlockCap != null ? `${unlockedCount}/${unlockCap}` : String(unlockedCount);
 
+  /** ================== CSS responsivo injetado com segurança ================== */
+  useEffect(() => {
+    const styleId = "pedraum-edit-demand-responsive-v3";
+    let el = document.getElementById(styleId) as HTMLStyleElement | null;
+    if (!el) {
+      el = document.createElement("style");
+      el.id = styleId;
+      document.head.appendChild(el);
+    }
+    el.innerHTML = `
+      @media (min-width: 1100px) {
+        section > div[style*="grid-template-columns: 1fr"] { grid-template-columns: 1fr 1fr !important; }
+      }
+      @media (max-width: 860px) {
+        div[style*="display: flex"][style*="gap: 12px"][style*="align-items: center"][style*="border: 1px solid #e5e7eb"] {
+          flex-direction: column !important;
+          align-items: flex-start !important;
+        }
+        div[style*="display: flex"][style*="gap: 12px"][style*="padding: 10px 12px"][style*="border: 1px solid #eef2f7"] {
+          display: none !important;
+        }
+        input, select, textarea { max-width: 100% !important; }
+        .sticky { position: sticky; top: 0; }
+      }
+    `;
+    return () => { try { el && el.remove(); } catch {} };
+  }, []);
+
   /** ================== Render ================== */
   if (loading) {
     return (
@@ -801,7 +849,7 @@ export default function EditDemandaPage() {
                 >
                   <option value="">{taxLoading ? "Carregando..." : "Selecione"}</option>
                   {categorias.map((c) => (
-                    <option key={c.slug} value={c.nome}>{c.nome}</option>
+                    <option key={c.slug || c.nome} value={c.nome}>{c.nome}</option>
                   ))}
                 </select>
 
@@ -815,7 +863,7 @@ export default function EditDemandaPage() {
                 >
                   <option value="">{form.categoria ? "Selecione" : "Selecione a categoria"}</option>
                   {subcatsForm.map((s) => (
-                    <option key={s.slug} value={s.nome}>{s.nome}</option>
+                    <option key={s.slug || s.nome} value={s.nome}>{s.nome}</option>
                   ))}
                 </select>
               </div>
@@ -989,7 +1037,7 @@ export default function EditDemandaPage() {
                   disabled={taxLoading}
                 >
                   <option value="">{taxLoading ? "Carregando..." : "Todas"}</option>
-                  {categorias.map((c) => <option key={c.slug} value={c.nome}>{c.nome}</option>)}
+                  {categorias.map((c) => <option key={c.slug || c.nome} value={c.nome}>{c.nome}</option>)}
                 </select>
 
                 <select
@@ -999,7 +1047,7 @@ export default function EditDemandaPage() {
                   disabled={!fCat}
                 >
                   <option value="">{fCat ? "Todas" : "Selecione a Cat."}</option>
-                  {subcatsFiltro.map((s) => <option key={s.slug} value={s.nome}>{s.nome}</option>)}
+                  {subcatsFiltro.map((s) => <option key={s.slug || s.nome} value={s.nome}>{s.nome}</option>)}
                 </select>
               </div>
               <div>
@@ -1026,7 +1074,7 @@ export default function EditDemandaPage() {
             <div style={{ maxHeight: "56vh", overflow: "auto" }}>
               {candidatos.map((u) => {
                 const nome = u.nome || u.email || `Usuário ${u.id}`;
-                const contato = u.whatsapp || u.telefone || "—";
+                const contato = u.whatsappE164 || u.whatsapp || u.telefone || "—";
                 const regioes = u.atendeBrasil ? "BRASIL" : (u.ufs?.length ? u.ufs.join(", ") : (u.estado || "—"));
                 const cats = u.categorias?.length ? u.categorias.join(", ") : "—";
                 const already = jaEnviados.has(u.id);
@@ -1138,7 +1186,7 @@ function AssignmentRow({
   }, [a.supplierId]);
 
   const nome = user?.nome || user?.email || `Usuário ${a.supplierId}`;
-  const contato = user?.whatsapp || user?.telefone || "—";
+  const contato = user?.whatsappE164 || user?.whatsapp || user?.telefone || "—";
   const cidadeUf = `${user?.cidade || "—"}/${user?.estado || "—"}`;
   const pago = a.paymentStatus === "paid";
 
@@ -1299,26 +1347,3 @@ const miniBtnRed: React.CSSProperties = {
   border: "1px solid #e11d48", fontWeight: 800, fontSize: 12, padding: "8px 10px",
   borderRadius: 9, cursor: "pointer", boxShadow: "0 2px 10px #e11d4822"
 };
-
-/** ================= Responsividade extra ================= */
-if (typeof window !== "undefined") {
-  const styleId = "pedraum-edit-demand-responsive-v3";
-  let style = document.getElementById(styleId) as HTMLStyleElement | null;
-  if (!style) { style = document.createElement("style"); style.id = styleId; document.head.appendChild(style); }
-  style.innerHTML = `
-    @media (min-width: 1100px) {
-      section > div[style*="grid-template-columns: 1fr"] { grid-template-columns: 1fr 1fr !important; }
-    }
-    @media (max-width: 860px) {
-      div[style*="display: flex"][style*="gap: 12px"][style*="align-items: center"][style*="border: 1px solid #e5e7eb"] {
-        flex-direction: column !important;
-        align-items: flex-start !important;
-      }
-      div[style*="display: flex"][style*="gap: 12px"][style*="padding: 10px 12px"][style*="border: 1px solid #eef2f7"] {
-        display: none !important;
-      }
-      input, select, textarea { max-width: 100% !important; }
-      .sticky { position: sticky; top: 0; }
-    }
-  `;
-}

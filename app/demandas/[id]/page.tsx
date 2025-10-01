@@ -5,8 +5,8 @@ import AuthGateRedirect from "@/components/AuthGateRedirect";
 import RequireAuth from "@/components/RequireAuth";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import RelatedDemandsCarousel from "@/components/RelatedDemandsCarousel";
 import Link from "next/link";
+import { registerView } from "@/lib/registerView";
 import { auth, db } from "@/firebaseConfig";
 import {
   doc,
@@ -15,7 +15,6 @@ import {
   setDoc,
   updateDoc,
   serverTimestamp,
-  increment,
   collection,
   query as fsQuery,
   where,
@@ -95,10 +94,10 @@ type DemandFire = {
   status?: "aberta" | "andamento" | "fechada" | "expirada";
   visivel?: boolean;
 
-  viewCount?: number;
+  visualizacoes?: number; // novo campo
   lastViewedAt?: any;
 
-  // >>> Campo de PDF (ajuste se o nome no Firestore for diferente)
+  // PDF
   pdfUrl?: string;
 };
 
@@ -219,6 +218,20 @@ export default function DemandaDetalhePage() {
     return () => clearInterval(t);
   }, []);
 
+  // Registrar view (uma vez por aba/sessão e por ID)
+  useEffect(() => {
+    if (!id) return;
+    try {
+      const key = `viewed_demand_${id}`;
+      if (typeof window !== "undefined" && !sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        registerView(String(id)).catch(() => {});
+      }
+    } catch {
+      // silencioso
+    }
+  }, [id]);
+
   // Auth + Perfil
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (u) => {
@@ -292,19 +305,6 @@ export default function DemandaDetalhePage() {
     };
   }, [id, uid]);
 
-  // Views (uma vez por sessão)
-  useEffect(() => {
-    if (!demanda?.id) return;
-    const key = `pd_viewed_${demanda.id}`;
-    if (typeof window !== "undefined" && !localStorage.getItem(key)) {
-      localStorage.setItem(key, "1");
-      updateDoc(doc(db, "demandas", demanda.id), {
-        viewCount: increment(1),
-        lastViewedAt: serverTimestamp(),
-      }).catch(() => {});
-    }
-  }, [demanda?.id]);
-
   // pós-checkout UX
   useEffect(() => {
     const s1 = searchParams.get("status");
@@ -334,7 +334,6 @@ export default function DemandaDetalhePage() {
 
   // Meta
   const adminPriceCents = Number(demanda?.priceCents ?? demanda?.pricingDefault?.amount ?? DEFAULT_PRICE_CENTS);
-  const priceCents = adminPriceCents;
   const title = demanda?.titulo || "Demanda";
   const description = demanda?.descricao || "";
   const category = demanda?.categoria || "Sem categoria";
@@ -343,7 +342,7 @@ export default function DemandaDetalhePage() {
   const city = demanda?.cidade || "—";
   const prazoStr = demanda?.prazo || "";
   const orcamento = demanda?.orcamento || "—";
-  const viewCount = demanda?.viewCount || 0;
+  const views = Number(demanda?.visualizacoes ?? (demanda as any)?.viewCount ?? 0); // compatibilidade com legado
 
   // Contato
   const contatoNome =
@@ -505,16 +504,10 @@ export default function DemandaDetalhePage() {
     }
   }
 
-  function resolveUnitPriceFromCents(cents?: number): number {
-    const n = Number(cents);
-    if (Number.isFinite(n) && n > 0) return Number((n / 100).toFixed(2));
-    return 19.9;
-  }
-
   async function atender() {
     if (!uid) return;
-    const msg = encodeURIComponent(`Olá! Quero atender esta demanda: "${title}" (ID: ${id})`);
-    window.open(`https://wa.me/5531990903613?text=${msg}`, "_blank");
+    const texto = encodeURIComponent(`Olá! Quero atender esta demanda: "${title}" (ID: ${id})`);
+    window.open(`https://wa.me/5531990903613?text=${texto}`, "_blank");
   }
 
   function copy(text?: string) {
@@ -539,7 +532,7 @@ export default function DemandaDetalhePage() {
   }
 
   // ====== PDF (igual ao produto) ======
-  const pdfUrl: string | undefined = (demanda as any)?.pdfUrl || undefined; // ajuste o nome se seu campo for diferente
+  const pdfUrl: string | undefined = (demanda as any)?.pdfUrl || undefined;
   const pdfSrc = pdfUrl ? `/api/pdf-proxy?file=${encodeURIComponent(pdfUrl)}` : undefined;
 
   const [pdfOpen, setPdfOpen] = useState(false);
@@ -563,7 +556,6 @@ export default function DemandaDetalhePage() {
     );
     io.observe(el);
 
-    // ResizeObserver - só no client
     const ro = new ResizeObserver((entries) => {
       const w = entries[0].contentRect.width;
       setPdfThumbWidth(Math.max(220, Math.min(560, Math.floor(w - 16))));
@@ -629,7 +621,7 @@ export default function DemandaDetalhePage() {
               <ShieldCheck size={14} /> {statusInfo.label}
             </span>
             <span className="op-views">
-              <Eye size={16} /> {viewCount} visualizações
+              <Eye size={16} /> {views} visualizações
             </span>
             {expShown && (
               <span className="op-countdown">

@@ -82,6 +82,8 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Moinhos - Bolas",
       "Moinhos - SAG",
       "Trituradores - Rocha Fina",
+      "Telas",
+      "Telas de Borracha",
     ],
   },
   {
@@ -98,6 +100,8 @@ export const TAXONOMIA_LOCAL: Cat[] = normalizeCats([
       "Detonadores - Não Elétricos",
       "Cordéis Detonantes",
       "Sistemas de Controle de Detonação",
+      "Drop ball",
+      "Esferas",
     ],
   },
   {

@@ -1,68 +1,112 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { db } from "@/firebaseConfig";
 import {
-  collection, getDocs, deleteDoc, doc, updateDoc, query as fsQuery,
-  where, orderBy, limit, startAfter, getCountFromServer, addDoc, serverTimestamp
+  collection,
+  getDocs,
+  deleteDoc,
+  doc,
+  updateDoc,
+  query as fsQuery,
+  where,
+  orderBy,
+  limit,
+  startAfter,
+  addDoc,
+  serverTimestamp,
+  getCountFromServer,
+} from "firebase/firestore";
+import type {
+  QuerySnapshot,
+  QueryDocumentSnapshot,
+  DocumentData,
 } from "firebase/firestore";
 import {
-  Pencil, Trash2, UserCheck, UserX, User, PlusCircle, Search, Lock, ClipboardCopy,
-  Filter, ChevronLeft, ChevronRight, BadgeCheck, ShieldCheck, Tag as TagIcon, RefreshCw,
-  Download, CheckCircle2, XCircle, Users, AlertTriangle
+  Pencil,
+  Trash2,
+  UserCheck,
+  User as UserIcon,
+  PlusCircle,
+  Search,
+  Lock,
+  ClipboardCopy,
+  Filter,
+  BadgeCheck,
+  ShieldCheck,
+  Tag as TagIcon,
+  RefreshCw,
+  Download,
+  XCircle,
+  Users,
+  AlertTriangle,
+  MapPin,
+  ChevronDown,
 } from "lucide-react";
 import { withRoleProtection } from "@/utils/withRoleProtection";
-
+import { CheckCircle2 } from "lucide-react";
 
 /* ========================= Types (defensivos) ========================= */
 type UsuarioDoc = {
   id: string;
   nome?: string;
   email?: string;
-  tipo?: "admin" | "usuario" | "patrocinador";   // compat com campo antigo
-  role?: "admin" | "usuario" | "patrocinador";   // compat com campo novo
-  status?: "Ativo" | "Inativo" | "Bloqueado" | "Pendente" | "ativo" | "bloqueado" | "pendente";
-  verificado?: boolean;
 
-  whatsapp?: string;
+  // organização técnica
+  role?: "admin" | "usuario" | "patrocinador";
+  tipo?: "admin" | "usuario" | "patrocinador"; // compat UI antiga
+  status?:
+    | "Ativo"
+    | "Inativo"
+    | "Bloqueado"
+    | "Pendente"
+    | "ativo"
+    | "bloqueado"
+    | "pendente";
+  verificado?: boolean; // ← Fornecedor
+
+  // localização
   cidade?: string;
   estado?: string;
 
+  // datas
   createdAt?: any;
-  lastLogin?: any;        // compat antigo
-  lastLoginAt?: any;      // compat novo
+  lastLogin?: any;
+  lastLoginAt?: any;
 
-  // Patrocínio
-  planoTipo?: string;     // ex.: bronze/prata/ouro
+  // patrocínio
+  planoTipo?: string;
   planoStatus?: "ativo" | "inadimplente" | "expirado";
   planoExpiraEm?: any;
+
+  // atuação/cobertura (usados para filtros!)
+  categoriesAll?: string[]; // lista de categorias
+  pairsSearch?: string[]; // "categoria::subcategoria" normalizado
+  ufsSearch?: string[]; // ["MG", "SP"] e/ou ["BRASIL"]
+
+  // extras ocasionais
+  whatsapp?: string;
+  perfilCompleto?: boolean;
+  tags?: string[];
   leadsInclusos?: number;
   leadsConsumidos?: number;
-
-  // Qualidade
-  perfilCompleto?: boolean;
-  hasDocs?: boolean;
-  tags?: string[];
-
-  // Analytics opcional
-  consumo30d?: number;    // usado para p95 (client)
-  keywords?: string[];    // compat
+  consumo30d?: number;
 };
 
-/* ========================= Utils ========================= */
 function asRole(u: UsuarioDoc): "admin" | "usuario" | "patrocinador" {
   return (u.role as any) || (u.tipo as any) || "usuario";
 }
-function asStatus(u: UsuarioDoc): "Ativo" | "Bloqueado" | "Pendente" | "Inativo" {
+function asStatus(
+  u: UsuarioDoc
+): "Ativo" | "Bloqueado" | "Pendente" | "Inativo" {
   const s = (u.status || "") as string;
   if (!s) return "Ativo";
-  const norm = s.toLowerCase();
-  if (norm === "ativo") return "Ativo";
-  if (norm === "bloqueado") return "Bloqueado";
-  if (norm === "pendente") return "Pendente";
-  if (norm === "inativo") return "Inativo";
-  // fallback: manter como veio, mas tipado
+  const n = s.toLowerCase();
+  if (n === "ativo") return "Ativo";
+  if (n === "bloqueado") return "Bloqueado";
+  if (n === "pendente") return "Pendente";
+  if (n === "inativo") return "Inativo";
   return (u.status as any) || "Ativo";
 }
 function tsToDate(ts?: any): Date | null {
@@ -81,324 +125,563 @@ function daysFromNow(d?: Date | null) {
   const diff = d.getTime() - Date.now();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
-function hasSaldo(u: UsuarioDoc) {
-  const inc = u.leadsInclusos ?? 0;
-  const con = u.leadsConsumidos ?? 0;
-  return inc - con > 0;
-}
+const norm = (s = "") =>
+  s
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 
 /* ========================= Página ========================= */
-function ListaUsuariosAdmin() {
+function UsuariosAdminPage() {
+  /* ---------- estado base ---------- */
   const [usuarios, setUsuarios] = useState<UsuarioDoc[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
-  const [pageCursor, setPageCursor] = useState<any | null>(null);
-  const prevCursorsRef = useRef<any[]>([]);
 
-  // Filtros Essenciais
+  // paginação visual: +50 por clique
+  const PAGE_CHUNK = 50;
+
+  const lastDocRef = useRef<any | null>(null);
+  const reachedEndRef = useRef(false);
+
+  /* ---------- filtros principais ---------- */
   const [busca, setBusca] = useState("");
-  const [filtroRole, setFiltroRole] = useState<"" | "admin" | "usuario" | "patrocinador">("");
-  const [filtroStatus, setFiltroStatus] = useState<"" | "Ativo" | "Bloqueado" | "Pendente" | "Inativo">("");
-  const [filtroVerificado, setFiltroVerificado] = useState<"" | "sim" | "nao">("");
-  const [filtroUF, setFiltroUF] = useState("");
-  const [filtroCidade, setFiltroCidade] = useState("");
+  const [fRole, setFRole] =
+    useState<"" | "admin" | "usuario" | "patrocinador">("");
+  const [fStatus, setFStatus] =
+    useState<"" | "Ativo" | "Bloqueado" | "Pendente" | "Inativo">("");
+  const [fFornecedor, setFFornecedor] = useState<"" | "sim" | "nao">("");
+  const [fUF, setFUF] = useState(""); // UF do cadastro (estado)
+  const [fCidade, setFCidade] = useState("");
 
-  // Período
-  const [periodo, setPeriodo] = useState<"hoje" | "7d" | "30d" | "custom" | "todos">("todos");
-  const [dataInicio, setDataInicio] = useState("");
-  const [dataFim, setDataFim] = useState("");
+  // atuação/cobertura
+  const [fCategoria, setFCategoria] = useState("");
+  const [fSubcat, setFSubcat] = useState(""); // depende de categoria
+  const [fUFCobertura, setFUFCobertura] = useState(""); // via ufsSearch (“MG” ou “BRASIL”)
 
-  // Patrocínio
-  const [filtroPlano, setFiltroPlano] = useState<"" | "ativo" | "expira7" | "inadimplente" | "expirado">("");
+  // patrocínio
+  const [fPatro, setFPatro] =
+    useState<"" | "ativo" | "expira7" | "inadimplente" | "expirado">("");
 
-  // Avançados
-  const [filtroPerfilIncompleto, setFiltroPerfilIncompleto] = useState(false);
-  const [filtroSemWhats, setFiltroSemWhats] = useState(false);
-  const [filtroSemCidadeEstado, setFiltroSemCidadeEstado] = useState(false);
-  const [filtroSemLogin30d, setFiltroSemLogin30d] = useState(false);
-  const [filtroTag, setFiltroTag] = useState("");
+  // avançados ocasionais
+  const [fPerfilIncompleto, setFPerfilIncompleto] = useState(false);
+  const [fSemWhats, setFSemWhats] = useState(false);
+  const [fTag, setFTag] = useState("");
 
-  // Leads
-  const [filtroLeads, setFiltroLeads] = useState<"" | "com" | "sem" | "alto">("");
+  // seleção em massa
+  const [selecionados, setSelecionados] = useState<Record<string, boolean>>(
+    {}
+  );
 
-  // Seleção em massa
-  const [selecionados, setSelecionados] = useState<Record<string, boolean>>({});
+  /* ---------- ESTATÍSTICAS GLOBAIS (banco inteiro) ---------- */
+  type GlobalStats = {
+    total: number;
+    admins: number;
+    patrocinadoresAtivos: number;
+    ativos: number;
+    comWhats: number;
+    perfisMelhorados: number;
+  };
+  const [stats, setStats] = useState<GlobalStats>({
+    total: 0,
+    admins: 0,
+    patrocinadoresAtivos: 0,
+    ativos: 0,
+    comWhats: 0,
+    perfisMelhorados: 0,
+  });
 
-  // Dados auxiliares (UF/Cidade/Tags)
-  const estados = useMemo(() => {
+  // tenta contar no servidor; se falhar, retorna null
+  const tryCount = useCallback(async (coll: "usuarios" | "users", clauses: any[]) => {
+    try {
+      const q = fsQuery(collection(db, coll), ...clauses);
+      const cs = await getCountFromServer(q);
+      return Number(cs.data().count || 0);
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // busca todos os docs de uma coleção em lotes (para fallback e métricas derivadas)
+  const fetchAllDocs = useCallback(
+    async (coll: "usuarios" | "users", clauses: any[] = [], batch = 500): Promise<UsuarioDoc[]> => {
+      const col = collection(db, coll);
+      const out: UsuarioDoc[] = [];
+      let cursor: any | null = null;
+      while (true) {
+        const q = fsQuery(col, ...clauses, ...(cursor ? [startAfter(cursor)] : []), limit(batch));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          out.push(...snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+          cursor = snap.docs[snap.docs.length - 1];
+        }
+        if (snap.docs.length < batch) break;
+      }
+      return out;
+    },
+    []
+  );
+
+  const fetchGlobalStats = useCallback(async () => {
+    try {
+      // contagens básicas via aggregation (rápidas quando há índice)
+      async function countEither(clauses: any[]): Promise<number> {
+        const a = await tryCount("usuarios", clauses);
+        if (a !== null && a > 0) return a;
+        const b = await tryCount("users", clauses);
+        if (b !== null) return b ?? 0;
+        return 0;
+      }
+
+      const totalUsuarios = (await tryCount("usuarios", [])) ?? 0;
+      const totalUsers = (await tryCount("users", [])) ?? 0;
+
+      const admins = await countEither([where("role", "==", "admin")]);
+      const patrocinadoresAtivos = await countEither([
+        where("role", "==", "patrocinador"),
+        where("planoStatus", "==", "ativo"),
+      ]);
+      const ativos = await countEither([where("status", "in", ["Ativo", "ativo"])]).catch?.(() => 0) ?? 0;
+
+      let total = totalUsuarios || totalUsers;
+      let comWhats = 0;
+      let perfisMelhorados = 0;
+
+      // se as duas coleções têm dados, mescla client-side para deduplicar e derivar métricas
+      if (totalUsuarios > 0 && totalUsers > 0) {
+        const [allA, allB] = await Promise.all([fetchAllDocs("usuarios"), fetchAllDocs("users")]);
+        const byId = new Map<string, UsuarioDoc>();
+        [...allA, ...allB].forEach((u) => byId.set(u.id, u));
+        const all = Array.from(byId.values());
+        total = all.length;
+        comWhats = all.filter((u) => !!u.whatsapp).length;
+        perfisMelhorados = all.filter((u) => (u.categoriesAll?.length || 0) > 0).length;
+      } else {
+        const winner = totalUsuarios > 0 ? "usuarios" : "users";
+        const all = await fetchAllDocs(winner);
+        total = all.length;
+        comWhats = all.filter((u) => !!u.whatsapp).length;
+        perfisMelhorados = all.filter((u) => (u.categoriesAll?.length || 0) > 0).length;
+      }
+
+      setStats({
+        total,
+        admins,
+        patrocinadoresAtivos,
+        ativos,
+        comWhats,
+        perfisMelhorados,
+      });
+    } catch (e) {
+      console.error("Falha ao calcular estatísticas globais:", e);
+      // mantém o que já tinha; não quebra a tela
+    }
+  }, [fetchAllDocs, tryCount]);
+
+  /* ---------- carregar users com filtros server-side quando possível (robusto e tipado) ---------- */
+  const applyServerQuery = useCallback(
+    async (reset: boolean) => {
+      setLoading(true);
+
+      const buildCatKey = (c: string, s: string) => `${norm(c)}::${norm(s)}`;
+
+      // 1) Monta where[] a partir dos filtros
+      const wheres: any[] = [];
+      if (fRole) wheres.push(where("role", "==", fRole));
+      if (fStatus) wheres.push(where("status", "==", fStatus));
+      if (fFornecedor)
+        wheres.push(where("verificado", "==", fFornecedor === "sim"));
+      if (fUF) wheres.push(where("estado", "==", fUF));
+      if (fCategoria)
+        wheres.push(where("categoriesAll", "array-contains", fCategoria));
+      if (fSubcat && fCategoria) {
+        wheres.push(
+          where("pairsSearch", "array-contains", buildCatKey(fCategoria, fSubcat))
+        );
+      }
+      if (fUFCobertura)
+        wheres.push(where("ufsSearch", "array-contains", fUFCobertura));
+      if (fPatro === "ativo") wheres.push(where("planoStatus", "==", "ativo"));
+      if (fPatro === "inadimplente")
+        wheres.push(where("planoStatus", "==", "inadimplente"));
+      if (fPatro === "expirado")
+        wheres.push(where("planoStatus", "==", "expirado"));
+      // “expira7” fica client-side
+
+      // 2) Helpers com tipagem correta
+      async function tryOnce(
+        collName: "usuarios" | "users",
+        useOrderBy: boolean
+      ): Promise<QuerySnapshot<DocumentData>> {
+        const base = collection(db, collName);
+        const baseQ = useOrderBy
+          ? fsQuery(base, ...wheres, orderBy("createdAt", "desc"))
+          : fsQuery(base, ...wheres);
+
+        const q =
+          reset || !lastDocRef.current
+            ? fsQuery(baseQ, limit(PAGE_CHUNK))
+            : fsQuery(baseQ, startAfter(lastDocRef.current), limit(PAGE_CHUNK));
+
+        return getDocs(q);
+      }
+
+      async function runAllStrategies() {
+        // Tenta: usuarios c/ orderBy -> usuarios s/ orderBy -> users c/ orderBy -> users s/ orderBy
+        const attempts: Array<() => Promise<QuerySnapshot<DocumentData>>> = [
+          () => tryOnce("usuarios", true),
+          () => tryOnce("usuarios", false),
+          () => tryOnce("users", true),
+          () => tryOnce("users", false),
+        ];
+
+        for (const run of attempts) {
+          try {
+            const snap = await run();
+            if (!snap.empty) return { mode: "query" as const, snap };
+          } catch {
+            // índice/campo faltando — segue para a próxima
+          }
+        }
+
+        // Dump completo de `usuarios`
+        try {
+          const allUsuarios = await getDocs(collection(db, "usuarios"));
+          if (!allUsuarios.empty) {
+            return {
+              mode: "dump:usuarios" as const,
+              docs: allUsuarios.docs,
+            };
+          }
+        } catch {
+          /* ignora */
+        }
+
+        // Dump completo de `users`
+        try {
+          const allUsers = await getDocs(collection(db, "users"));
+          if (!allUsers.empty) {
+            return { mode: "dump:users" as const, docs: allUsers.docs };
+          }
+        } catch {
+          /* ignora */
+        }
+
+        // Nada
+        return {
+          mode: "empty" as const,
+          docs: [] as QueryDocumentSnapshot<DocumentData>[],
+        };
+      }
+
+      // 3) Execução + última rede de segurança
+      try {
+        const res = await runAllStrategies();
+
+        const mapDocs = (arr: QueryDocumentSnapshot<DocumentData>[]) =>
+          arr.map(
+            (d) => ({ id: d.id, ...(d.data() as any) } as UsuarioDoc)
+          );
+
+        let docs: UsuarioDoc[] = [];
+        let last: any = null;
+
+        if (res.mode === "query") {
+          docs = mapDocs(res.snap.docs);
+          last = res.snap.docs.at(-1) ?? null;
+        } else {
+          docs = mapDocs(res.docs);
+          // em dump desliga paginação
+          reachedEndRef.current = true;
+          last = null;
+        }
+
+        // Último fallback: se ainda não veio nada, merge dos dumps das duas coleções
+        if (!docs.length) {
+          try {
+            const [a, b] = await Promise.allSettled([
+              getDocs(collection(db, "usuarios")),
+              getDocs(collection(db, "users")),
+            ]);
+            const arrA =
+              a.status === "fulfilled"
+                ? a.value.docs.map((d) => ({
+                    id: d.id,
+                    ...(d.data() as any),
+                  }))
+                : [];
+            const arrB =
+              b.status === "fulfilled"
+                ? b.value.docs.map((d) => ({
+                    id: d.id,
+                    ...(d.data() as any),
+                  }))
+                : [];
+            const byId = new Map<string, UsuarioDoc>();
+            [...arrA, ...arrB].forEach((x) => byId.set(x.id, x as UsuarioDoc));
+            docs = Array.from(byId.values());
+            reachedEndRef.current = true;
+            last = null;
+          } catch {
+            /* mantém vazio */
+          }
+        }
+
+        // filtro “expira7” client-side
+        const filtered = docs.filter((u) => {
+          if (fPatro !== "expira7") return true;
+          const ativo = u.planoStatus === "ativo";
+          const exp = tsToDate(u.planoExpiraEm);
+          return ativo && daysFromNow(exp) <= 7;
+        });
+
+        if (reset) setUsuarios(filtered);
+        else setUsuarios((prev) => [...prev, ...filtered]);
+
+        lastDocRef.current = last;
+        if (res.mode === "query" && filtered.length < PAGE_CHUNK) {
+          reachedEndRef.current = true;
+        }
+
+        console.log(
+          `[usuarios] mode=${res.mode} fetched=${filtered.length} reset=${reset} whereCount=${wheres.length}`
+        );
+      } catch (err) {
+        console.error("Erro inesperado; tentando dump total:", err);
+        try {
+          const [a, b] = await Promise.allSettled([
+            getDocs(collection(db, "usuarios")),
+            getDocs(collection(db, "users")),
+          ]);
+          const arrA =
+            a.status === "fulfilled"
+              ? a.value.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+              : [];
+          const arrB =
+            b.status === "fulfilled"
+              ? b.value.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+              : [];
+          const byId = new Map<string, UsuarioDoc>();
+          [...arrA, ...arrB].forEach((x) => byId.set(x.id, x as UsuarioDoc));
+          const all = Array.from(byId.values());
+          if (reset) setUsuarios(all);
+          else setUsuarios((prev) => [...prev, ...all]);
+        } catch (fatal) {
+          console.error("Dump total falhou também:", fatal);
+          if (reset) setUsuarios([]);
+        } finally {
+          reachedEndRef.current = true;
+          lastDocRef.current = null;
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      fRole,
+      fStatus,
+      fFornecedor,
+      fUF,
+      fCategoria,
+      fSubcat,
+      fUFCobertura,
+      fPatro,
+    ]
+  );
+
+  // primeira carga + quando filtros mudarem (reset da lista)
+  useEffect(() => {
+    lastDocRef.current = null;
+    reachedEndRef.current = false;
+    setUsuarios([]);
+    setSelecionados({});
+    applyServerQuery(true);
+  }, [applyServerQuery]);
+
+  // carrega estatísticas globais (independente dos filtros da lista)
+  useEffect(() => {
+    fetchGlobalStats();
+  }, [fetchGlobalStats]);
+
+  /* ---------- opções dinâmicas para selects (derivadas dos dados carregados) ---------- */
+  const estadosDisponiveis = useMemo(() => {
     const s = new Set<string>();
-    usuarios.forEach(u => u.estado && s.add(u.estado));
+    usuarios.forEach((u) => u.estado && s.add(u.estado));
     return Array.from(s).sort();
   }, [usuarios]);
-  const cidades = useMemo(() => {
+
+  const cidadesDisponiveis = useMemo(() => {
     const s = new Set<string>();
-    usuarios.forEach(u => {
-      if (!filtroUF || (u.estado === filtroUF)) {
+    usuarios.forEach((u) => {
+      if (!fUF || u.estado === fUF) {
         u.cidade && s.add(u.cidade);
       }
     });
     return Array.from(s).sort();
-  }, [usuarios, filtroUF]);
-  const allTags = useMemo(() => {
+  }, [usuarios, fUF]);
+
+  const categoriasDisponiveis = useMemo(() => {
     const s = new Set<string>();
-    usuarios.forEach(u => (u.tags || []).forEach(t => s.add(t)));
+    usuarios.forEach((u) =>
+      (u.categoriesAll || []).forEach((c) => c && s.add(c))
+    );
+    return Array.from(s).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [usuarios]);
+
+  // subcategorias existentes para a categoria escolhida (extraídas de pairsSearch)
+  const subcatsDisponiveis = useMemo(() => {
+    if (!fCategoria) return [];
+    const s = new Set<string>();
+    const catKey = norm(fCategoria) + "::";
+    usuarios.forEach((u) =>
+      (u.pairsSearch || []).forEach((key) => {
+        if (key.startsWith(catKey)) {
+          const sub = key.slice(catKey.length);
+          if (sub) s.add(sub.replaceAll("-", " ").replace(/\s+/g, " ").trim());
+        }
+      })
+    );
+    const arr = Array.from(s);
+    // exibe capitalizado (apenas estética)
+    return arr
+      .map((sc) =>
+        sc
+          .split(" ")
+          .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+          .join(" ")
+      )
+      .sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [usuarios, fCategoria]);
+
+  // UFs de cobertura (ufsSearch)
+  const ufsCoberturaDisponiveis = useMemo(() => {
+    const s = new Set<string>();
+    usuarios.forEach((u) => (u.ufsSearch || []).forEach((uf) => uf && s.add(uf)));
+    return Array.from(s).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [usuarios]);
+
+  // tags disponíveis
+  const tagsDisponiveis = useMemo(() => {
+    const s = new Set<string>();
+    usuarios.forEach((u) => (u.tags || []).forEach((t) => s.add(t)));
     return Array.from(s).sort();
   }, [usuarios]);
 
-  // p95 consumo30d (se houver)
-  const p95Consumo = useMemo(() => {
-    const arr = usuarios.map(u => u.consumo30d ?? 0).filter(v => typeof v === "number");
-    if (!arr.length) return 0;
-    const sorted = [...arr].sort((a, b) => a - b);
-    const idx = Math.ceil(0.95 * sorted.length) - 1;
-    return sorted[Math.max(0, idx)];
-  }, [usuarios]);
+  /* ---------- filtros client-side complementares ---------- */
+  const listaFinal = useMemo(() => {
+    const q = busca.trim().toLowerCase();
 
-  /* ========================= Fetch Paginado (server-side when possible) ========================= */
-  async function fetchUsuarios(reset = false) {
-  setLoading(true);
+    return usuarios.filter((u) => {
+      // Busca simples (nome/email/id/cidade)
+      const okBusca =
+        !q ||
+        (u.nome || "").toLowerCase().includes(q) ||
+        (u.email || "").toLowerCase().includes(q) ||
+        (u.id || "").toLowerCase().includes(q) ||
+        (u.cidade || "").toLowerCase().includes(q);
 
-  // 1) Detecta se devemos usar o "modo antigo"
-  const noServerFilters =
-    !filtroRole && !filtroStatus && !filtroUF && !filtroVerificado &&
-    (periodo === "todos"); // sem recorte por data
+      // Cidade
+      const okCidade = !fCidade || u.cidade === fCidade;
 
-  try {
-    // Helper para montar intervalo de datas (quando houver)
-    let di: Date | null = null, df: Date | null = null;
-    const today0 = new Date(); today0.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-
-    if (periodo === "hoje") { di = today0; df = todayEnd; }
-    else if (periodo === "7d") { df = todayEnd; di = new Date(); di.setDate(di.getDate() - 7); di.setHours(0,0,0,0); }
-    else if (periodo === "30d") { df = todayEnd; di = new Date(); di.setDate(di.getDate() - 30); di.setHours(0,0,0,0); }
-    else if (periodo === "custom" && dataInicio && dataFim) {
-      di = new Date(dataInicio + "T00:00:00");
-      df = new Date(dataFim + "T23:59:59");
-    }
-
-    // 2) MODO ANTIGO — sem filtros server-side
-    if (noServerFilters) {
-      // lê tudo de 'usuarios'; se vier vazio, tenta 'users'
-      const snap1 = await getDocs(collection(db, "usuarios"));
-      let docs = snap1.docs;
-      if (!docs.length) {
-        const snap2 = await getDocs(collection(db, "users"));
-        docs = snap2.docs;
-      }
-      const items = docs.map(d => ({ id: d.id, ...d.data() } as any));
-      setUsuarios(items);
-      setPageCursor(null);                 // sem paginação nesse modo
-      if (reset) prevCursorsRef.current = [];
-      console.log("Carregados (modo antigo):", items.length);
-      return;
-    }
-
-    // 3) MODO NOVO — com filtros server-side (performático)
-    async function tryQuery(collName: "usuarios" | "users") {
-      const col = collection(db, collName);
-      const wheres: any[] = [];
-
-      if (filtroRole)        wheres.push(where("role", "==", filtroRole));
-      if (filtroStatus)      wheres.push(where("status", "==", filtroStatus));
-      if (filtroUF)          wheres.push(where("estado", "==", filtroUF));
-      if (filtroVerificado)  wheres.push(where("verificado", "==", filtroVerificado === "sim"));
-      if (di && df) { wheres.push(where("createdAt", ">=", di)); wheres.push(where("createdAt", "<=", df)); }
-
-      // 3.1 tenta com orderBy + paginação
-      try {
-        const base = fsQuery(col, ...wheres, orderBy("createdAt", "desc"));
-        const q = (reset || !pageCursor)
-          ? fsQuery(base, limit(pageSize))
-          : fsQuery(base, startAfter(pageCursor), limit(pageSize));
-        const snap = await getDocs(q);
-        return { docs: snap.docs, last: snap.docs.at(-1) ?? null };
-      } catch (e) {
-        // 3.2 fallback sem orderBy (caso falte índice)
-        console.warn(`[${collName}] fallback sem orderBy/índice`, e);
-        const q = (reset || !pageCursor)
-          ? fsQuery(col, ...wheres, limit(pageSize))
-          : fsQuery(col, ...wheres, startAfter(pageCursor), limit(pageSize));
-        const snap = await getDocs(q);
-        return { docs: snap.docs, last: snap.docs.at(-1) ?? null };
-      }
-    }
-
-    // Tenta 'usuarios' -> fallback 'users' se vazio
-    let res = await tryQuery("usuarios");
-    if (!res.docs.length) {
-      const alt = await tryQuery("users");
-      if (alt.docs.length) res = alt;
-    }
-
-    const items = res.docs.map(d => ({ id: d.id, ...d.data() } as any));
-    setUsuarios(items);
-    setPageCursor(res.last);
-    if (reset) prevCursorsRef.current = [];
-    console.log("Carregados (modo novo):", items.length);
-
-  } catch (e) {
-    console.error("Erro ao buscar usuários:", e);
-    setUsuarios([]);
-    setPageCursor(null);
-  } finally {
-    setLoading(false);
-  }
-}
-
-
-  // primeira carga + recargas quando filtros server-side mudam
-  useEffect(() => {
-    prevCursorsRef.current = []; // reset histórico ao trocar filtros
-    setPageCursor(null);
-    fetchUsuarios(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtroRole, filtroStatus, filtroUF, filtroVerificado, periodo, dataInicio, dataFim, pageSize]);
-
-  /* ========================= Client-side filters complementares ========================= */
-  const usuariosFiltrados = useMemo(() => {
-    const texto = busca.trim().toLowerCase();
-
-    return usuarios.filter(u => {
-      // Busca (nome/email/id/cidade)
-      const okBusca = !texto ||
-        (u.nome || "").toLowerCase().includes(texto) ||
-        (u.email || "").toLowerCase().includes(texto) ||
-        (u.id || "").toLowerCase().includes(texto) ||
-        (u.cidade || "").toLowerCase().includes(texto);
-
-      // Cidade (se selecionada)
-      const okCidade = !filtroCidade || (u.cidade === filtroCidade);
-
-      // Patrocínio
-      let okPlano = true;
-      if (filtroPlano) {
-        const status = (u.planoStatus || "").toLowerCase();
-        const expiraEm = tsToDate(u.planoExpiraEm);
-        if (filtroPlano === "ativo") okPlano = status === "ativo";
-        else if (filtroPlano === "inadimplente") okPlano = status === "inadimplente";
-        else if (filtroPlano === "expirado") okPlano = status === "expirado";
-        else if (filtroPlano === "expira7") {
-          okPlano = status === "ativo" && daysFromNow(expiraEm) <= 7;
-        }
+      // Patrocínio expira em 7d (client-side)
+      let okPatro = true;
+      if (fPatro === "expira7") {
+        const ativo = u.planoStatus === "ativo";
+        const exp = tsToDate(u.planoExpiraEm);
+        okPatro = ativo && daysFromNow(exp) <= 7;
       }
 
       // Avançados
-      const okPerfil = !filtroPerfilIncompleto || u.perfilCompleto === false;
-      const okWhats = !filtroSemWhats || !u.whatsapp;
-      const okCidUF = !filtroSemCidadeEstado || !(u.cidade && u.estado);
-      const last = tsToDate(u.lastLoginAt || u.lastLogin);
-      const diasSemLogin = !last ? Infinity : Math.floor((Date.now() - last.getTime()) / 86400000);
-      const okLogin30 = !filtroSemLogin30d || diasSemLogin >= 30;
-      const okTag = !filtroTag || (u.tags || []).includes(filtroTag);
+      const okPerfil = !fPerfilIncompleto || u.perfilCompleto === false;
+      const okWhats = !fSemWhats || !u.whatsapp;
+      const okTag = !fTag || (u.tags || []).includes(fTag);
 
-      // Leads
-      let okLeads = true;
-      if (filtroLeads === "com") okLeads = hasSaldo(u);
-      if (filtroLeads === "sem") okLeads = !hasSaldo(u);
-      if (filtroLeads === "alto") okLeads = (u.consumo30d ?? 0) >= p95Consumo && p95Consumo > 0;
-
-      return okBusca && okCidade && okPlano && okPerfil && okWhats && okCidUF && okLogin30 && okTag && okLeads;
+      return okBusca && okCidade && okPatro && okPerfil && okWhats && okTag;
     });
-  }, [
-    usuarios, busca, filtroCidade, filtroPlano, filtroPerfilIncompleto, filtroSemWhats,
-    filtroSemCidadeEstado, filtroSemLogin30d, filtroTag, filtroLeads, p95Consumo
-  ]);
+  }, [usuarios, busca, fCidade, fPatro, fPerfilIncompleto, fSemWhats, fTag]);
 
-  /* ========================= Ações por linha ========================= */
-  async function logAdminAction(action: string, usuarioId: string, before: any, after: any) {
+  /* ---------- ações por linha ---------- */
+  async function logAdmin(
+    action: string,
+    usuarioId: string,
+    before: any,
+    after: any
+  ) {
     try {
       await addDoc(collection(db, "adminLogs"), {
         usuarioId,
         action,
         before,
         after,
-        at: serverTimestamp()
+        at: serverTimestamp(),
       });
-    } catch (e) {
-      console.warn("Falha ao gravar adminLogs:", e);
-    }
+    } catch {}
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm("Excluir usuário de forma permanente? Essa ação não pode ser desfeita.")) return;
-    const before = usuarios.find(u => u.id === id);
+    if (!window.confirm("Excluir usuário permanentemente?")) return;
+    const before = usuarios.find((u) => u.id === id);
     await deleteDoc(doc(db, "usuarios", id));
-    setUsuarios(us => us.filter(u => u.id !== id));
-    await logAdminAction("delete-usuario", id, before || null, null);
+    setUsuarios((prev) => prev.filter((u) => u.id !== id));
+    await logAdmin("delete-usuario", id, before || null, null);
   }
 
-  async function handleStatus(id: string, novo: "Ativo" | "Bloqueado" | "Pendente" | "Inativo") {
-    const before = usuarios.find(u => u.id === id);
-    await updateDoc(doc(db, "usuarios", id), { status: novo });
-    setUsuarios(us => us.map(u => u.id === id ? { ...u, status: novo } : u));
-    await logAdminAction("update-status", id, before || null, { status: novo });
-  }
-
-  async function handleRole(id: string, novo: "admin" | "usuario" | "patrocinador") {
-    const before = usuarios.find(u => u.id === id);
-    await updateDoc(doc(db, "usuarios", id), { role: novo, tipo: novo });
-    setUsuarios(us => us.map(u => u.id === id ? { ...u, role: novo, tipo: novo } : u));
-    await logAdminAction("update-role", id, before || null, { role: novo, tipo: novo });
-  }
-
-  async function handlePlano(
+  async function handleStatus(
     id: string,
-    patch: Partial<Pick<UsuarioDoc, "planoTipo" | "planoStatus" | "planoExpiraEm" | "leadsInclusos" | "leadsConsumidos">>
+    novo: "Ativo" | "Bloqueado" | "Pendente" | "Inativo"
   ) {
-    const before = usuarios.find(u => u.id === id);
-    await updateDoc(doc(db, "usuarios", id), patch as any);
-    setUsuarios(us => us.map(u => u.id === id ? { ...u, ...patch } : u));
-    await logAdminAction("update-plano", id, before || null, patch);
+    const before = usuarios.find((u) => u.id === id);
+    await updateDoc(doc(db, "usuarios", id), { status: novo });
+    setUsuarios((prev) =>
+      prev.map((u) => (u.id === id ? { ...u, status: novo } : u))
+    );
+    await logAdmin("update-status", id, before || null, { status: novo });
+  }
+
+  async function handleRole(
+    id: string,
+    novo: "admin" | "usuario" | "patrocinador"
+  ) {
+    const before = usuarios.find((u) => u.id === id);
+    await updateDoc(doc(db, "usuarios", id), { role: novo, tipo: novo });
+    setUsuarios((prev) =>
+      prev.map((u) => (u.id === id ? { ...u, role: novo, tipo: novo } : u))
+    );
+    await logAdmin("update-role", id, before || null, { role: novo });
   }
 
   async function handleApplyTag(id: string, tag: string) {
-    if (!tag) return;
-    const u = usuarios.find(x => x.id === id);
-    const tags = new Set([...(u?.tags || []), tag]);
+    const val = tag.trim();
+    if (!val) return;
+    const before = usuarios.find((u) => u.id === id);
+    const tags = new Set([...(before?.tags || []), val]);
     await updateDoc(doc(db, "usuarios", id), { tags: Array.from(tags) });
-    setUsuarios(us => us.map(x => x.id === id ? { ...x, tags: Array.from(tags) } : x));
-    await logAdminAction("apply-tag", id, { tags: u?.tags || [] }, { tags: Array.from(tags) });
+    setUsuarios((prev) =>
+      prev.map((u) => (u.id === id ? { ...u, tags: Array.from(tags) } : u))
+    );
+    await logAdmin("apply-tag", id, { tags: before?.tags || [] }, { tags: Array.from(tags) });
   }
 
-  /* ========================= Ações em massa ========================= */
-  const idsSelecionados = useMemo(() => Object.keys(selecionados).filter(id => selecionados[id]), [selecionados]);
-
-  async function bulkStatus(novo: "Ativo" | "Bloqueado") {
-    if (!idsSelecionados.length) return;
-    if (!window.confirm(`Alterar status de ${idsSelecionados.length} usuário(s) para ${novo}?`)) return;
-    await Promise.all(idsSelecionados.map(async (id) => handleStatus(id, novo)));
-    setSelecionados({});
-  }
-
-  async function bulkTag(tag: string) {
-    if (!idsSelecionados.length || !tag) return;
-    if (!window.confirm(`Aplicar a tag "${tag}" em ${idsSelecionados.length} usuário(s)?`)) return;
-    await Promise.all(idsSelecionados.map(async (id) => handleApplyTag(id, tag)));
-    setSelecionados({});
-  }
-
-  async function bulkPromotePatrocinador(planoTipo: string) {
-    if (!idsSelecionados.length) return;
-    if (!window.confirm(`PROMOVER ${idsSelecionados.length} usuário(s) para patrocinador com plano "${planoTipo}"?`)) return;
-    if (!window.confirm(`Confirma novamente? Essa ação altera o papel e define plano.`)) return;
-    await Promise.all(idsSelecionados.map(async (id) => {
-      await handleRole(id, "patrocinador");
-      await handlePlano(id, { planoTipo, planoStatus: "ativo" });
-    }));
-    setSelecionados({});
-  }
-
-  /* ========================= Export CSV ========================= */
+  /* ---------- export CSV ---------- */
   function exportCSV() {
     const cols = [
-      "id", "nome", "email", "role", "status", "verificado",
-      "estado", "cidade", "createdAt", "lastLoginAt",
-      "planoTipo", "planoStatus", "planoExpiraEm",
-      "leadsInclusos", "leadsConsumidos", "tags"
+      "id",
+      "nome",
+      "email",
+      "role",
+      "status",
+      "fornecedor",
+      "estado",
+      "cidade",
+      "categorias",
+      "ufsCobertura",
+      "createdAt",
+      "lastLogin",
+      "planoStatus",
     ];
     const lines = [cols.join(",")];
-    usuariosFiltrados.forEach(u => {
+    listaFinal.forEach((u) => {
       const row = [
         u.id,
         (u.nome || "").replace(/,/g, " "),
@@ -408,202 +691,356 @@ function ListaUsuariosAdmin() {
         String(!!u.verificado),
         u.estado || "",
         u.cidade || "",
+        (u.categoriesAll || []).join("|"),
+        (u.ufsSearch || []).join("|"),
         formatDate(u.createdAt),
         formatDate(u.lastLoginAt || u.lastLogin),
-        u.planoTipo || "",
         u.planoStatus || "",
-        formatDate(u.planoExpiraEm),
-        String(u.leadsInclusos ?? ""),
-        String(u.leadsConsumidos ?? ""),
-        (u.tags || []).join("|")
       ];
-      lines.push(row.map(v => `"${v}"`).join(","));
+      lines.push(row.map((v) => `"${v}"`).join(","));
     });
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `usuarios-${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `usuarios-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  /* ========================= Métricas simples ========================= */
-  const total = usuarios.length;
-  const admins = usuarios.filter(u => asRole(u) === "admin").length;
-  const patrocinadoresAtivos = usuarios.filter(u => asRole(u) === "patrocinador" && (u.planoStatus === "ativo")).length;
-  const expiram7 = usuarios.filter(u => (u.planoStatus === "ativo") && daysFromNow(tsToDate(u.planoExpiraEm)) <= 7).length;
-  const novos7 = usuarios.filter(u => {
-    const c = tsToDate(u.createdAt);
-    if (!c) return false;
-    const d = new Date(); d.setDate(d.getDate() - 7); d.setHours(0,0,0,0);
-    return c >= d;
-  }).length;
-  const semWhats = usuarios.filter(u => !u.whatsapp).length;
-  const perfilIncomp = usuarios.filter(u => u.perfilCompleto === false).length;
+  /* ---------- seleção em massa ---------- */
+  const idsSelecionados = useMemo(
+    () => Object.entries(selecionados).filter(([, v]) => v).map(([id]) => id),
+    [selecionados]
+  );
 
-  /* ========================= UI ========================= */
+  async function bulkStatus(novo: "Ativo" | "Bloqueado") {
+    if (!idsSelecionados.length) return;
+    if (
+      !window.confirm(
+        `Alterar status para "${novo}" em ${idsSelecionados.length} usuário(s)?`
+      )
+    )
+      return;
+    await Promise.all(idsSelecionados.map((id) => handleStatus(id, novo)));
+    setSelecionados({});
+  }
+
+  async function bulkTag(tag: string) {
+    const val = tag.trim();
+    if (!idsSelecionados.length || !val) return;
+    if (
+      !window.confirm(
+        `Aplicar tag "${val}" em ${idsSelecionados.length} usuário(s)?`
+      )
+    )
+      return;
+    await Promise.all(idsSelecionados.map((id) => handleApplyTag(id, val)));
+    setSelecionados({});
+  }
+
+  /* ---------- UI ---------- */
   return (
     <main style={{ minHeight: "100vh", background: "#f9fafb", padding: "46px 0 30px 0" }}>
       <section style={{ maxWidth: 1380, margin: "0 auto", padding: "0 2vw" }}>
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 22 }}>
-          <h1 style={{ fontWeight: 900, fontSize: "2.3rem", color: "#023047", margin: 0, letterSpacing: "-1px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 16,
+            flexWrap: "wrap",
+            alignItems: "center",
+            marginBottom: 22,
+          }}
+        >
+          <h1
+            style={{
+              fontWeight: 900,
+              fontSize: "2.3rem",
+              color: "#023047",
+              margin: 0,
+              letterSpacing: "-1px",
+            }}
+          >
             Gestão de Usuários
           </h1>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button
-              onClick={() => fetchUsuarios(true)}
+              onClick={() => {
+                lastDocRef.current = null;
+                reachedEndRef.current = false;
+                setUsuarios([]);
+                setLoading(true);
+                Promise.all([applyServerQuery(true), fetchGlobalStats()]).finally(() => setLoading(false));
+              }}
               title="Recarregar"
-              style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 14px", cursor: "pointer", fontWeight: 800 }}
+              style={{
+                background: "#fff",
+                border: "1px solid #e5e7eb",
+                borderRadius: 12,
+                padding: "10px 14px",
+                cursor: "pointer",
+                fontWeight: 800,
+              }}
             >
               <RefreshCw size={18} />
             </button>
-            <Link href="/admin/usuarios/create" style={{
-              background: "#FB8500", color: "#fff", borderRadius: 16, fontWeight: 800, fontSize: "1.05rem",
-              padding: "12px 18px", textDecoration: "none", boxShadow: "0 2px 12px #0001", display: "inline-flex", alignItems: "center", gap: 8
-            }}>
+            <Link
+              href="/admin/usuarios/create"
+              style={{
+                background: "#FB8500",
+                color: "#fff",
+                borderRadius: 16,
+                fontWeight: 800,
+                fontSize: "1.05rem",
+                padding: "12px 18px",
+                textDecoration: "none",
+                boxShadow: "0 2px 12px #0001",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
               <PlusCircle size={18} /> Novo Usuário
             </Link>
           </div>
         </div>
 
-        {/* Cards */}
+        {/* Cards resumo (globais) */}
         <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-          <ResumoCard label="Carregados" value={total} icon={<Users size={18} />} color="#2563eb" />
-          <ResumoCard label="Admins" value={admins} icon={<ShieldCheck size={18} />} color="#4f46e5" />
-          <ResumoCard label="Patrocinadores ativos" value={patrocinadoresAtivos} icon={<BadgeCheck size={18} />} color="#059669" />
-          <ResumoCard label="Expiram ≤7d" value={expiram7} icon={<AlertTriangle size={18} />} color="#d97706" />
-          <ResumoCard label="Novos (7d)" value={novos7} icon={<UserCheck size={18} />} color="#0ea5e9" />
-          <ResumoCard label="Sem WhatsApp" value={semWhats} icon={<XCircle size={18} />} color="#ef4444" />
-          <ResumoCard label="Perfis incompletos" value={perfilIncomp} icon={<AlertTriangle size={18} />} color="#f59e0b" />
+          <ResumoCard label="Carregados" value={stats.total} icon={<Users size={18} />} color="#2563eb" />
+          <ResumoCard label="Admins" value={stats.admins} icon={<ShieldCheck size={18} />} color="#4f46e5" />
+          <ResumoCard
+            label="Patrocinadores ativos"
+            value={stats.patrocinadoresAtivos}
+            icon={<BadgeCheck size={18} />}
+            color="#059669"
+          />
+          <ResumoCard label="Ativos" value={stats.ativos} icon={<CheckCircle2 size={18} />} color="#10b981" />
+          <ResumoCard label="Com WhatsApp" value={stats.comWhats} icon={<CheckCircle2 size={18} />} color="#22c55e" />
+          <ResumoCard label="Perfis melhorados" value={stats.perfisMelhorados} icon={<TagIcon size={18} />} color="#f59e0b" />
         </div>
 
-        {/* Busca + Filtros */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <div style={{ position: "relative" }}>
-            <Search size={18} style={{ position: "absolute", top: 9, left: 10, color: "#a0a0a0" }} />
-            <input
-              style={{
-                padding: "8px 8px 8px 35px", borderRadius: 11, border: "1px solid #e0e7ef",
-                minWidth: 240, fontSize: 15, fontWeight: 600, color: "#023047"
-              }}
-              placeholder="Buscar nome / email / ID / cidade"
-              value={busca}
-              onChange={e => setBusca(e.target.value)}
-            />
+        {/* Busca + filtros */}
+        <div style={{ display: "grid", gap: 10, marginBottom: 8 }}>
+          {/* Linha 1 */}
+          <div className="filtersTopRow">
+            <div className="searchWrap">
+              <Search size={18} className="searchIcon" />
+              <input
+                className="searchInput"
+                placeholder="Buscar nome / e-mail / ID / cidade"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+            </div>
+            <div className="filtersActionsRight">
+              <button onClick={exportCSV} className="btnIcon" title="Exportar CSV (lista filtrada)">
+                <Download size={18} />
+              </button>
+            </div>
           </div>
 
-          <select value={filtroRole} onChange={e => setFiltroRole(e.target.value as any)} style={sel()}>
-            <option value="">Todos papéis</option>
-            <option value="admin">Admin</option>
-            <option value="patrocinador">Patrocinador</option>
-            <option value="usuario">Usuário</option>
-          </select>
+          {/* Linha 2 — filtros principais */}
+          <div className="filtersScroller">
+            <select value={fRole} onChange={(e) => setFRole(e.target.value as any)} className="filterItem">
+              <option value="">Tipo/Papel</option>
+              <option value="admin">Admin</option>
+              <option value="patrocinador">Patrocinador</option>
+              <option value="usuario">Usuário</option>
+            </select>
 
-          <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value as any)} style={sel()}>
-            <option value="">Todos status</option>
-            <option value="Ativo">Ativo</option>
-            <option value="Bloqueado">Bloqueado</option>
-            <option value="Pendente">Pendente</option>
-            <option value="Inativo">Inativo</option>
-          </select>
+            <select value={fStatus} onChange={(e) => setFStatus(e.target.value as any)} className="filterItem">
+              <option value="">Status</option>
+              <option value="Ativo">Ativo</option>
+              <option value="Bloqueado">Bloqueado</option>
+              <option value="Pendente">Pendente</option>
+              <option value="Inativo">Inativo</option>
+            </select>
 
-          <select value={filtroVerificado} onChange={e => setFiltroVerificado(e.target.value as any)} style={sel()}>
-            <option value="">Verificado?</option>
-            <option value="sim">Sim</option>
-            <option value="nao">Não</option>
-          </select>
+            <select
+              value={fFornecedor}
+              onChange={(e) => setFFornecedor(e.target.value as any)}
+              className="filterItem"
+            >
+              <option value="">Fornecedor?</option>
+              <option value="sim">Sim</option>
+              <option value="nao">Não</option>
+            </select>
 
-          <select value={filtroUF} onChange={e => { setFiltroUF(e.target.value); setFiltroCidade(""); }} style={sel()}>
-            <option value="">UF</option>
-            {estados.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-          </select>
+            <select
+              value={fUF}
+              onChange={(e) => {
+                setFUF(e.target.value);
+                setFCidade("");
+              }}
+              className="filterItem"
+            >
+              <option value="">UF (cadastro)</option>
+              {estadosDisponiveis.map((uf) => (
+                <option key={uf} value={uf}>
+                  {uf}
+                </option>
+              ))}
+            </select>
 
-          <select value={filtroCidade} onChange={e => setFiltroCidade(e.target.value)} style={sel()}>
-            <option value="">Cidade</option>
-            {cidades.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+            <select value={fCidade} onChange={(e) => setFCidade(e.target.value)} className="filterItem">
+              <option value="">Cidade</option>
+              {cidadesDisponiveis.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
 
-          <select value={periodo} onChange={e => setPeriodo(e.target.value as any)} style={sel()}>
-            <option value="todos">Período: Todos</option>
-            <option value="hoje">Hoje</option>
-            <option value="7d">7 dias</option>
-            <option value="30d">30 dias</option>
-            <option value="custom">Custom</option>
-          </select>
+            <select
+              value={fCategoria}
+              onChange={(e) => {
+                setFCategoria(e.target.value);
+                setFSubcat("");
+              }}
+              className="filterItem"
+            >
+              <option value="">Categoria</option>
+              {categoriasDisponiveis.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
 
-          {periodo === "custom" && (
-            <>
-              <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={sel()} />
-              <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={sel()} />
-            </>
-          )}
+            <select
+              value={fSubcat}
+              onChange={(e) => setFSubcat(e.target.value)}
+              className="filterItem"
+              disabled={!fCategoria}
+              title={fCategoria ? "Subcategoria" : "Selecione uma categoria"}
+            >
+              <option value="">{fCategoria ? "Subcategoria" : "—"}</option>
+              {subcatsDisponiveis.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
 
-          <select value={filtroPlano} onChange={e => setFiltroPlano(e.target.value as any)} style={sel()}>
-            <option value="">Patrocínio</option>
-            <option value="ativo">Plano Ativo</option>
-            <option value="expira7">Expira ≤7 dias</option>
-            <option value="inadimplente">Inadimplente</option>
-            <option value="expirado">Expirado</option>
-          </select>
+            <select
+              value={fUFCobertura}
+              onChange={(e) => setFUFCobertura(e.target.value)}
+              className="filterItem"
+            >
+              <option value="">Cobertura (UF/BRASIL)</option>
+              {ufsCoberturaDisponiveis.map((uf) => (
+                <option key={uf} value={uf}>
+                  {uf}
+                </option>
+              ))}
+            </select>
 
-          <details>
-            <summary style={{ cursor: "pointer", padding: "8px 12px", border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <Filter size={16} /> Avançados
-            </summary>
-            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <label style={chk()}><input type="checkbox" checked={filtroPerfilIncompleto} onChange={e => setFiltroPerfilIncompleto(e.target.checked)} /> Perfil incompleto</label>
-              <label style={chk()}><input type="checkbox" checked={filtroSemWhats} onChange={e => setFiltroSemWhats(e.target.checked)} /> Sem WhatsApp</label>
-              <label style={chk()}><input type="checkbox" checked={filtroSemCidadeEstado} onChange={e => setFiltroSemCidadeEstado(e.target.checked)} /> Sem cidade/UF</label>
-              <label style={chk()}><input type="checkbox" checked={filtroSemLogin30d} onChange={e => setFiltroSemLogin30d(e.target.checked)} /> Sem login ≥30d</label>
-              <select value={filtroTag} onChange={e => setFiltroTag(e.target.value)} style={sel()}>
-                <option value="">Tag</option>
-                {allTags.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <select value={filtroLeads} onChange={e => setFiltroLeads(e.target.value as any)} style={sel()}>
-                <option value="">Leads</option>
-                <option value="com">Com saldo</option>
-                <option value="sem">Sem saldo</option>
-                <option value="alto">Consumo alto (p95/30d)</option>
-              </select>
-            </div>
-          </details>
+            <select value={fPatro} onChange={(e) => setFPatro(e.target.value as any)} className="filterItem">
+              <option value="">Patrocínio</option>
+              <option value="ativo">Plano Ativo</option>
+              <option value="expira7">Expira ≤7 dias</option>
+              <option value="inadimplente">Inadimplente</option>
+              <option value="expirado">Expirado</option>
+            </select>
+
+            <details className="filterItem detailsAdv">
+              <summary className="btnAdv">
+                <Filter size={16} /> Avançados <ChevronDown size={14} />
+              </summary>
+              <div className="advContent">
+                <label className="chk">
+                  <input
+                    type="checkbox"
+                    checked={fPerfilIncompleto}
+                    onChange={(e) => setFPerfilIncompleto(e.target.checked)}
+                  />{" "}
+                  Perfil incompleto
+                </label>
+                <label className="chk">
+                  <input
+                    type="checkbox"
+                    checked={fSemWhats}
+                    onChange={(e) => setFSemWhats(e.target.checked)}
+                  />{" "}
+                  Sem WhatsApp
+                </label>
+                <select
+                  value={fTag}
+                  onChange={(e) => setFTag(e.target.value)}
+                  className="filterItem"
+                  style={{ minWidth: 160 }}
+                >
+                  <option value="">Tag</option>
+                  {tagsDisponiveis.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </details>
+          </div>
         </div>
 
         {/* Chips de filtros aplicados */}
         <Chips
           values={[
             busca && { label: `Busca: "${busca}"`, onClear: () => setBusca("") },
-            filtroRole && { label: `Papel: ${filtroRole}`, onClear: () => setFiltroRole("") },
-            filtroStatus && { label: `Status: ${filtroStatus}`, onClear: () => setFiltroStatus("") },
-            filtroVerificado && { label: `Verificado: ${filtroVerificado}`, onClear: () => setFiltroVerificado("") },
-            filtroUF && { label: `UF: ${filtroUF}`, onClear: () => setFiltroUF("") },
-            filtroCidade && { label: `Cidade: ${filtroCidade}`, onClear: () => setFiltroCidade("") },
-            periodo !== "todos" && { label: `Período: ${periodo}`, onClear: () => { setPeriodo("todos"); setDataInicio(""); setDataFim(""); } },
-            filtroPlano && { label: `Patrocínio: ${filtroPlano}`, onClear: () => setFiltroPlano("") },
-            filtroPerfilIncompleto && { label: "Perfil incompleto", onClear: () => setFiltroPerfilIncompleto(false) },
-            filtroSemWhats && { label: "Sem WhatsApp", onClear: () => setFiltroSemWhats(false) },
-            filtroSemCidadeEstado && { label: "Sem cidade/UF", onClear: () => setFiltroSemCidadeEstado(false) },
-            filtroSemLogin30d && { label: "Sem login ≥30d", onClear: () => setFiltroSemLogin30d(false) },
-            filtroTag && { label: `Tag: ${filtroTag}`, onClear: () => setFiltroTag("") },
-            filtroLeads && { label: `Leads: ${filtroLeads}`, onClear: () => setFiltroLeads("") },
+            fRole && { label: `Tipo: ${fRole}`, onClear: () => setFRole("") },
+            fStatus && { label: `Status: ${fStatus}`, onClear: () => setFStatus("") },
+            fFornecedor && {
+              label: `Fornecedor: ${fFornecedor}`,
+              onClear: () => setFFornecedor(""),
+            },
+            fUF && { label: `UF: ${fUF}`, onClear: () => setFUF("") },
+            fCidade && { label: `Cidade: ${fCidade}`, onClear: () => setFCidade("") },
+            fCategoria && {
+              label: `Categoria: ${fCategoria}`,
+              onClear: () => {
+                setFCategoria("");
+                setFSubcat("");
+              },
+            },
+            fSubcat && { label: `Subcategoria: ${fSubcat}`, onClear: () => setFSubcat("") },
+            fUFCobertura && {
+              label: `Cobertura: ${fUFCobertura}`,
+              onClear: () => setFUFCobertura(""),
+            },
+            fPatro && { label: `Patrocínio: ${fPatro}`, onClear: () => setFPatro("") },
+            fPerfilIncompleto && {
+              label: "Perfil incompleto",
+              onClear: () => setFPerfilIncompleto(false),
+            },
+            fSemWhats && { label: "Sem WhatsApp", onClear: () => setFSemWhats(false) },
+            fTag && { label: `Tag: ${fTag}`, onClear: () => setFTag("") },
           ].filter(Boolean) as any[]}
           onClearAll={() => {
             setBusca("");
-            setFiltroRole(""); setFiltroStatus(""); setFiltroVerificado("");
-            setFiltroUF(""); setFiltroCidade("");
-            setPeriodo("todos"); setDataInicio(""); setDataFim("");
-            setFiltroPlano("");
-            setFiltroPerfilIncompleto(false); setFiltroSemWhats(false);
-            setFiltroSemCidadeEstado(false); setFiltroSemLogin30d(false);
-            setFiltroTag(""); setFiltroLeads("");
+            setFRole("");
+            setFStatus("");
+            setFFornecedor("");
+            setFUF("");
+            setFCidade("");
+            setFCategoria("");
+            setFSubcat("");
+            setFUFCobertura("");
+            setFPatro("");
+            setFPerfilIncompleto(false);
+            setFSemWhats(false);
+            setFTag("");
           }}
         />
 
-        {/* Toolbar de ações em massa */}
+        {/* Toolbar em massa */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "10px 0 16px" }}>
-          <span style={{ fontWeight: 800, color: "#64748b" }}>{idsSelecionados.length} selecionado(s)</span>
+          <span style={{ fontWeight: 800, color: "#64748b" }}>
+            {idsSelecionados.length} selecionado(s)
+          </span>
           <button onClick={() => bulkStatus("Bloqueado")} disabled={!idsSelecionados.length} style={btnDanger()}>
             <Lock size={16} /> Bloquear
           </button>
@@ -611,132 +1048,206 @@ function ListaUsuariosAdmin() {
             <UserCheck size={16} /> Desbloquear
           </button>
           <BulkTag onApply={(t) => bulkTag(t)} disabled={!idsSelecionados.length} />
-          <button onClick={() => bulkPromotePatrocinador("padrao")} disabled={!idsSelecionados.length} style={btnPrimary()}>
-            <BadgeCheck size={16} /> Tornar Patrocinador
-          </button>
-          <button onClick={exportCSV} style={btnNeutral()}>
+          <button onClick={exportCSV} style={btnNeutral()} title="Exportar CSV (lista filtrada)">
             <Download size={16} /> Exportar CSV
           </button>
 
           <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-            <label style={{ fontWeight: 800, color: "#64748b" }}>Tamanho:</label>
-            <select value={pageSize} onChange={e => setPageSize(Number(e.target.value) as any)} style={sel()}>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
             <button
               onClick={() => {
-                if (!prevCursorsRef.current.length) return;
-                const prev = prevCursorsRef.current.pop();
-                setPageCursor(prev || null);
-                fetchUsuarios(true);
+                if (reachedEndRef.current || loading) return;
+                applyServerQuery(false);
               }}
-              style={btnNeutral()}
+              style={btnPrimary()}
+              disabled={loading || reachedEndRef.current}
+              title={reachedEndRef.current ? "Fim da lista" : "Carregar mais"}
             >
-              <ChevronLeft size={16} /> Anterior
-            </button>
-            <button
-              onClick={() => {
-                if (pageCursor) {
-                  prevCursorsRef.current.push(pageCursor);
-                  fetchUsuarios(false);
-                }
-              }}
-              style={btnNeutral()}
-            >
-              Próxima <ChevronRight size={16} />
+              Carregar mais
             </button>
           </div>
         </div>
 
         {/* Lista */}
-        {loading ? (
-          <div style={{ color: "#219EBC", fontWeight: 700, padding: 44, textAlign: "center" }}>Carregando usuários...</div>
-        ) : usuariosFiltrados.length === 0 ? (
+        {loading && usuarios.length === 0 ? (
+          <div style={{ color: "#219EBC", fontWeight: 700, padding: 44, textAlign: "center" }}>
+            Carregando usuários...
+          </div>
+        ) : listaFinal.length === 0 ? (
           <div style={{ color: "#adb0b6", fontWeight: 600, padding: 44, textAlign: "center" }}>
             Nenhum resultado — experimente limpar os filtros.
           </div>
         ) : (
-          <div style={{
-            display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
-            gap: 22, marginBottom: 28
-          }}>
-            {usuariosFiltrados.map(u => {
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+              gap: 22,
+              marginBottom: 28,
+            }}
+          >
+            {listaFinal.map((u) => {
               const role = asRole(u);
               const status = asStatus(u);
               const isSelected = !!selecionados[u.id];
               const expiraEm = tsToDate(u.planoExpiraEm);
               const dias = daysFromNow(expiraEm);
               const badgePlano =
-                u.planoStatus === "expirado" ? { bg:"#ffe6e6", fg:"#d90429", txt:"Expirado" } :
-                u.planoStatus === "inadimplente" ? { bg:"#fff4e6", fg:"#c2410c", txt:"Inadimplente" } :
-                (u.planoStatus === "ativo" && dias <= 7) ? { bg:"#fff7ed", fg:"#b45309", txt:`Expira em ${Math.max(dias,0)}d` } :
-                u.planoStatus === "ativo" ? { bg:"#e7faec", fg:"#059669", txt:"Plano Ativo" } : undefined;
+                u.planoStatus === "expirado"
+                  ? { bg: "#ffe6e6", fg: "#d90429", txt: "Expirado" }
+                  : u.planoStatus === "inadimplente"
+                  ? { bg: "#fff4e6", fg: "#c2410c", txt: "Inadimplente" }
+                  : u.planoStatus === "ativo" && dias <= 7
+                  ? { bg: "#fff7ed", fg: "#b45309", txt: `Expira em ${Math.max(dias, 0)}d` }
+                  : u.planoStatus === "ativo"
+                  ? { bg: "#e7faec", fg: "#059669", txt: "Plano Ativo" }
+                  : undefined;
 
               return (
-                <div key={u.id} style={{
-                  background: "#fff", borderRadius: 17, boxShadow: "0 2px 20px #0001",
-                  padding: "18px 20px 16px 20px", display: "flex", flexDirection: "column",
-                  gap: 10, position: "relative"
-                }}>
+                <div
+                  key={u.id}
+                  style={{
+                    background: "#fff",
+                    borderRadius: 17,
+                    boxShadow: "0 2px 20px #0001",
+                    padding: "18px 20px 16px 20px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                    position: "relative",
+                  }}
+                >
                   <label style={{ position: "absolute", top: 14, left: 14 }}>
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      onChange={e => setSelecionados(s => ({ ...s, [u.id]: e.target.checked }))}
+                      onChange={(e) =>
+                        setSelecionados((s) => ({
+                          ...s,
+                          [u.id]: e.target.checked,
+                        }))
+                      }
                     />
                   </label>
 
                   <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                    <div style={{
-                      width: 54, height: 54, borderRadius: "50%",
-                      background: "linear-gradient(135deg, #FB8500 60%, #2563eb 120%)",
-                      color: "#fff", fontWeight: 900, fontSize: 22,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      boxShadow: "0 2px 10px #0001"
-                    }}>
-                      {u.nome ? u.nome.charAt(0).toUpperCase() : <User size={28} />}
+                    <div
+                      style={{
+                        width: 54,
+                        height: 54,
+                        borderRadius: "50%",
+                        background: "linear-gradient(135deg, #FB8500 60%, #2563eb 120%)",
+                        color: "#fff",
+                        fontWeight: 900,
+                        fontSize: 22,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        boxShadow: "0 2px 10px #0001",
+                      }}
+                    >
+                      {u.nome ? u.nome.charAt(0).toUpperCase() : <UserIcon size={28} />}
                     </div>
                     <div>
-                      <div style={{ fontWeight: 800, fontSize: "1.08rem", color: "#023047" }}>{u.nome || "—"}</div>
-                      <div style={{ color: "#219ebc", fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ fontWeight: 800, fontSize: "1.08rem", color: "#023047" }}>
+                        {u.nome || "—"}
+                      </div>
+                      <div
+                        style={{
+                          color: "#219ebc",
+                          fontWeight: 700,
+                          fontSize: 14,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
                         <span>{u.email || "—"}</span>
                         {u.email && (
-                          <ClipboardCopy size={15} onClick={() => navigator.clipboard.writeText(u.email!)} style={{ cursor: "pointer" }} />
+                          <span
+                            title="Copiar e-mail"
+                            onClick={() => navigator.clipboard.writeText(u.email!)}
+                            style={{ cursor: "pointer", display: "inline-flex" }}
+                            aria-label="Copiar e-mail"
+                          >
+                            <ClipboardCopy size={15} />
+                          </span>
                         )}
                         {u.verificado ? (
-  <span title="Verificado" aria-label="Verificado">
-    <BadgeCheck size={16} />
-  </span>
-) : null}
-
+                          <span title="Fornecedor (verificado)">
+                            <BadgeCheck size={16} />
+                          </span>
+                        ) : null}
                       </div>
-                      <div style={{ color: "#94a3b8", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                      <div
+                        style={{
+                          color: "#94a3b8",
+                          fontWeight: 600,
+                          fontSize: 12,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
                         <span>{u.id}</span>
-                        <ClipboardCopy size={14} onClick={() => navigator.clipboard.writeText(u.id)} style={{ cursor: "pointer" }} />
+                        <span
+                          title="Copiar ID"
+                          onClick={() => navigator.clipboard.writeText(u.id)}
+                          style={{ cursor: "pointer", display: "inline-flex" }}
+                          aria-label="Copiar ID"
+                        >
+                          <ClipboardCopy size={14} />
+                        </span>
                       </div>
                       {(u.cidade || u.estado) && (
-                        <div style={{ color: "#64748b", fontWeight: 700, fontSize: 13, marginTop: 2 }}>
-                          {u.cidade || "—"}{u.estado ? ` - ${u.estado}` : ""}
+                        <div
+                          style={{
+                            color: "#64748b",
+                            fontWeight: 700,
+                            fontSize: 13,
+                            marginTop: 2,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          <MapPin size={14} />
+                          {u.cidade || "—"}
+                          {u.estado ? ` - ${u.estado}` : ""}
                         </div>
                       )}
                     </div>
                   </div>
 
                   <div style={{ marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <span style={pill("#eef2ff", "#4f46e5")}>{(role || "usuario").toUpperCase()}</span>
-                    <span style={pill(status === "Ativo" ? "#e7faec" : "#ffe6e6", status === "Ativo" ? "#059669" : "#d90429")}>{status}</span>
-                    {badgePlano && <span style={pill(badgePlano.bg, badgePlano.fg)}>{badgePlano.txt}</span>}
-                    {(u.tags || []).slice(0, 3).map(t => <span key={t} style={pill("#f1f5f9", "#334155")}><TagIcon size={12} /> {t}</span>)}
+                    <span style={pill("#eef2ff", "#4f46e5")}>
+                      {(role || "usuario").toUpperCase()}
+                    </span>
+                    <span
+                      style={pill(
+                        status === "Ativo" ? "#e7faec" : "#ffe6e6",
+                        status === "Ativo" ? "#059669" : "#d90429"
+                      )}
+                    >
+                      {status}
+                    </span>
+                    {badgePlano && (
+                      <span style={pill(badgePlano.bg, badgePlano.fg)}>{badgePlano.txt}</span>
+                    )}
+                    {(u.categoriesAll || [])
+                      .slice(0, 2)
+                      .map((c) => (
+                        <span key={c} style={pill("#f1f5f9", "#334155")}>
+                          <TagIcon size={12} /> {c}
+                        </span>
+                      ))}
                   </div>
 
                   <div style={{ color: "#A0A0A0", fontSize: 12 }}>
                     {u.createdAt && <>Cadastro: {formatDate(u.createdAt)}</>}
-                    {(u.lastLoginAt || u.lastLogin) && <> {" | "} Último login: {formatDate(u.lastLoginAt || u.lastLogin)}</>}
+                    {(u.lastLoginAt || u.lastLogin) && <> {" | "}Último login: {formatDate(u.lastLoginAt || u.lastLogin)}</>}
                   </div>
 
-                  {/* Ações */}
+                  {/* ações */}
                   <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                     <Link href={`/admin/usuarios/${u.id}/edit`} style={btnLink()}>
                       <Pencil size={15} /> Editar
@@ -752,12 +1263,11 @@ function ListaUsuariosAdmin() {
                       </button>
                     )}
 
-                    {/* Trocar papel */}
                     <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                       <label style={{ fontWeight: 800, color: "#64748b", fontSize: 12 }}>Papel:</label>
                       <select
                         value={asRole(u)}
-                        onChange={e => handleRole(u.id, e.target.value as any)}
+                        onChange={(e) => handleRole(u.id, e.target.value as any)}
                         style={sel()}
                       >
                         <option value="usuario">Usuário</option>
@@ -766,22 +1276,6 @@ function ListaUsuariosAdmin() {
                       </select>
                     </div>
 
-                    {/* Ajustar plano (rápido) */}
-                    <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                      <label style={{ fontWeight: 800, color: "#64748b", fontSize: 12 }}>Plano:</label>
-                      <select
-                        value={u.planoStatus || ""}
-                        onChange={e => handlePlano(u.id, { planoStatus: e.target.value as any })}
-                        style={sel()}
-                      >
-                        <option value="">—</option>
-                        <option value="ativo">Ativo</option>
-                        <option value="inadimplente">Inadimplente</option>
-                        <option value="expirado">Expirado</option>
-                      </select>
-                    </div>
-
-                    {/* Quick tag */}
                     <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                       <label style={{ fontWeight: 800, color: "#64748b", fontSize: 12 }}>Tag:</label>
                       <input
@@ -797,7 +1291,6 @@ function ListaUsuariosAdmin() {
                       />
                     </div>
 
-                    {/* Excluir (mantido, mas com confirmação forte) */}
                     <button onClick={() => handleDelete(u.id)} style={btnOutlineDanger()}>
                       <Trash2 size={15} /> Excluir
                     </button>
@@ -808,20 +1301,154 @@ function ListaUsuariosAdmin() {
           </div>
         )}
 
+        {/* Mostrar CTA de carregar mais no fim também */}
+        {!loading && !reachedEndRef.current && (
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+            <button onClick={() => applyServerQuery(false)} style={btnPrimary()} title="Carregar mais">
+              Carregar mais
+            </button>
+          </div>
+        )}
       </section>
+
+      <style jsx>{`
+        .filtersTopRow {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          align-items: center;
+          gap: 10px;
+        }
+        .searchWrap {
+          position: relative;
+        }
+        .searchIcon {
+          position: absolute;
+          top: 9px;
+          left: 10px;
+          color: #a0a0a0;
+        }
+        .searchInput {
+          width: 100%;
+          padding: 8px 8px 8px 35px;
+          border-radius: 11px;
+          border: 1px solid #e0e7ef;
+          font-size: 15px;
+          font-weight: 600;
+          color: #023047;
+          background: #fff;
+        }
+        .filtersActionsRight {
+          display: inline-flex;
+          gap: 8px;
+          align-items: center;
+          justify-content: flex-end;
+        }
+        .filtersScroller {
+          display: flex;
+          gap: 8px;
+          overflow-x: auto;
+          padding-bottom: 4px;
+          scrollbar-width: thin;
+          -webkit-overflow-scrolling: touch;
+        }
+        .filtersScroller::-webkit-scrollbar {
+          height: 8px;
+        }
+        .filtersScroller::-webkit-scrollbar-thumb {
+          background: #e5e7eb;
+          border-radius: 8px;
+        }
+        .filterItem {
+          border-radius: 10px;
+          border: 1px solid #e0e7ef;
+          font-weight: 800;
+          color: #0f172a;
+          padding: 8px 12px;
+          background: #fff;
+          white-space: nowrap;
+          min-width: 160px;
+        }
+        .detailsAdv {
+          min-width: unset;
+        }
+        .btnAdv {
+          list-style: none;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          background: #fff;
+          font-weight: 800;
+          padding: 8px 12px;
+        }
+        .advContent {
+          margin-top: 8px;
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .chk {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-weight: 800;
+          color: #334155;
+          background: #fff;
+          padding: 6px 10px;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+        }
+
+        @media (min-width: 1024px) {
+          .filtersScroller {
+            display: grid;
+            grid-template-columns: repeat(9, minmax(160px, 1fr));
+            gap: 10px;
+            overflow: visible;
+          }
+          .filterItem {
+            width: 100%;
+            min-width: 0;
+          }
+          .detailsAdv {
+            grid-column: 1 / -1;
+          }
+        }
+      `}</style>
     </main>
   );
 }
 
-/* ========================= Subcomponentes ========================= */
-function ResumoCard({ label, value, icon, color }: { label: string; value: number; icon: React.ReactNode; color: string }) {
+/* ========================= Subcomponentes / estilos ========================= */
+function ResumoCard({
+  label,
+  value,
+  icon,
+  color,
+}: {
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+  color: string;
+}) {
   return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 9,
-      background: "#fff", borderRadius: 13, padding: "9px 18px",
-      fontWeight: 900, color: "#023047", border: `2px solid ${color}22`, fontSize: 16,
-      boxShadow: "0 2px 12px #0001"
-    }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 9,
+        background: "#fff",
+        borderRadius: 13,
+        padding: "9px 18px",
+        fontWeight: 900,
+        color: "#023047",
+        border: `2px solid ${color}22`,
+        fontSize: 16,
+        boxShadow: "0 2px 12px #0001",
+      }}
+    >
       <span style={{ color, display: "flex", alignItems: "center" }}>{icon}</span>
       <span style={{ fontWeight: 800, fontSize: 19, marginLeft: 4 }}>{value}</span>
       <span style={{ color: "#697A8B", fontWeight: 700, marginLeft: 6 }}>{label}</span>
@@ -829,17 +1456,58 @@ function ResumoCard({ label, value, icon, color }: { label: string; value: numbe
   );
 }
 
-function Chips({ values, onClearAll }: { values: { label: string; onClear: () => void }[]; onClearAll: () => void }) {
+function Chips({
+  values,
+  onClearAll,
+}: {
+  values: { label: string; onClear: () => void }[];
+  onClearAll: () => void;
+}) {
   if (!values.length) return null;
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0 12px" }}>
       {values.map((c, i) => (
-        <span key={i} style={{ padding: "6px 10px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 999, fontWeight: 800, color: "#334155", display: "inline-flex", gap: 8, alignItems: "center" }}>
+        <span
+          key={i}
+          style={{
+            padding: "6px 10px",
+            background: "#fff",
+            border: "1px solid #e5e7eb",
+            borderRadius: 999,
+            fontWeight: 800,
+            color: "#334155",
+            display: "inline-flex",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
           {c.label}
-          <button onClick={c.onClear} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}>✕</button>
+          <button
+            onClick={c.onClear}
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              color: "#64748b",
+            }}
+          >
+            ✕
+          </button>
         </span>
       ))}
-      <button onClick={onClearAll} style={{ marginLeft: 4, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "6px 12px", fontWeight: 900, color: "#475569", cursor: "pointer" }}>
+      <button
+        onClick={onClearAll}
+        style={{
+          marginLeft: 4,
+          background: "#f1f5f9",
+          border: "1px solid #e2e8f0",
+          borderRadius: 999,
+          padding: "6px 12px",
+          fontWeight: 900,
+          color: "#475569",
+          cursor: "pointer",
+        }}
+      >
         Limpar tudo
       </button>
     </div>
@@ -851,7 +1519,12 @@ function BulkTag({ onApply, disabled }: { onApply: (t: string) => void; disabled
   return (
     <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
       <label style={{ fontWeight: 800, color: "#64748b" }}>Tag:</label>
-      <input value={tag} onChange={e => setTag(e.target.value)} placeholder="ex.: fornecedor" style={{ ...sel(), width: 160 }} />
+      <input
+        value={tag}
+        onChange={(e) => setTag(e.target.value)}
+        placeholder="ex.: fornecedor"
+        style={{ ...sel(), width: 160 }}
+      />
       <button onClick={() => onApply(tag.trim())} disabled={disabled || !tag.trim()} style={btnNeutral()}>
         <TagIcon size={16} /> Aplicar
       </button>
@@ -859,211 +1532,119 @@ function BulkTag({ onApply, disabled }: { onApply: (t: string) => void; disabled
   );
 }
 
-/* ========================= Estilos helpers ========================= */
+/* ---------- helpers de estilo ---------- */
 function sel() {
   return {
-    borderRadius: 10, border: "1px solid #e0e7ef", fontWeight: 800,
-    color: "#0f172a", padding: "8px 12px", background: "#fff"
+    borderRadius: 10,
+    border: "1px solid #e0e7ef",
+    fontWeight: 800,
+    color: "#0f172a",
+    padding: "8px 12px",
+    background: "#fff",
   } as React.CSSProperties;
 }
-function chk() {
-  return { display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 800, color: "#334155", background: "#fff", padding: "6px 10px", border: "1px solid #e5e7eb", borderRadius: 10 } as React.CSSProperties;
-}
 function pill(bg: string, fg: string) {
-  return { borderRadius: 999, background: bg, color: fg, fontWeight: 900, fontSize: ".85rem", padding: "4px 10px", display: "inline-flex", alignItems: "center", gap: 6 } as React.CSSProperties;
+  return {
+    borderRadius: 999,
+    background: bg,
+    color: fg,
+    fontWeight: 900,
+    fontSize: ".85rem",
+    padding: "4px 10px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+  } as React.CSSProperties;
 }
 function btnLink() {
   return {
-    background: "#e8f8fe", color: "#2563eb", border: "1px solid #e0ecff",
-    fontWeight: 800, fontSize: ".95rem", padding: "7px 13px", borderRadius: 9,
-    textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6
+    background: "#e8f8fe",
+    color: "#2563eb",
+    border: "1px solid #e0ecff",
+    fontWeight: 800,
+    fontSize: ".95rem",
+    padding: "7px 13px",
+    borderRadius: 9,
+    textDecoration: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
   } as React.CSSProperties;
 }
 function btnDanger() {
   return {
-    background: "#fff0f0", color: "#d90429", border: "1px solid #ffe5e5",
-    fontWeight: 800, fontSize: ".95rem", padding: "7px 12px", borderRadius: 9,
-    cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6
+    background: "#fff0f0",
+    color: "#d90429",
+    border: "1px solid #ffe5e5",
+    fontWeight: 800,
+    fontSize: ".95rem",
+    padding: "7px 12px",
+    borderRadius: 9,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
   } as React.CSSProperties;
 }
 function btnOutlineDanger() {
   return {
-    background: "#fff", color: "#d90429", border: "1px solid #ffe5e5",
-    fontWeight: 800, fontSize: ".95rem", padding: "7px 12px", borderRadius: 9,
-    cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6
+    background: "#fff",
+    color: "#d90429",
+    border: "1px solid #ffe5e5",
+    fontWeight: 800,
+    fontSize: ".95rem",
+    padding: "7px 12px",
+    borderRadius: 9,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
   } as React.CSSProperties;
 }
 function btnSuccess() {
   return {
-    background: "#e7faec", color: "#059669", border: "1px solid #d0ffdd",
-    fontWeight: 800, fontSize: ".95rem", padding: "7px 12px", borderRadius: 9,
-    cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6
+    background: "#e7faec",
+    color: "#059669",
+    border: "1px solid #d0ffdd",
+    fontWeight: 800,
+    fontSize: ".95rem",
+    padding: "7px 12px",
+    borderRadius: 9,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
   } as React.CSSProperties;
 }
 function btnPrimary() {
   return {
-    background: "#eef2ff", color: "#4f46e5", border: "1px solid #e0e7ff",
-    fontWeight: 800, fontSize: ".95rem", padding: "7px 12px", borderRadius: 9,
-    cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6
+    background: "#eef2ff",
+    color: "#4f46e5",
+    border: "1px solid #e0e7ff",
+    fontWeight: 800,
+    fontSize: ".95rem",
+    padding: "7px 12px",
+    borderRadius: 9,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
   } as React.CSSProperties;
 }
 function btnNeutral() {
   return {
-    background: "#fff", color: "#334155", border: "1px solid #e5e7eb",
-    fontWeight: 800, fontSize: ".95rem", padding: "7px 12px", borderRadius: 9,
-    cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6
+    background: "#fff",
+    color: "#334155",
+    border: "1px solid #e5e7eb",
+    fontWeight: 800,
+    fontSize: ".95rem",
+    padding: "7px 12px",
+    borderRadius: 9,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
   } as React.CSSProperties;
 }
-<style jsx>{`
-  .filtersBar {
-    display: grid;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
 
-  /* Linha superior: busca + ações à direita */
-  .filtersTopRow {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 10px;
-  }
-  .searchWrap {
-    position: relative;
-  }
-  .searchIcon {
-    position: absolute;
-    top: 9px;
-    left: 10px;
-    color: #a0a0a0;
-  }
-  .searchInput {
-    width: 100%;
-    padding: 8px 8px 8px 35px;
-    border-radius: 11px;
-    border: 1px solid #e0e7ef;
-    font-size: 15px;
-    font-weight: 600;
-    color: #023047;
-    background: #fff;
-  }
-  .filtersActionsRight {
-    display: inline-flex;
-    gap: 8px;
-    align-items: center;
-    justify-content: flex-end;
-  }
-  .btnIcon {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 10px 14px;
-    cursor: pointer;
-    font-weight: 800;
-  }
-  .btnCta {
-    background: #FB8500;
-    color: #fff;
-    border-radius: 16px;
-    font-weight: 800;
-    font-size: 1.05rem;
-    padding: 12px 18px;
-    text-decoration: none;
-    box-shadow: 0 2px 12px #0001;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    white-space: nowrap;
-  }
-
-  /* Linha de filtros: rolagem horizontal no mobile */
-  .filtersScroller {
-    display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 4px;
-    scrollbar-width: thin;
-    -webkit-overflow-scrolling: touch;
-  }
-  .filtersScroller::-webkit-scrollbar {
-    height: 8px;
-  }
-  .filtersScroller::-webkit-scrollbar-thumb {
-    background: #e5e7eb;
-    border-radius: 8px;
-  }
-
-  .filterItem {
-    border-radius: 10px;
-    border: 1px solid #e0e7ef;
-    font-weight: 800;
-    color: #0f172a;
-    padding: 8px 12px;
-    background: #fff;
-    white-space: nowrap;
-    min-width: 140px; /* dá pegada boa pra rolagem no mobile */
-  }
-
-  .detailsAdv {
-    min-width: unset; /* deixa o botão “Avançados” compacto */
-  }
-  .btnAdv {
-    list-style: none;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    background: #fff;
-    font-weight: 800;
-    padding: 8px 12px;
-  }
-  .advContent {
-    margin-top: 8px;
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .chk {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: 800;
-    color: #334155;
-    background: #fff;
-    padding: 6px 10px;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-  }
-
-  /* ================== BREAKPOINTS ================== */
-
-  /* >= 768px (tablet): vira grid de filtros em 2 linhas/colunas */
-  @media (min-width: 768px) {
-    .filtersBar {
-      gap: 12px;
-    }
-    .filtersScroller {
-      flex-wrap: wrap;
-      overflow: visible;
-    }
-    .filterItem { min-width: 180px; }
-  }
-
-  /* >= 1024px (desktop): mais conforto e alinhamento */
-  @media (min-width: 1024px) {
-    .filtersTopRow {
-      grid-template-columns: 1fr auto;
-    }
-    .filtersScroller {
-      display: grid;
-      grid-template-columns: repeat(6, minmax(160px, 1fr));
-      gap: 10px;
-    }
-    .filterItem { width: 100%; min-width: 0; }
-    .detailsAdv { grid-column: 1 / -1; } /* avançados quebram pra nova linha */
-  }
-`}</style>
-
-export default withRoleProtection(ListaUsuariosAdmin, { allowed: ["admin"] });
+export default withRoleProtection(UsuariosAdminPage, { allowed: ["admin"] });
